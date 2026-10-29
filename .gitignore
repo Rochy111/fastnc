@@ -1,0 +1,20 @@
+# The data files are read-only inputs: never in git.
+/*.nc
+/wrfout_*
+/MOD0*
+/VJ1*
+/W_XX-*
+/NSS.*
+/rcm*
+/AWIPS*
+desktop.ini
+corpus/
+# Python
+__pycache__/
+*.py[cod]
+*.nbi
+*.nbc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
