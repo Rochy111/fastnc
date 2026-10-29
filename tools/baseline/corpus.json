@@ -1,0 +1,10113 @@
+{
+ "roots": [
+  "E:\\GPUWRF\\runs",
+  "E:\\WRF\\STATIONARY\\WRF_OUT\\run_2025-10-25_18_00_00"
+ ],
+ "files": [
+  {
+   "path": "E:\\GPUWRF\\runs\\2024-11-04_12\\output\\kalman_2h\\wrfout\\wrfout_d02_2024-11-06_01_30_00",
+   "format": "netCDF3 64-bit offset",
+   "bytes": 801897220,
+   "variables": [
+    {
+     "name": "Times",
+     "shape": [
+      1,
+      19
+     ],
+     "dtype": "|S1",
+     "layout": "record",
+     "raw_bytes": 19,
+     "attrs": []
+    },
+    {
+     "name": "T",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "U",
+     "shape": [
+      1,
+      55,
+      380,
+      366
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30597600,
+     "attrs": []
+    },
+    {
+     "name": "V",
+     "shape": [
+      1,
+      55,
+      381,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30594300,
+     "attrs": []
+    },
+    {
+     "name": "W",
+     "shape": [
+      1,
+      56,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 31068800,
+     "attrs": []
+    },
+    {
+     "name": "PH",
+     "shape": [
+      1,
+      56,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 31068800,
+     "attrs": []
+    },
+    {
+     "name": "MU",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "PHB",
+     "shape": [
+      1,
+      56,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 31068800,
+     "attrs": []
+    },
+    {
+     "name": "MUB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "HGT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "THM",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "P",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "PB",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "PSFC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "QICE",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "H_DIABATIC",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "QNICE",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "P_TOP",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 4,
+     "attrs": []
+    },
+    {
+     "name": "ZNU",
+     "shape": [
+      1,
+      55
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 220,
+     "attrs": []
+    },
+    {
+     "name": "ZNW",
+     "shape": [
+      1,
+      56
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 224,
+     "attrs": []
+    },
+    {
+     "name": "CLOUDNC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "CLOUDNCV",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "UP_HELI_MAX",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "RAINNC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SNOWNC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "GRAUPELNC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SMCREL",
+     "shape": [
+      1,
+      4,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2219200,
+     "attrs": []
+    },
+    {
+     "name": "SFROFF",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "UDROFF",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSNOM",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "NOAHRES",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SNOW",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SNOWH",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SNOWC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "TSLB",
+     "shape": [
+      1,
+      4,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2219200,
+     "attrs": []
+    },
+    {
+     "name": "SMOIS",
+     "shape": [
+      1,
+      4,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2219200,
+     "attrs": []
+    },
+    {
+     "name": "SH2O",
+     "shape": [
+      1,
+      4,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2219200,
+     "attrs": []
+    },
+    {
+     "name": "CANWAT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ISLTYP",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "int32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "IVGTYP",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "int32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "TMN",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "VEGFRA",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SEAICE",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "TSK",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "T2",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "TH2",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "Q2",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "U10",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "V10",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "UST",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "HFX",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "QFX",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LH",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "PBLH",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "GRDFLX",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "PSIM",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "PSIH",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SST",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "XICEM",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "COSZEN",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LAI",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ALBEDO",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ALBBCK",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "EMISS",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "XLAND",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SNOALB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWUPT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSWUPT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWUPTC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSWUPTC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWDNT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSWDNT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWDNTC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSWDNTC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWUPB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSWUPB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWUPBC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSWUPBC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWDNB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSWDNB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWDNBC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACSWDNBC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LWUPT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLWUPT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LWUPTC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLWUPTC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LWDNT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLWDNT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LWDNTC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLWDNTC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LWUPB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLWUPB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LWUPBC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLWUPBC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LWDNB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLWDNB",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LWDNBC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLWDNBC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "P_HYD",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "ACHFX",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACLHF",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "ACGRDFLX",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SSTSK",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LAKEMASK",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "RTHRATEN",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "RTHRATLW",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "RTHRATSW",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "SWDOWN",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "GLW",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SWNORM",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "OLR",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "CLDFRA",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "RAINC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "RAINSH",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SR",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "HAILNC",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "REFL_10CM",
+     "shape": [
+      1,
+      55,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 30514000,
+     "attrs": []
+    },
+    {
+     "name": "XLAT",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "XLONG",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "XLAT_U",
+     "shape": [
+      1,
+      380,
+      366
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 556320,
+     "attrs": []
+    },
+    {
+     "name": "XLONG_U",
+     "shape": [
+      1,
+      380,
+      366
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 556320,
+     "attrs": []
+    },
+    {
+     "name": "XLAT_V",
+     "shape": [
+      1,
+      381,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 556260,
+     "attrs": []
+    },
+    {
+     "name": "XLONG_V",
+     "shape": [
+      1,
+      381,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 556260,
+     "attrs": []
+    },
+    {
+     "name": "MAPFAC_M",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "MAPFAC_U",
+     "shape": [
+      1,
+      380,
+      366
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 556320,
+     "attrs": []
+    },
+    {
+     "name": "MAPFAC_V",
+     "shape": [
+      1,
+      381,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 556260,
+     "attrs": []
+    },
+    {
+     "name": "F",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "E",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "SINALPHA",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "COSALPHA",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LANDMASK",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "LU_INDEX",
+     "shape": [
+      1,
+      380,
+      365
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 554800,
+     "attrs": []
+    },
+    {
+     "name": "XTIME",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 4,
+     "attrs": []
+    },
+    {
+     "name": "ITIMESTEP",
+     "shape": [
+      1
+     ],
+     "dtype": "int32",
+     "layout": "record",
+     "raw_bytes": 4,
+     "attrs": []
+    }
+   ],
+   "unlimited": [
+    "Time"
+   ]
+  },
+  {
+   "path": "E:\\GPUWRF\\runs\\melissa_lowres\\output\\prepared\\wrf-native-input\\wrfbdy_d01",
+   "format": "netCDF3 64-bit offset",
+   "bytes": 312240756,
+   "variables": [
+    {
+     "name": "Times",
+     "shape": [
+      25,
+      19
+     ],
+     "dtype": "|S1",
+     "layout": "record",
+     "raw_bytes": 475,
+     "attrs": []
+    },
+    {
+     "name": "md___thisbdytimee_x_t_d_o_m_a_i_n_m_e_t_a_data_",
+     "shape": [
+      25,
+      19
+     ],
+     "dtype": "|S1",
+     "layout": "record",
+     "raw_bytes": 475,
+     "attrs": []
+    },
+    {
+     "name": "md___nextbdytimee_x_t_d_o_m_a_i_n_m_e_t_a_data_",
+     "shape": [
+      25,
+      19
+     ],
+     "dtype": "|S1",
+     "layout": "record",
+     "raw_bytes": 475,
+     "attrs": []
+    },
+    {
+     "name": "U_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "U_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "U_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      116
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2842000,
+     "attrs": []
+    },
+    {
+     "name": "U_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      116
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2842000,
+     "attrs": []
+    },
+    {
+     "name": "U_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "U_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "U_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      116
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2842000,
+     "attrs": []
+    },
+    {
+     "name": "U_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      116
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2842000,
+     "attrs": []
+    },
+    {
+     "name": "V_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      129
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3160500,
+     "attrs": []
+    },
+    {
+     "name": "V_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      129
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3160500,
+     "attrs": []
+    },
+    {
+     "name": "V_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "V_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "V_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      129
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3160500,
+     "attrs": []
+    },
+    {
+     "name": "V_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      129
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3160500,
+     "attrs": []
+    },
+    {
+     "name": "V_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "V_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "W_BXS",
+     "shape": [
+      25,
+      5,
+      50,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3200000,
+     "attrs": []
+    },
+    {
+     "name": "W_BXE",
+     "shape": [
+      25,
+      5,
+      50,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3200000,
+     "attrs": []
+    },
+    {
+     "name": "W_BYS",
+     "shape": [
+      25,
+      5,
+      50,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2875000,
+     "attrs": []
+    },
+    {
+     "name": "W_BYE",
+     "shape": [
+      25,
+      5,
+      50,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2875000,
+     "attrs": []
+    },
+    {
+     "name": "W_BTXS",
+     "shape": [
+      25,
+      5,
+      50,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3200000,
+     "attrs": []
+    },
+    {
+     "name": "W_BTXE",
+     "shape": [
+      25,
+      5,
+      50,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3200000,
+     "attrs": []
+    },
+    {
+     "name": "W_BTYS",
+     "shape": [
+      25,
+      5,
+      50,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2875000,
+     "attrs": []
+    },
+    {
+     "name": "W_BTYE",
+     "shape": [
+      25,
+      5,
+      50,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2875000,
+     "attrs": []
+    },
+    {
+     "name": "PH_BXS",
+     "shape": [
+      25,
+      5,
+      50,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3200000,
+     "attrs": []
+    },
+    {
+     "name": "PH_BXE",
+     "shape": [
+      25,
+      5,
+      50,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3200000,
+     "attrs": []
+    },
+    {
+     "name": "PH_BYS",
+     "shape": [
+      25,
+      5,
+      50,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2875000,
+     "attrs": []
+    },
+    {
+     "name": "PH_BYE",
+     "shape": [
+      25,
+      5,
+      50,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2875000,
+     "attrs": []
+    },
+    {
+     "name": "PH_BTXS",
+     "shape": [
+      25,
+      5,
+      50,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3200000,
+     "attrs": []
+    },
+    {
+     "name": "PH_BTXE",
+     "shape": [
+      25,
+      5,
+      50,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3200000,
+     "attrs": []
+    },
+    {
+     "name": "PH_BTYS",
+     "shape": [
+      25,
+      5,
+      50,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2875000,
+     "attrs": []
+    },
+    {
+     "name": "PH_BTYE",
+     "shape": [
+      25,
+      5,
+      50,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2875000,
+     "attrs": []
+    },
+    {
+     "name": "T_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "T_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "T_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "T_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "T_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "T_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "T_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "T_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "MU_BXS",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "MU_BXE",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "MU_BYS",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "MU_BYE",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "MU_BTXS",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "MU_BTXE",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "MU_BTYS",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "MU_BTYE",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QICE_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QICE_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QICE_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QICE_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QVAPOR_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QCLOUD_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QRAIN_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QICE_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QICE_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QICE_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QICE_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QSNOW_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QGRAUP_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "HT_SHAD_BXS",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "HT_SHAD_BXE",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "HT_SHAD_BYS",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "HT_SHAD_BYE",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "HT_SHAD_BTXS",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "HT_SHAD_BTXE",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "HT_SHAD_BTYS",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "HT_SHAD_BTYE",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "PC_BXS",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "PC_BXE",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "PC_BYS",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "PC_BYE",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "PC_BTXS",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "PC_BTXE",
+     "shape": [
+      25,
+      5,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 64000,
+     "attrs": []
+    },
+    {
+     "name": "PC_BTYS",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "PC_BTYE",
+     "shape": [
+      25,
+      5,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 57500,
+     "attrs": []
+    },
+    {
+     "name": "QNICE_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QNICE_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QNICE_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QNICE_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QNICE_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QNICE_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QNICE_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QNICE_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN_BXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN_BXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN_BYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN_BYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN_BTXS",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN_BTXE",
+     "shape": [
+      25,
+      5,
+      49,
+      128
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 3136000,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN_BTYS",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    },
+    {
+     "name": "QNRAIN_BTYE",
+     "shape": [
+      25,
+      5,
+      49,
+      115
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 2817500,
+     "attrs": []
+    }
+   ],
+   "unlimited": [
+    "Time"
+   ]
+  },
+  {
+   "path": "E:\\WRF\\STATIONARY\\WRF_OUT\\run_2025-10-25_18_00_00\\wrfout_d01_2025-10-26_06_20_00.nc",
+   "format": "HDF5",
+   "bytes": 74725204,
+   "variables": [
+    {
+     "name": "ACGRDFLX",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 38353
+    },
+    {
+     "name": "ACHFX",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 123844
+    },
+    {
+     "name": "ACLHF",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 121347
+    },
+    {
+     "name": "ACLWDNB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 94422
+    },
+    {
+     "name": "ACLWDNBC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 89792
+    },
+    {
+     "name": "ACLWDNT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "ACLWDNTC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "ACLWUPB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 91796
+    },
+    {
+     "name": "ACLWUPBC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 91833
+    },
+    {
+     "name": "ACLWUPT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 103189
+    },
+    {
+     "name": "ACLWUPTC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 90423
+    },
+    {
+     "name": "ACSNOM",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "ACSWDNB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 110381
+    },
+    {
+     "name": "ACSWDNBC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 93573
+    },
+    {
+     "name": "ACSWDNT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 82010
+    },
+    {
+     "name": "ACSWDNTC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 82010
+    },
+    {
+     "name": "ACSWUPB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 111783
+    },
+    {
+     "name": "ACSWUPBC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 96517
+    },
+    {
+     "name": "ACSWUPT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 116198
+    },
+    {
+     "name": "ACSWUPTC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 94535
+    },
+    {
+     "name": "ALBBCK",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 21835
+    },
+    {
+     "name": "ALBEDO",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 21835
+    },
+    {
+     "name": "AREA2D",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 822
+    },
+    {
+     "name": "BATHYMETRY_FLAG",
+     "shape": [
+      1
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "C1F",
+     "shape": [
+      1,
+      62
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      62
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 248,
+     "stored_bytes": 248
+    },
+    {
+     "name": "C1H",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "C2F",
+     "shape": [
+      1,
+      62
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      62
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 248,
+     "stored_bytes": 248
+    },
+    {
+     "name": "C2H",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "C3F",
+     "shape": [
+      1,
+      62
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      62
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 248,
+     "stored_bytes": 248
+    },
+    {
+     "name": "C3H",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "C4F",
+     "shape": [
+      1,
+      62
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      62
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 248,
+     "stored_bytes": 248
+    },
+    {
+     "name": "C4H",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "CANWAT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 31804
+    },
+    {
+     "name": "CF1",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "CF2",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "CF3",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "CFN",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "CFN1",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "CLAT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 3106
+    },
+    {
+     "name": "CLDFRA",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 1081613
+    },
+    {
+     "name": "COSALPHA",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 802
+    },
+    {
+     "name": "COSZEN",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 78054
+    },
+    {
+     "name": "DN",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "DNW",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "DX2D",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 822
+    },
+    {
+     "name": "DZS",
+     "shape": [
+      1,
+      4
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      4
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 16,
+     "stored_bytes": 16
+    },
+    {
+     "name": "DateStrLen",
+     "shape": [
+      19
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 76,
+     "stored_bytes": 0
+    },
+    {
+     "name": "E",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 2536
+    },
+    {
+     "name": "EMISS",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 18126
+    },
+    {
+     "name": "F",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 3126
+    },
+    {
+     "name": "FNM",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "FNP",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "GLW",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 99087
+    },
+    {
+     "name": "GOT_VAR_SSO",
+     "shape": [
+      1
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "GRAUPELNC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 994
+    },
+    {
+     "name": "GRDFLX",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 37658
+    },
+    {
+     "name": "HAILNC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "HFX",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 124985
+    },
+    {
+     "name": "HFX_FORCE",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "HFX_FORCE_TEND",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "HGT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 55581
+    },
+    {
+     "name": "ISEEDARRAY_SPP_CONV",
+     "shape": [
+      1,
+      8
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      8
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 32,
+     "stored_bytes": 32
+    },
+    {
+     "name": "ISEEDARRAY_SPP_LSM",
+     "shape": [
+      1,
+      8
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      8
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 32,
+     "stored_bytes": 32
+    },
+    {
+     "name": "ISEEDARRAY_SPP_PBL",
+     "shape": [
+      1,
+      8
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      8
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 32,
+     "stored_bytes": 32
+    },
+    {
+     "name": "ISEEDARR_RAND_PERTURB",
+     "shape": [
+      1,
+      8
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      8
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 32,
+     "stored_bytes": 32
+    },
+    {
+     "name": "ISEEDARR_SKEBS",
+     "shape": [
+      1,
+      8
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      8
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 32,
+     "stored_bytes": 32
+    },
+    {
+     "name": "ISEEDARR_SPPT",
+     "shape": [
+      1,
+      8
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      8
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 32,
+     "stored_bytes": 32
+    },
+    {
+     "name": "ISLTYP",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 4519
+    },
+    {
+     "name": "ITIMESTEP",
+     "shape": [
+      1
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "IVGTYP",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 4483
+    },
+    {
+     "name": "LAI",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 35780
+    },
+    {
+     "name": "LAKEMASK",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 1076
+    },
+    {
+     "name": "LANDMASK",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 3994
+    },
+    {
+     "name": "LH",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 123718
+    },
+    {
+     "name": "LH_FORCE",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "LH_FORCE_TEND",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "LU_INDEX",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 6754
+    },
+    {
+     "name": "LWDNB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 99087
+    },
+    {
+     "name": "LWDNBC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 93922
+    },
+    {
+     "name": "LWDNT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "LWDNTC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "LWUPB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 94517
+    },
+    {
+     "name": "LWUPBC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 94268
+    },
+    {
+     "name": "LWUPT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 104683
+    },
+    {
+     "name": "LWUPTC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 90311
+    },
+    {
+     "name": "MAPFAC_M",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 2542
+    },
+    {
+     "name": "MAPFAC_MX",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 2542
+    },
+    {
+     "name": "MAPFAC_MY",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 2542
+    },
+    {
+     "name": "MAPFAC_U",
+     "shape": [
+      1,
+      169,
+      231
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      116
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156156,
+     "stored_bytes": 2907
+    },
+    {
+     "name": "MAPFAC_UX",
+     "shape": [
+      1,
+      169,
+      231
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      116
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156156,
+     "stored_bytes": 2907
+    },
+    {
+     "name": "MAPFAC_UY",
+     "shape": [
+      1,
+      169,
+      231
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      116
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156156,
+     "stored_bytes": 2907
+    },
+    {
+     "name": "MAPFAC_V",
+     "shape": [
+      1,
+      170,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156400,
+     "stored_bytes": 2550
+    },
+    {
+     "name": "MAPFAC_VX",
+     "shape": [
+      1,
+      170,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156400,
+     "stored_bytes": 2550
+    },
+    {
+     "name": "MAPFAC_VY",
+     "shape": [
+      1,
+      170,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156400,
+     "stored_bytes": 2550
+    },
+    {
+     "name": "MAX_MSFTX",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "MAX_MSFTY",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "MF_VX_INV",
+     "shape": [
+      1,
+      170,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156400,
+     "stored_bytes": 2526
+    },
+    {
+     "name": "MU",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 113711
+    },
+    {
+     "name": "MUB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 37437
+    },
+    {
+     "name": "NEST_POS",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "O3_GFS_DU",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "OLR",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 104683
+    },
+    {
+     "name": "P",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 4259733
+    },
+    {
+     "name": "P00",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "PB",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 1535916
+    },
+    {
+     "name": "PBLH",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 121862
+    },
+    {
+     "name": "PC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "PCB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "PH",
+     "shape": [
+      1,
+      62,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      62,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9639760,
+     "stored_bytes": 5525691
+    },
+    {
+     "name": "PHB",
+     "shape": [
+      1,
+      62,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      62,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9639760,
+     "stored_bytes": 1993814
+    },
+    {
+     "name": "PSFC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 81642
+    },
+    {
+     "name": "P_HYD",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 3515307
+    },
+    {
+     "name": "P_STRAT",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "P_TOP",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "Q2",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 99402
+    },
+    {
+     "name": "QCLOUD",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 555735
+    },
+    {
+     "name": "QFX",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 123206
+    },
+    {
+     "name": "QGRAUP",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 320474
+    },
+    {
+     "name": "QICE",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 2183559
+    },
+    {
+     "name": "QNICE",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 2196245
+    },
+    {
+     "name": "QNRAIN",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 1609332
+    },
+    {
+     "name": "QRAIN",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 1595936
+    },
+    {
+     "name": "QSNOW",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 2645885
+    },
+    {
+     "name": "QVAPOR",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 6594625
+    },
+    {
+     "name": "RAINC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 127472
+    },
+    {
+     "name": "RAINNC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 82732
+    },
+    {
+     "name": "RAINSH",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "RDN",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "RDNW",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "RDX",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "RDY",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "RESM",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "SAVE_TOPO_FROM_REAL",
+     "shape": [
+      1
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "SEAICE",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SFROFF",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 41245
+    },
+    {
+     "name": "SH2O",
+     "shape": [
+      1,
+      4,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      4,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 621920,
+     "stored_bytes": 95208
+    },
+    {
+     "name": "SHDAVG",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 35564
+    },
+    {
+     "name": "SHDMAX",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 34148
+    },
+    {
+     "name": "SHDMIN",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 34920
+    },
+    {
+     "name": "SINALPHA",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SMCREL",
+     "shape": [
+      1,
+      4,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      4,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 621920,
+     "stored_bytes": 99243
+    },
+    {
+     "name": "SMOIS",
+     "shape": [
+      1,
+      4,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      4,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 621920,
+     "stored_bytes": 95208
+    },
+    {
+     "name": "SNOALB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 26648
+    },
+    {
+     "name": "SNOW",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SNOWC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SNOWH",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SNOWNC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 1462
+    },
+    {
+     "name": "SR",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SST",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 85661
+    },
+    {
+     "name": "SSTSK",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SST_INPUT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWDNB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWDNBC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWDNT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWDNTC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWDOWN",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWNORM",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWUPB",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWUPBC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWUPT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "SWUPTC",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "T",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 4998990
+    },
+    {
+     "name": "T00",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "T2",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 84429
+    },
+    {
+     "name": "TH2",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 84497
+    },
+    {
+     "name": "THIS_IS_AN_IDEAL_RUN",
+     "shape": [
+      1
+     ],
+     "dtype": "int32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "THM",
+     "shape": [
+      1,
+      61,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9484280,
+     "stored_bytes": 4974797
+    },
+    {
+     "name": "TISO",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "TLP",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "TLP_STRAT",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "TMN",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 84319
+    },
+    {
+     "name": "TSK",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 84886
+    },
+    {
+     "name": "TSK_FORCE",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "TSK_FORCE_TEND",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "TSLB",
+     "shape": [
+      1,
+      4,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      4,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 621920,
+     "stored_bytes": 99445
+    },
+    {
+     "name": "Time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "Times",
+     "shape": [
+      1,
+      19
+     ],
+     "dtype": "|S1",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      19
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 19,
+     "stored_bytes": 19
+    },
+    {
+     "name": "U",
+     "shape": [
+      1,
+      61,
+      169,
+      231
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      116
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9525516,
+     "stored_bytes": 7266774
+    },
+    {
+     "name": "U10",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 122726
+    },
+    {
+     "name": "UDROFF",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 27742
+    },
+    {
+     "name": "UST",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 112601
+    },
+    {
+     "name": "V",
+     "shape": [
+      1,
+      61,
+      170,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9540400,
+     "stored_bytes": 7515091
+    },
+    {
+     "name": "V10",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 127467
+    },
+    {
+     "name": "VAR",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "VAR_SSO",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "VEGFRA",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 35550
+    },
+    {
+     "name": "W",
+     "shape": [
+      1,
+      62,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      62,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 9639760,
+     "stored_bytes": 8036173
+    },
+    {
+     "name": "WATER_DEPTH",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 802
+    },
+    {
+     "name": "XICEM",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 800
+    },
+    {
+     "name": "XLAND",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 3988
+    },
+    {
+     "name": "XLAT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 3106
+    },
+    {
+     "name": "XLAT_U",
+     "shape": [
+      1,
+      169,
+      231
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      116
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156156,
+     "stored_bytes": 3447
+    },
+    {
+     "name": "XLAT_V",
+     "shape": [
+      1,
+      170,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156400,
+     "stored_bytes": 3074
+    },
+    {
+     "name": "XLONG",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 2719
+    },
+    {
+     "name": "XLONG_U",
+     "shape": [
+      1,
+      169,
+      231
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      116
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156156,
+     "stored_bytes": 2979
+    },
+    {
+     "name": "XLONG_V",
+     "shape": [
+      1,
+      170,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 156400,
+     "stored_bytes": 2704
+    },
+    {
+     "name": "XTIME",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "ZETATOP",
+     "shape": [
+      1
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1024
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 4,
+     "stored_bytes": 4096
+    },
+    {
+     "name": "ZNT",
+     "shape": [
+      1,
+      169,
+      230
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      85,
+      115
+     ],
+     "nchunks": 4,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[2]"
+     ],
+     "raw_bytes": 155480,
+     "stored_bytes": 108326
+    },
+    {
+     "name": "ZNU",
+     "shape": [
+      1,
+      61
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      61
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 244
+    },
+    {
+     "name": "ZNW",
+     "shape": [
+      1,
+      62
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      62
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 248,
+     "stored_bytes": 248
+    },
+    {
+     "name": "ZS",
+     "shape": [
+      1,
+      4
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      4
+     ],
+     "nchunks": 1,
+     "filters": [],
+     "raw_bytes": 16,
+     "stored_bytes": 16
+    },
+    {
+     "name": "bottom_top",
+     "shape": [
+      61
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 244,
+     "stored_bytes": 0
+    },
+    {
+     "name": "bottom_top_stag",
+     "shape": [
+      62
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 248,
+     "stored_bytes": 0
+    },
+    {
+     "name": "seed_dim_stag",
+     "shape": [
+      8
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 32,
+     "stored_bytes": 0
+    },
+    {
+     "name": "soil_layers_stag",
+     "shape": [
+      4
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 16,
+     "stored_bytes": 0
+    },
+    {
+     "name": "south_north",
+     "shape": [
+      169
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 676,
+     "stored_bytes": 0
+    },
+    {
+     "name": "south_north_stag",
+     "shape": [
+      170
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 680,
+     "stored_bytes": 0
+    },
+    {
+     "name": "west_east",
+     "shape": [
+      230
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 920,
+     "stored_bytes": 0
+    },
+    {
+     "name": "west_east_stag",
+     "shape": [
+      231
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 924,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.8.1,hdf5=1.10.7"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\h5_chunk_index_fixed_array.h5",
+   "format": "HDF5",
+   "bytes": 4914438,
+   "variables": [
+    {
+     "name": "v_f4",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1442160
+    },
+    {
+     "name": "v_f8",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3271653
+    },
+    {
+     "name": "v_i2",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 921600,
+     "stored_bytes": 196529
+    }
+   ],
+   "netcdf4": false
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\h5_chunk_index_latest.h5",
+   "format": "HDF5",
+   "bytes": 4916486,
+   "variables": [
+    {
+     "name": "v_f4",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1442160
+    },
+    {
+     "name": "v_f8",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3271653
+    },
+    {
+     "name": "v_i2",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 921600,
+     "stored_bytes": 196529
+    }
+   ],
+   "netcdf4": false
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\h5_chunked_gzip.h5",
+   "format": "HDF5",
+   "bytes": 4922928,
+   "variables": [
+    {
+     "name": "v_f4",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[6]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1442447
+    },
+    {
+     "name": "v_f8",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[6]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3273379
+    },
+    {
+     "name": "v_i2",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "deflate(1)[6]"
+     ],
+     "raw_bytes": 921600,
+     "stored_bytes": 195750
+    }
+   ],
+   "netcdf4": false
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\h5_contiguous.h5",
+   "format": "HDF5",
+   "bytes": 6453248,
+   "variables": [
+    {
+     "name": "v_f4",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1843200
+    },
+    {
+     "name": "v_f8",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3686400
+    },
+    {
+     "name": "v_i2",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 921600,
+     "stored_bytes": 921600
+    }
+   ],
+   "netcdf4": false
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\h5_gzip_shuffle_fletcher.h5",
+   "format": "HDF5",
+   "bytes": 4041463,
+   "variables": [
+    {
+     "name": "v_f4",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]",
+      "fletcher32(3)"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1054646
+    },
+    {
+     "name": "v_f8",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[4]",
+      "fletcher32(3)"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2796759
+    },
+    {
+     "name": "v_i2",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "shuffle(2)[2]",
+      "deflate(1)[4]",
+      "fletcher32(3)"
+     ],
+     "raw_bytes": 921600,
+     "stored_bytes": 178706
+    }
+   ],
+   "netcdf4": false
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\h5_lzf.h5",
+   "format": "HDF5",
+   "bytes": 5893213,
+   "variables": [
+    {
+     "name": "v_f4",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "lzf(32000)[4, 261, 76800]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1810136
+    },
+    {
+     "name": "v_f8",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "lzf(32000)[4, 261, 153600]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3679745
+    },
+    {
+     "name": "v_i2",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "lzf(32000)[4, 261, 38400]"
+     ],
+     "raw_bytes": 921600,
+     "stored_bytes": 391980
+    }
+   ],
+   "netcdf4": false
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\h5_single_chunk.h5",
+   "format": "HDF5",
+   "bytes": 4894090,
+   "variables": [
+    {
+     "name": "v_f4",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      6,
+      240,
+      320
+     ],
+     "nchunks": 1,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1436232
+    },
+    {
+     "name": "v_f8",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      6,
+      240,
+      320
+     ],
+     "nchunks": 1,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3268058
+    },
+    {
+     "name": "v_i2",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "chunked",
+     "chunks": [
+      6,
+      240,
+      320
+     ],
+     "nchunks": 1,
+     "filters": [
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 921600,
+     "stored_bytes": 187752
+    }
+   ],
+   "netcdf4": false
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\h5_szip.h5",
+   "format": "HDF5",
+   "bytes": 4064313,
+   "variables": [
+    {
+     "name": "v_f4",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "szip(4)[169, 8, 32, 160]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1075433
+    },
+    {
+     "name": "v_f8",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "szip(4)[169, 8, 64, 160]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2827367
+    },
+    {
+     "name": "v_i2",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [
+      "szip(4)[169, 8, 16, 160]"
+     ],
+     "raw_bytes": 921600,
+     "stored_bytes": 150161
+    }
+   ],
+   "netcdf4": false
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc3_64bit_offset.nc",
+   "format": "netCDF3 64-bit offset",
+   "bytes": 8755756,
+   "variables": [
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 1843200,
+     "attrs": []
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 1843200,
+     "attrs": []
+    },
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "record",
+     "raw_bytes": 3686400,
+     "attrs": []
+    },
+    {
+     "name": "Tpacked",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "record",
+     "raw_bytes": 921600,
+     "attrs": [
+      "_FillValue",
+      "add_offset",
+      "scale_factor"
+     ]
+    },
+    {
+     "name": "flags",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int8",
+     "layout": "record",
+     "raw_bytes": 460800,
+     "attrs": [
+      "_Unsigned"
+     ]
+    }
+   ],
+   "unlimited": [
+    "time"
+   ]
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc3_cdf5.nc",
+   "format": "netCDF3 CDF-5 (64-bit data)",
+   "bytes": 8755992,
+   "variables": [
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 1843200,
+     "attrs": []
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 1843200,
+     "attrs": []
+    },
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "record",
+     "raw_bytes": 3686400,
+     "attrs": []
+    },
+    {
+     "name": "Tpacked",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "record",
+     "raw_bytes": 921600,
+     "attrs": [
+      "_FillValue",
+      "add_offset",
+      "scale_factor"
+     ]
+    },
+    {
+     "name": "flags",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int8",
+     "layout": "record",
+     "raw_bytes": 460800,
+     "attrs": [
+      "_Unsigned"
+     ]
+    }
+   ],
+   "unlimited": [
+    "time"
+   ]
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc3_classic.nc",
+   "format": "netCDF3 classic",
+   "bytes": 8755732,
+   "variables": [
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 1843200,
+     "attrs": []
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "record",
+     "raw_bytes": 1843200,
+     "attrs": []
+    },
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "record",
+     "raw_bytes": 3686400,
+     "attrs": []
+    },
+    {
+     "name": "Tpacked",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "record",
+     "raw_bytes": 921600,
+     "attrs": [
+      "_FillValue",
+      "add_offset",
+      "scale_factor"
+     ]
+    },
+    {
+     "name": "flags",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int8",
+     "layout": "record",
+     "raw_bytes": 460800,
+     "attrs": [
+      "_Unsigned"
+     ]
+    }
+   ],
+   "unlimited": [
+    "time"
+   ]
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_bzip2.nc",
+   "format": "HDF5",
+   "bytes": 5755153,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "bzip2(307)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3273077
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "bzip2(307)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1231843
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "bzip2(307)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1232168
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_chunked_raw.nc",
+   "format": "HDF5",
+   "bytes": 7390841,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3686400
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1843200
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      120,
+      160
+     ],
+     "nchunks": 24,
+     "filters": [],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1843200
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_classic_zlib.nc",
+   "format": "HDF5",
+   "bytes": 5616737,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2795027
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1037739
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1037776
+    },
+    {
+     "name": "Tpacked",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int16",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[2]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 921600,
+     "stored_bytes": 556424
+    },
+    {
+     "name": "flags",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "int8",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[1]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 460800,
+     "stored_bytes": 164284
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_contiguous.nc",
+   "format": "HDF5",
+   "bytes": 7390841,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [],
+     "raw_bytes": 3686400,
+     "stored_bytes": 3686400
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1843200
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1843200
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_quantize_BitGroom.nc",
+   "format": "HDF5",
+   "bytes": 1330197,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 493821
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 409103
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 409035
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_quantize_BitRound.nc",
+   "format": "HDF5",
+   "bytes": 71721,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 19034
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 17229
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 17222
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_quantize_GranularBitRound.nc",
+   "format": "HDF5",
+   "bytes": 616878,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 202342
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 198074
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 198182
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_szip.nc",
+   "format": "HDF5",
+   "bytes": 4979037,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "szip(4)[169, 8, 64, 320]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2820695
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "szip(4)[169, 8, 32, 320]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1070028
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "szip(4)[169, 8, 32, 320]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1070249
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_tiny_chunks.nc",
+   "format": "HDF5",
+   "bytes": 5647954,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      16,
+      16
+     ],
+     "nchunks": 1800,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2935590
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      16,
+      16
+     ],
+     "nchunks": 1800,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1168003
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      16,
+      16
+     ],
+     "nchunks": 1800,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1168608
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_whole_field_chunks.nc",
+   "format": "HDF5",
+   "bytes": 4888686,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2795027
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1037739
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1037776
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_zlib1.nc",
+   "format": "HDF5",
+   "bytes": 4956844,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[1]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2804338
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[1]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1067164
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[1]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1067277
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_zlib9_shuffle.nc",
+   "format": "HDF5",
+   "bytes": 4862727,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[9]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2783960
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[9]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1030114
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[9]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1030593
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_zlib_bigendian.nc",
+   "format": "HDF5",
+   "bytes": 4896960,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": ">f8",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[8]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2802643
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1038092
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1038165
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  },
+  {
+   "path": "C:\\Users\\Roch\\Desktop\\WRF\\fastnc\\corpus\\synthetic\\nc4_zlib_shuffle_fletcher.nc",
+   "format": "HDF5",
+   "bytes": 4888805,
+   "variables": [
+    {
+     "name": "P",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float64",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "fletcher32(3)",
+      "shuffle(2)[8]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 3686400,
+     "stored_bytes": 2795061
+    },
+    {
+     "name": "QV",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "fletcher32(3)",
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1037765
+    },
+    {
+     "name": "T",
+     "shape": [
+      6,
+      240,
+      320
+     ],
+     "dtype": "float32",
+     "layout": "chunked",
+     "chunks": [
+      1,
+      240,
+      320
+     ],
+     "nchunks": 6,
+     "filters": [
+      "fletcher32(3)",
+      "shuffle(2)[4]",
+      "deflate(1)[4]"
+     ],
+     "raw_bytes": 1843200,
+     "stored_bytes": 1037801
+    },
+    {
+     "name": "time",
+     "shape": [
+      0
+     ],
+     "dtype": ">f4",
+     "layout": "chunked",
+     "chunks": [
+      1
+     ],
+     "nchunks": 0,
+     "filters": [],
+     "raw_bytes": 0,
+     "stored_bytes": 0
+    },
+    {
+     "name": "x",
+     "shape": [
+      320
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 1280,
+     "stored_bytes": 0
+    },
+    {
+     "name": "y",
+     "shape": [
+      240
+     ],
+     "dtype": ">f4",
+     "layout": "contiguous",
+     "chunks": null,
+     "nchunks": null,
+     "filters": [],
+     "raw_bytes": 960,
+     "stored_bytes": 0
+    }
+   ],
+   "netcdf4": true,
+   "nc_properties": "version=2,netcdf=4.9.3,hdf5=1.14.6"
+  }
+ ],
+ "skipped": [
+  [
+   "nc4_zstd",
+   "RuntimeError: NetCDF: Filter error: undefined filter encountered: (variable 'T', group '/')"
+  ],
+  [
+   "nc4_blosc_lz",
+   "RuntimeError: NetCDF: Filter error: undefined filter encountered: (variable 'T', group '/')"
+  ],
+  [
+   "nc4_blosc_lz4",
+   "RuntimeError: NetCDF: Filter error: undefined filter encountered: (variable 'T', group '/')"
+  ],
+  [
+   "nc4_blosc_lz4hc",
+   "RuntimeError: NetCDF: Filter error: undefined filter encountered: (variable 'T', group '/')"
+  ],
+  [
+   "nc4_blosc_zlib",
+   "RuntimeError: NetCDF: Filter error: undefined filter encountered: (variable 'T', group '/')"
+  ],
+  [
+   "nc4_blosc_zstd",
+   "RuntimeError: NetCDF: Filter error: undefined filter encountered: (variable 'T', group '/')"
+  ],
+  [
+   "hdf4_*",
+   "pyhdf not installed (pip/conda install pyhdf to cover HDF4)"
+  ]
+ ]
+}
