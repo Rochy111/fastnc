@@ -135,7 +135,7 @@ def _names_body(d):
 def _bigheader_body(d):
     d.createDimension('x', 10)
     d.history = 'h' * 70000                    # header longer than the first 64 KiB read
-    d.setncattr('many', np.arange(30000, dtype='f8'))
+    d.setncattr('many', np.arange(3000, dtype='f8'))
     v = d.createVariable('v', 'i4', ('x',))
     v[:] = np.arange(10)
     v.notes = 'nöt' * 10000
