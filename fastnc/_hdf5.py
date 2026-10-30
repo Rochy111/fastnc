@@ -22,6 +22,8 @@ class FormatError(ValueError):
 
 
 _u8 = struct.Struct('<B').unpack_from
+_MSG4 = struct.Struct('<BHB').unpack_from           # v2 header message: type, size, flags
+_MSG6 = struct.Struct('<BHBH').unpack_from          # ... and creation order
 _u16 = struct.Struct('<H').unpack_from
 _u32 = struct.Struct('<I').unpack_from
 _u64 = struct.Struct('<Q').unpack_from
@@ -621,12 +623,16 @@ class H5File:
         b = self.b
         corder = bool(hflags & 4)
         hdr = 6 if corder else 4
+        unpack = _MSG6 if corder else _MSG4             # one call per message header
         todo = [(p, end)]
         while todo:
             p, end = todo.pop(0)
             while p + hdr <= end:
-                mtype, size, mflags = b[p], _u16(b, p + 1)[0], b[p + 3]
-                co = _u16(b, p + 4)[0] if corder else None
+                if corder:
+                    mtype, size, mflags, co = unpack(b, p)
+                else:
+                    mtype, size, mflags = unpack(b, p)
+                    co = None
                 data = p + hdr
                 if mtype == 0x10:
                     a = self.addr(self.offset(data))

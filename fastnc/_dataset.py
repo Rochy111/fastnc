@@ -361,11 +361,24 @@ class Group:
                 if a is not None:
                     raws[k] = a
         out = {}
+        rest = [(k, v) for k, v in vs if k not in raws]
+        if len(rest) > 1:
+            # the others (netCDF-3, special types) read concurrently on the pool:
+            # each read stays parallel inside, and many small variables no
+            # longer go one after another
+            from . import _pool
+            got = {}
+
+            def one(kv):
+                got[kv[0]] = kv[1].read(Ellipsis, threads=threads)
+            _pool.map_items(one, rest)
+        else:
+            got = {k: v.read(Ellipsis, threads=threads) for k, v in rest}
         for k, v in vs:
-            if k not in raws:
-                out[k] = v.read(Ellipsis, threads=threads)
-                continue
-            out[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads)
+            if k in got:
+                out[k] = got[k]
+            else:
+                out[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads)
         return out
 
     def set_auto_maskandscale(self, flag):
