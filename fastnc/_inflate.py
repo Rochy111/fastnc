@@ -54,7 +54,8 @@ _DEXT = np.array([0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9,
 _CLORDER = np.array([16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15],
                     np.int64)
 
-TAB_SIZE = LSIZE + DSIZE + CSIZE
+FIXED = LSIZE + DSIZE + CSIZE   # 1 while the fixed code's tables are in place (_fixed)
+TAB_SIZE = FIXED + 2            # (even: an int64 area may follow, as in _blosc)
 IWS_SIZE = 2720                 # rev 0:320, lens 320:640, sub 640:2688, count, next
 
 
@@ -91,7 +92,107 @@ def _entry(which, s):
 def _build(lens, l0, n, table, t0, cap, tbits, which, iws):
     """Fill table[t0:t0+cap] for the canonical code of lens[l0:l0+n].
     0, or ERR_DATA for an over-subscribed or (beyond a single code)
-    incomplete code, as zlib rejects them."""
+    incomplete code, as zlib rejects them.
+
+    A complete code (every one zlib writes) is built as libdeflate builds
+    it: symbols sorted by code length, the codeword kept bit-reversed and
+    advanced in place, each length's entries written once into the first
+    2^length slots and the table doubled between lengths (contiguous
+    copies, not a strided write per slot and a cleared table first),
+    subtables sized from the counts still to place. Decodes exactly as
+    _build_slow's table (subtables may sit in another order). An empty or
+    single-code table goes the long way."""
+    if which != 2:
+        table[FIXED] = 0
+    count = iws[2688:2704]
+    offs = iws[2704:2720]
+    srt = iws[0:320]
+    for L in range(16):
+        count[L] = 0
+    for s in range(n):
+        count[lens[l0 + s]] += 1
+    count[0] = 0
+    left = 1
+    used = 0
+    maxlen = 0
+    for L in range(1, 16):
+        left = (left << 1) - count[L]
+        used += count[L]
+        if count[L]:
+            maxlen = L
+        if left < 0:
+            return ERR_DATA
+    if left != 0:
+        if used and (which == 2 or maxlen != 1):
+            return ERR_DATA                     # incomplete (zlib allows one 1-bit code)
+        return _build_slow(lens, l0, n, table, t0, cap, tbits, which, iws)
+    offs[1] = 0
+    for L in range(1, 15):
+        offs[L + 1] = offs[L] + count[L]
+    for s in range(n):
+        L = lens[l0 + s]
+        if L:
+            srt[offs[L]] = s
+            offs[L] += 1
+    size = 1 << tbits
+    lim = maxlen if maxlen < tbits else tbits
+    i = 0
+    code = 0                                    # the next codeword, bit-reversed
+    for L in range(1, lim + 1):
+        half = 1 << (L - 1)
+        if L > 1:
+            for j in range(half):
+                table[t0 + half + j] = table[t0 + j]
+        for k in range(count[L]):
+            table[t0 + code] = _entry(which, srt[i]) | L
+            i += 1
+            bit = half
+            while code & bit:
+                bit >>= 1
+            code = (code & (bit - 1)) | bit
+    period = 1 << lim
+    while period < size:
+        for j in range(period):
+            table[t0 + period + j] = table[t0 + j]
+        period <<= 1
+    if maxlen <= tbits:
+        return 0
+    pos = size
+    prefix = -1
+    start = 0
+    sb = 0
+    for L in range(tbits + 1, maxlen + 1):
+        Lr = L - tbits
+        while count[L] > 0:
+            q = code & (size - 1)
+            if q != prefix:                     # a new subtable: as big as its codes need
+                prefix = q
+                sb = Lr
+                cs = count[L]
+                while cs < (1 << sb):
+                    sb += 1
+                    cs = (cs << 1) + count[tbits + sb]
+                if pos + (1 << sb) > cap:
+                    return ERR_DATA
+                table[t0 + q] = (pos << 16) | (sb << 8) | (K_SUB << 5) | tbits
+                start = pos
+                pos += 1 << sb
+            ent = _entry(which, srt[i]) | Lr
+            i += 1
+            for j in range(code >> tbits, 1 << sb, 1 << Lr):
+                table[t0 + start + j] = ent
+            count[L] -= 1
+            bit = 1 << (L - 1)
+            while code & bit:
+                bit >>= 1
+            code = (code & (bit - 1)) | bit
+    return 0
+
+
+@njit(cache=True, nogil=True)
+def _build_slow(lens, l0, n, table, t0, cap, tbits, which, iws):
+    """_build's table, one symbol at a time over a cleared table: for the
+    codes it does not build itself (empty, or a single code)."""
     count = iws[2688:2704]
     nxt = iws[2704:2720]
     rev = iws[0:320]
@@ -167,6 +268,12 @@ def _build(lens, l0, n, table, t0, cap, tbits, which, iws):
 
 @njit(cache=True, nogil=True)
 def _fixed(tab, iws):
+    """The fixed code's tables, built only if the last block's were not
+    (tab[FIXED], cleared by every other build: Ku's 13,000 one-row chunks
+    are fixed-code streams of ~25 bytes, and building the tables cost more
+    than decoding them)."""
+    if tab[FIXED] == 1:
+        return
     lens = iws[320:640]
     for s in range(288):
         lens[s] = 8 if s < 144 else (9 if s < 256 else (7 if s < 280 else 8))
@@ -174,6 +281,7 @@ def _fixed(tab, iws):
     for s in range(32):
         lens[s] = 5                             # 30 and 31 complete the code, never valid
     _build(lens, 0, 32, tab, LSIZE, DSIZE, DBITS, 1, iws)
+    tab[FIXED] = 1
 
 
 @njit(cache=True, nogil=True)
@@ -310,6 +418,8 @@ def inflate(src, p, pend, dst, o0, oend, ostop, tab, iws):
         # bytes and 274 output bytes remain: no bounds checks per symbol,
         # up to three literals per refill (a literal from the main table is
         # at most 11 bits), matches copied 16 bytes at a time with slack.
+        # (Literals stored at an unsigned index: numba wraps negative signed
+        # indexes, two instructions and a register per store otherwise.)
         eob = False
         while p + 16 <= pend and o + 274 <= oend and o < ostop:
             buf |= ld64(src, p) << u(bc)
@@ -320,21 +430,21 @@ def inflate(src, p, pend, dst, o0, oend, ostop, tab, iws):
                 cl = e & 31
                 buf >>= u(cl)
                 bc -= cl
-                dst[o] = e >> 16
+                dst[u(o)] = e >> 16
                 o += 1
                 e = np.int64(tab[np.int64(buf & LM)])
                 if ((e >> 5) & 7) == K_LIT:
                     cl = e & 31
                     buf >>= u(cl)
                     bc -= cl
-                    dst[o] = e >> 16
+                    dst[u(o)] = e >> 16
                     o += 1
                     e = np.int64(tab[np.int64(buf & LM)])
                     if ((e >> 5) & 7) == K_LIT:
                         cl = e & 31
                         buf >>= u(cl)
                         bc -= cl
-                        dst[o] = e >> 16
+                        dst[u(o)] = e >> 16
                         o += 1
                         continue
                 # room for a whole length/distance pair again (the low bits,
@@ -352,7 +462,7 @@ def inflate(src, p, pend, dst, o0, oend, ostop, tab, iws):
             buf >>= u(cl)
             bc -= cl
             if kind == K_LIT:
-                dst[o] = e >> 16
+                dst[u(o)] = e >> 16
                 o += 1
                 continue
             if kind != K_LEN:
