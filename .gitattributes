@@ -1,2 +1,13 @@
+# Text is stored and checked out with LF line endings on every platform.
 * text=auto eol=lf
 *.json text eol=lf
+
+# Data files are bytes, never converted.
+*.nc binary
+*.h5 binary
+*.hdf binary
+*.bin binary
+*.dat binary
+*.npz binary
+*.gz binary
+*.png binary
