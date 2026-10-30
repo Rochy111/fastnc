@@ -11,7 +11,7 @@ import os
 
 import numpy as np
 
-from . import _hdf5, _select
+from . import _hdf5, _remote, _select
 
 
 def _open_bytes(path):
@@ -404,6 +404,9 @@ class Dataset(Group):
     """An open netCDF / HDF5 file (netCDF4.Dataset), read-only.
 
     device: 'cpu' (default) or 'gpu' (values come back as cupy arrays).
+    filename may also be an http(s):// or s3:// URL (anonymous; options
+    such as region in storage_options) or a file-like object: its bytes
+    are then fetched as needed (`_remote`).
     """
 
     def __init__(self, filename, mode='r', device=None, **kwargs):
@@ -413,28 +416,33 @@ class Dataset(Group):
         self._always_mask = True
         self._chartostring = True
         self._device = device
-        self._filepath = os.fspath(filename)
         self._fh = self._mm = None
-        with open(self._filepath, 'rb') as fh:
-            head = fh.read(4096)
+        self._source = src = _remote.open_source(filename, kwargs.get('storage_options'))
+        if src is None:
+            self._filepath = os.fspath(filename)
+            with open(self._filepath, 'rb') as fh:
+                head = fh.read(4096)
+        else:                                       # a URL or a file-like object
+            self._filepath = src.name
+            head = src.buf[:4096].tobytes()
         fmt = _format(head)
         if fmt is None:
             raise OSError('[Errno -51] NetCDF: Unknown file format: %r' % self._filepath)
         if fmt == 'HDF5':
             from ._nc4 import NC4File
-            self._fh, self._mm = _open_bytes(self._filepath)
-            self._backend = NC4File(_hdf5.H5File(self._mm), np.frombuffer(self._mm, np.uint8))
+            self._fh, self._mm = _open_bytes(self._filepath) if src is None else (None, _remote.readonly(src))
+            self._backend = NC4File(_hdf5.H5File(self._mm, source=src), np.frombuffer(self._mm, np.uint8))
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF5'
         elif fmt == 'HDF4':
             from ._hdf4 import HDF4File
-            self._fh, self._mm = _open_bytes(self._filepath)
+            self._fh, self._mm = _open_bytes(self._filepath) if src is None else (None, _remote.whole(src))
             self._backend = HDF4File(self._mm, np.frombuffer(self._mm, np.uint8), self._filepath)
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF4'
         else:
             from ._nc3 import NC3File                 # positional reads of its own
-            self._backend = NC3File(self._filepath)
+            self._backend = NC3File(self._filepath) if src is None else NC3File(src.name, source=src)
             self.file_format = fmt
             self.disk_format = {'NETCDF3_CLASSIC': 'NETCDF3', 'NETCDF3_64BIT_OFFSET': 'NETCDF3',
                                 'NETCDF3_64BIT_DATA': 'CDF5'}[fmt]
@@ -464,6 +472,8 @@ class Dataset(Group):
         if fh is not None:
             fh.close()
         self._fh = None
+        if getattr(self, '_source', None) is not None:
+            self._source.close()
 
     def __enter__(self):
         return self

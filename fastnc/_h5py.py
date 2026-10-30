@@ -11,7 +11,7 @@ import posixpath
 
 import numpy as np
 
-from . import _h5read, _hdf5, _select
+from . import _h5read, _hdf5, _remote, _select
 
 
 class Reference:
@@ -460,11 +460,15 @@ class File(Group):
     def __init__(self, name, mode='r', **kwargs):
         if mode not in ('r', None):
             raise ValueError('fastnc reads only (mode must be "r")')
-        self.filename = os.fspath(name)
-        self._fh = open(self.filename, 'rb')
-        self._mm = mmap.mmap(self._fh.fileno(), 0, access=mmap.ACCESS_READ)
+        self._source = _remote.open_source(name, kwargs.get('storage_options'))
+        if self._source is None:
+            self.filename = os.fspath(name)
+            self._fh = open(self.filename, 'rb')
+            self._mm = mmap.mmap(self._fh.fileno(), 0, access=mmap.ACCESS_READ)
+        else:                                       # a URL or a file-like object (_remote)
+            self.filename, self._fh, self._mm = self._source.name, None, _remote.readonly(self._source)
         self._src = np.frombuffer(self._mm, np.uint8)
-        self._f = _hdf5.H5File(self._mm)
+        self._f = _hdf5.H5File(self._mm, source=self._source)
         self._objects = {}
         self.mode = 'r'
         Group.__init__(self, self, self._f.root_address, '/')
@@ -503,7 +507,7 @@ class File(Group):
         self._objects = {}
         self._src = None
         mm, self._mm = self._mm, None
-        if mm is not None:
+        if mm is not None and hasattr(mm, 'close'):
             try:
                 mm.close()
             except BufferError:
@@ -511,6 +515,8 @@ class File(Group):
         if self._fh is not None:
             self._fh.close()
             self._fh = None
+        if self._source is not None:
+            self._source.close()
 
     def __enter__(self):
         return self

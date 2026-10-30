@@ -16,12 +16,19 @@ and the pool's threads; each takes chunks off an atomic counter and
 
 A chunk whose bytes need no transform and land contiguously in the output
 is inflated directly there. Chunks never written read as the fill value.
+
+Chunks of more than PAR_MIN compressed bytes (MODIS keeps bands in 33 MB
+chunks) would leave every core but one idle for most of a read: they are
+inflated first, each cut into parts decoded on all the pool's threads at
+once (`_pinflate.inflate_many`: speculative decoding from guessed block
+starts, every part verified against where the one before it ended), the
+other chunks run by each thread once the parts are taken.
 """
 import threading
 
 import numpy as np
 
-from . import _inflate, _pool
+from . import _inflate, _pinflate, _pool
 from ._intrin import ld64, st64, take
 from ._jit import njit
 
@@ -54,11 +61,24 @@ class ChunkIndex:
         self.grid = np.array([-(-s // c) for s, c in zip(shape, chunks)], np.int64)
         self.ngrid = int(np.prod(self.grid)) if rank else 1
         self.complete = n >= self.ngrid             # every chunk stored: no fill needed
+        self.plans = {}                             # box -> Plan, for repeated reads
 
 
 def plan(index, shape, sel):
     """Chunks touched by `sel` (one (start, stop, step) per dimension, step >
-    0, start < stop) as a Plan; None when the selection is empty."""
+    0, start < stop) as a Plan, kept on the index for the next read of the
+    same box (planning a small read costs more than decoding it)."""
+    key = tuple(tuple(s) for s in sel)
+    p = index.plans.get(key)
+    if p is None:
+        p = _plan(index, shape, sel)
+        if len(index.plans) >= 16:
+            index.plans.pop(next(iter(index.plans)))
+        index.plans[key] = p
+    return p
+
+
+def _plan(index, shape, sel):
     rank = len(shape)
     off = index.offsets
     C = index.chunks
@@ -251,29 +271,49 @@ def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count
         in_scratch = False
         ok = 0
         placed = False
+        # fletcher32 listed after deflate in decoding order was applied first
+        # when writing: its checksum trails the decompressed bytes
+        # (and if it came before the shuffle too, the byte planes include it)
+        tail = 0
+        planes = nel
+        seen_deflate = False
+        seen_shuffle = False
+        for k in range(nst):
+            if (m >> (nst - 1 - k)) & 1:
+                continue
+            fk = V[v, V_STAGE0 + k]
+            if fk == F_DEFLATE:
+                seen_deflate = True
+            elif fk == F_SHUFFLE:
+                seen_shuffle = True
+            elif fk == F_FLETCHER and seen_deflate:
+                tail = 4
+                if seen_shuffle:
+                    planes = (cbytes + 4) // esize
         for k in range(nst):
             f = V[v, V_STAGE0 + k]
             if (m >> (nst - 1 - k)) & 1:
                 continue                            # filter skipped for this chunk
             if f == F_FLETCHER:
-                pend -= 4
+                if not in_scratch:
+                    pend -= 4                       # checksum of the stored bytes
             elif f == F_SHUFFLE:
                 pass
             elif f == F_DEFLATE:
                 if in_scratch:
                     ok = 1                          # two compressors: not here
                     break
-                if direct[i] >= 0:
+                if direct[i] >= 0 and tail == 0:
                     o = obase + direct[i]
                     r = _inflate.zlib_inflate(src, p, pend, out, o, o + cbytes, o + cbytes, tab, iws)
                     ok = r if r < 0 else 0
                     placed = True
                     break
-                stop = cbytes
+                stop = cbytes + tail
                 need = needend[i] * esize
                 if not shuffled and need < cbytes:
                     stop = need                     # the rest of the chunk is not wanted
-                r = _inflate.zlib_inflate(src, p, pend, scratch, 0, cbytes, stop, tab, iws)
+                r = _inflate.zlib_inflate(src, p, pend, scratch, 0, cbytes + tail, stop, tab, iws)
                 if r < 0:
                     ok = r
                     break
@@ -285,7 +325,7 @@ def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count
         if ok != 0 or placed:
             continue
         if in_scratch:
-            _place(scratch, 0, nel, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
+            _place(scratch, 0, planes, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
                    VD[v, 2], VD[v, 3], rank, esize, shuffled, swap)
         else:
             _place(src, p, nel, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
@@ -356,6 +396,7 @@ def _warm():
         _work(ro, u8, np.zeros((1, V_COLS), np.int64), np.zeros((1, 4, 1), np.int64),
               i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i2[:0], i2[:0], i2[:0],
               np.zeros(1, np.int64), i64[:0], u8, tab, iws)
+        _pinflate.warm()
     finally:
         _READY.set()
 
@@ -375,6 +416,135 @@ def warm(wait=True):
         _READY.wait()
 
 
+PAR_MIN = 4 << 20              # compressed bytes from which a chunk is inflated on many threads
+
+
+def _stages(V, v, m):
+    """Chunk with filter mask m of variable v: (deflate runs on it, its
+    compressed bytes end this many bytes before the stored end (fletcher32
+    checksum), its bytes come out shuffled, a checksum trails its
+    decompressed bytes)."""
+    nst = V[v, V_NST]
+    esize = V[v, V_ESIZE]
+    deflate, cut, shuffled, tail = False, 0, False, False
+    for k in range(nst):
+        if (m >> (nst - 1 - k)) & 1:
+            continue                                # filter skipped for this chunk
+        f = V[v, V_STAGE0 + k]
+        if f == F_FLETCHER:
+            if deflate:
+                tail = True
+            else:
+                cut += 4
+        elif f == F_SHUFFLE:
+            shuffled = esize > 1
+        elif f == F_DEFLATE:
+            if deflate:
+                return False, 0, False, False       # twice: left to _work (which refuses it)
+            deflate = True
+    return deflate, cut, shuffled, tail
+
+
+def _big(V, var, size, mask, least):
+    """Which chunks (sorted biggest first) are deflated and at least `least`
+    compressed bytes: inflated on many threads (a checksum after the
+    deflate keeps a chunk on the serial path)."""
+    big = np.zeros(len(size), bool)
+    for i in range(len(size)):
+        if size[i] < least:
+            break
+        deflate, cut, _, tail = _stages(V, var[i], mask[i])
+        big[i] = deflate and not tail and size[i] - cut >= least
+    return big
+
+
+def _read_big(src, buf, V, VD, bigs, nthreads, items, extra, total):
+    """The big chunks inflated together, each cut into parts decoded at
+    once on the pool, `extra` (the other chunks) run by each thread once
+    the parts are taken: straight into the output when a chunk is one run
+    of it, else into a scratch buffer (stopping once the selection's last
+    element is out, unless shuffled) then placed, in bands on the pool."""
+    addr, size, mask, var, needend, direct, cstart, count, ostart = bigs
+    rows = []                                       # p, pend, o, oend, ostop, which
+    tmpn = 0
+    for i in range(len(addr)):
+        v = var[i]
+        cbytes = int(V[v, V_CBYTES])
+        _, cut, shuffled, _ = _stages(V, v, mask[i])
+        p, pend = int(addr[i]), int(addr[i] + size[i] - cut)
+        if direct[i] >= 0:
+            o = int(V[v, V_OUT] + direct[i])
+            rows.append((p, pend, o, o + cbytes, o + cbytes, 0))
+        else:
+            need = int(needend[i] * V[v, V_ESIZE])
+            stop = cbytes if shuffled or need >= cbytes else need
+            rows.append((p, pend, tmpn, tmpn + cbytes, tmpn + stop, 1))
+            tmpn += cbytes
+    tmp = _bigtmp(tmpn) if tmpn else buf
+    a = np.array(rows, np.int64)
+    try:
+        r = _pinflate.inflate_many(src, a[:, 0], a[:, 1], buf, a[:, 2], a[:, 3], a[:, 4],
+                                   nthreads, dst2=tmp, which=a[:, 5], extra=extra, total=total)
+        bad = np.nonzero(r < 0)[0]
+        if len(bad):
+            i = bad[0]
+            raise IOError('chunk at byte %d of %s could not be decoded (error %d)'
+                          % (addr[i], items[var[i]].ds.name, r[i]))
+        if tmpn:
+            _place_big(buf, tmp, a, V, VD, var, mask, cstart, count, ostart, nthreads)
+    finally:
+        if tmpn:
+            _bigtmp_keep(tmp)
+
+
+def _place_big(buf, tmp, a, V, VD, var, mask, cstart, count, ostart, nthreads):
+    """The big chunks inflated into tmp (rows of `a` with which = 1) placed:
+    each chunk's selection cut into bands along its longest dimension but
+    the last (rows stay whole), about two per thread in all, on the pool."""
+    ind = np.nonzero(a[:, 5])[0]
+    whole = sum(int(np.prod(count[i])) for i in ind)
+    bands = []
+    for i in ind:
+        c = count[i]
+        rank = int(V[var[i], V_RANK])
+        d = int(np.argmax(c[:rank - 1])) if rank > 1 else 0
+        nb = max(1, min(int(c[d]), int(round(2 * nthreads * np.prod(c) / max(1, whole)))))
+        for b in range(nb):
+            r0, r1 = c[d] * b // nb, c[d] * (b + 1) // nb
+            if r1 > r0:
+                bands.append((i, d, r0, r1))
+
+    def place(band):
+        i, d, r0, r1 = band
+        v = var[i]
+        cs, cn, os_ = cstart[i].copy(), count[i].copy(), ostart[i].copy()
+        cs[d] += r0 * VD[v, 3, d]
+        cn[d] = r1 - r0
+        os_[d] += r0
+        _, _, shuffled, _ = _stages(V, v, mask[i])
+        _place(tmp, a[i, 2], V[v, V_NEL], buf[V[v, V_OUT]:], cs, cn, os_, VD[v, 1], VD[v, 2],
+               VD[v, 3], V[v, V_RANK], V[v, V_ESIZE], shuffled, V[v, V_SWAP] == 1)
+    _pool.map_items(place, bands)
+
+
+_BIGTMP_LOCK = threading.Lock()
+_BIGTMP = [None]                # big chunks' inflate buffer, kept for the next read
+BIGTMP_KEEP = 256 << 20
+
+
+def _bigtmp(n):
+    with _BIGTMP_LOCK:
+        t, _BIGTMP[0] = _BIGTMP[0], None
+    return t if t is not None and t.size >= n else np.empty(n, np.uint8)
+
+
+def _bigtmp_keep(t):
+    if t.size <= BIGTMP_KEEP:
+        with _BIGTMP_LOCK:
+            if _BIGTMP[0] is None or _BIGTMP[0].size < t.size:
+                _BIGTMP[0] = t
+
+
 def read_batch(items, src, buf, threads=None):
     """Decode the chunks of every item in one pass of the pool, biggest
     chunks first, into buf (uint8; each item's output starts at its base)."""
@@ -386,6 +556,7 @@ def read_batch(items, src, buf, threads=None):
             if not _staged.handles(it.ds.filters):
                 bad = [f.id for f in it.ds.filters if not _staged.handles([f])]
                 raise NotImplementedError('filter %d is not supported yet' % bad[0])
+        fetch_chunks(items)                         # (all: one round with the fast ones)
         _staged.read_items(staged, src, buf, threads)
         items = [it for it in items if all(f.id in SUPPORTED for f in it.ds.filters)]
         if not items:
@@ -433,11 +604,13 @@ def read_batch(items, src, buf, threads=None):
         VD[v, 3, :rank] = step
         cmax = max(cmax, nel * esize)
         # chunks inflated straight into the output: whole chunk selected,
-        # step 1, chunk extent equal to the output's in every dimension but
-        # the first, no shuffle, no swap: their bytes are the output's
+        # step 1, no shuffle, no swap, and the chunk one run of the output
+        # (extent 1 in the leading dimensions, the output's after the first
+        # other): their bytes are the output's
         direct = np.full(len(p.addr), -1, np.int64)
+        k1 = next((d for d in range(rank) if index.chunks[d] > 1), rank - 1)
         if (len(p.addr) and rank and not it.swap and F_SHUFFLE not in stages and np.all(step == 1)
-                and (rank == 1 or np.all(index.chunks[1:] == np.array(oshape[1:])))):
+                and np.all(index.chunks[k1 + 1:] == np.array(oshape[k1 + 1:], np.int64))):
             full = np.all(p.count == index.chunks, axis=1) & np.all(p.cstart == 0, axis=1)
             lin = (p.ostart * ostr).sum(axis=1) * esize
             direct[full] = lin[full]
@@ -461,23 +634,44 @@ def read_batch(items, src, buf, threads=None):
     cstart = np.concatenate([pad(p.cstart) for p, _ in plans])
     count = np.concatenate([pad(p.count) for p, _ in plans])
     ostart = np.concatenate([pad(p.ostart) for p, _ in plans])
+    fetch_chunks(items, [p for p, _ in plans])
     if n > 1:
         order = np.argsort(-size, kind='stable')     # biggest first: no straggler at the end
         addr, size, mask, needend, direct, var = (addr[order], size[order], mask[order],
                                                   needend[order], direct[order], var[order])
         cstart, count, ostart = cstart[order], count[order], ostart[order]
-    counter = np.zeros(1, np.int64)
-    status = np.zeros(n, np.int64)
     # a thread for each ~32 kB of output at most: handing tiny reads to the
     # pool costs more than it saves
     outbytes = int(sum(int(np.prod(it.out.shape)) * it.ds.type.size for it in items))
-    nthreads = max(1, min(threads or _pool.threads(), n, outbytes >> 15))
+    allthreads = threads or _pool.threads()
+    big = None
+    if allthreads > 1 and size[0] >= PAR_MIN:
+        # chunks much bigger than a thread's share of the work: cut into parts
+        total = int(size.sum())
+        big = _big(V, var, size, mask, max(PAR_MIN, total // allthreads))
+        if big.any():
+            bi = np.nonzero(big)[0]
+            bigs = (addr[bi], size[bi], mask[bi], var[bi], needend[bi], direct[bi], cstart[bi],
+                    count[bi], ostart[bi])
+            keep = ~big
+            addr, size, mask, needend, direct, var = (addr[keep], size[keep], mask[keep],
+                                                      needend[keep], direct[keep], var[keep])
+            cstart, count, ostart = cstart[keep], count[keep], ostart[keep]
+            n = len(addr)
+        else:
+            big = None
+    counter = np.zeros(1, np.int64)
+    status = np.zeros(n, np.int64)
+    nthreads = max(1, min(allthreads, n, outbytes >> 15))
 
     def work():
         sc, tab, iws = _scratch(cmax + 8)
         _work(src, buf, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
               counter, status, sc, tab, iws)
-    _pool.share(work, nthreads)
+    if big is not None:                             # the other chunks once a thread's parts are done
+        _read_big(src, buf, V, VD, bigs, allthreads, items, work if n else None, total)
+    else:
+        _pool.share(work, nthreads)
     if status.any():
         bad = np.nonzero(status)[0][0]
         raise IOError('chunk at byte %d of %s could not be decoded (error %d)'
@@ -529,6 +723,33 @@ def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
         raise IOError('a staged chunk of %s could not be placed' % ds.name)
 
 
+def fetch_chunks(items, plans=None):
+    """The hook for files read from elsewhere (`_remote`): the stored bytes
+    of every planned chunk (plans: one Plan per item; None: planned here)
+    are fetched into src before anything reads them -- of an unfiltered
+    chunk only from its first to its last selected element. Local files:
+    one attribute check."""
+    source = getattr(getattr(items[0].ds, 'file', None), 'source', None)
+    if source is None:
+        return
+    addr, size = [], []
+    for k, it in enumerate(items):
+        p = plans[k] if plans is not None else plan(it.index, it.ds.shape, it.box)
+        if it.ds.filters or not len(p.addr):
+            addr.append(p.addr)
+            size.append(p.size)
+            continue
+        C = it.index.chunks
+        cstr = np.ones(len(C), np.int64)
+        for d in range(len(C) - 2, -1, -1):
+            cstr[d] = cstr[d + 1] * C[d + 1]
+        esize = it.ds.type.size
+        lo = (p.cstart * cstr).sum(axis=1) * esize if len(C) else np.zeros(len(p.addr), np.int64)
+        addr.append(p.addr + lo)
+        size.append(np.minimum(p.needend * esize, p.size) - lo)
+    source.fetch(np.concatenate(addr), np.concatenate(size))
+
+
 def read(ds, index, src, sel, out, swap=False, threads=None):
     """Decode the chunks of dataset ds touched by sel into out: a C-contiguous
     array with one dimension per dataset dimension, sized to the selection
@@ -563,12 +784,16 @@ def _read_python(items, src, threads=None):
     path itself, so the values are the same -- chunk by chunk on the pool."""
     import zlib
     jobs = []
+    plans = []
     for it in items:
         ds, index, box, out = it.ds, it.index, it.box, it.out
         p = plan(index, ds.shape, box)
         if p.fill_needed:
             _fill(out, ds)
         jobs.extend((it, p, i) for i in range(len(p.addr)))
+        plans.append(p)
+    if jobs:
+        fetch_chunks(items, plans)
     jobs.sort(key=lambda j: -int(j[1].size[j[2]]))
 
     def one(job):
@@ -580,8 +805,7 @@ def _read_python(items, src, threads=None):
         filters = ds.filters
         a, n, m = int(p.addr[i]), int(p.size[i]), int(p.mask[i])
         data = src[a:a + n]
-        shuffled = False
-        for k in range(len(filters) - 1, -1, -1):
+        for k in range(len(filters) - 1, -1, -1):  # each stage in decoding order
             if (m >> k) & 1:
                 continue
             fid = filters[k].id
@@ -589,11 +813,11 @@ def _read_python(items, src, threads=None):
                 data = data[:-4]
             elif fid == F_DEFLATE:
                 data = zlib.decompress(data)
-            elif fid == F_SHUFFLE:
-                shuffled = esize > 1
+            elif fid == F_SHUFFLE and esize > 1:
+                q = len(data) // esize              # HDF5 leaves the leftover bytes at the end
+                data = (np.frombuffer(data, np.uint8, q * esize).reshape(esize, q).T.tobytes()
+                        + bytes(data[q * esize:]))
         b = np.frombuffer(data, np.uint8, nel * esize)
-        if shuffled:
-            b = b.reshape(esize, nel).T
         chunk = np.ascontiguousarray(b).view(np.dtype('V%d' % esize)).reshape(C)
         step = [s[2] for s in it.box]
         src_sl = tuple(slice(int(c0), int(c0) + (int(cn) - 1) * k + 1, k)

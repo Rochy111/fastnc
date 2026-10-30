@@ -71,8 +71,9 @@ class FastncDataStore(AbstractDataStore):
         self._preloaded = _preload(g) if preload else {}
 
     @classmethod
-    def open(cls, filename, group=None, preload=False, device=None):
-        return cls(_dataset.Dataset(filename), group=group, preload=preload)
+    def open(cls, filename, group=None, preload=False, storage_options=None):
+        return cls(_dataset.Dataset(filename, storage_options=storage_options), group=group,
+                   preload=preload)
 
     def get_variables(self):
         return FrozenDict((k, self.open_store_variable(k, v)) for k, v in self.group.variables.items())
@@ -137,10 +138,12 @@ class FastncBackendEntrypoint(BackendEntrypoint):
     url = 'https://github.com/Rochy111/fastnc'
     open_dataset_parameters = ('filename_or_obj', 'mask_and_scale', 'decode_times', 'concat_characters',
                                'decode_coords', 'drop_variables', 'use_cftime', 'decode_timedelta',
-                               'group', 'preload')
+                               'group', 'preload', 'storage_options')
     supports_groups = True
 
     def guess_can_open(self, filename_or_obj):
+        if isinstance(filename_or_obj, str) and filename_or_obj.startswith(('http://', 'https://', 's3://')):
+            return filename_or_obj.split('#')[0].endswith(('.nc', '.nc4', '.h5', '.hdf5', '.he5', '.hdf'))
         if isinstance(filename_or_obj, (str, os.PathLike)):
             try:
                 with open(filename_or_obj, 'rb') as f:
@@ -152,8 +155,10 @@ class FastncBackendEntrypoint(BackendEntrypoint):
 
     def open_dataset(self, filename_or_obj, *, mask_and_scale=True, decode_times=True,
                      concat_characters=True, decode_coords=True, drop_variables=None,
-                     use_cftime=None, decode_timedelta=None, group=None, preload=False, **kwargs):
-        store = FastncDataStore.open(os.fspath(filename_or_obj), group=group, preload=preload)
+                     use_cftime=None, decode_timedelta=None, group=None, preload=False,
+                     storage_options=None, **kwargs):
+        store = FastncDataStore.open(_name(filename_or_obj), group=group, preload=preload,
+                                     storage_options=storage_options)
         store_entrypoint = StoreBackendEntrypoint()
         with _close_on_error(store):
             return store_entrypoint.open_dataset(
@@ -164,7 +169,7 @@ class FastncBackendEntrypoint(BackendEntrypoint):
 
     def open_groups_as_dict(self, filename_or_obj, **kwargs):
         from xarray.core.treenode import NodePath
-        ds = _dataset.Dataset(os.fspath(filename_or_obj))
+        ds = _dataset.Dataset(_name(filename_or_obj), storage_options=kwargs.get('storage_options'))
         out = {}
         for g in ds._walk():
             path = g.path
@@ -176,6 +181,11 @@ class FastncBackendEntrypoint(BackendEntrypoint):
     def open_datatree(self, filename_or_obj, **kwargs):
         from xarray.core.datatree import DataTree
         return DataTree.from_dict(self.open_groups_as_dict(filename_or_obj, **kwargs))
+
+
+def _name(f):
+    """A path as a string; URLs and file objects as they are."""
+    return os.fspath(f) if isinstance(f, os.PathLike) else f
 
 
 class _close_on_error:

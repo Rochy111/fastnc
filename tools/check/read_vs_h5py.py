@@ -11,6 +11,8 @@ _pool.fast_thread()
 
 
 def same(a, b):
+    if isinstance(a, np.ndarray) and a.ndim == 0 and isinstance(b, (str, bytes)):
+        a = a[()]
     if isinstance(a, (str, bytes)) or isinstance(b, (str, bytes)):
         dec = lambda x: x.decode('utf-8', 'surrogateescape') if isinstance(x, bytes) else x
         return dec(a) == dec(b)                  # the reader gives str; h5py's API bytes
