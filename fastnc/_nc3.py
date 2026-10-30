@@ -38,7 +38,7 @@ import numpy as np
 
 from ._jit import njit
 from ._intrin import ld64, st64, take
-from . import _jit, _pool
+from . import _arena, _jit, _pool
 
 
 class FormatError(ValueError):
@@ -672,9 +672,9 @@ class NC3Variable:
                     and out.flags.writeable):
                 res = out
             else:
-                res = np.empty(oshape, dtype)
+                res = _arena.empty(oshape, dtype)
         else:
-            res = np.empty(oshape, dtype)
+            res = _arena.empty(oshape, dtype)
         if res.size:
             _read(self.file, self._big, es, base, dims, res)
         if out is not None and res is not out:

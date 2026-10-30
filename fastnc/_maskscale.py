@@ -37,6 +37,8 @@ import warnings
 
 import numpy
 
+from . import _arena
+
 from ._jit import njit
 from ._intrin import ld64, take
 
@@ -643,9 +645,9 @@ def run_plan(p, raw, always_mask, threads=None):
     data = raw.view(p.view) if p.view is not None else raw
     x = data.reshape(-1)
     n = x.size
-    out = numpy.empty(data.shape, p.out_dtype) if p.out_dtype is not None else None
+    out = _arena.empty(data.shape, p.out_dtype) if p.out_dtype is not None else None
     o = out.reshape(-1) if out is not None else numpy.empty(1, numpy.float64)
-    msk = numpy.empty(data.shape, numpy.bool_) if p.mask else numpy.empty(1, numpy.bool_)
+    msk = _arena.empty(data.shape, numpy.bool_) if p.mask else numpy.empty(1, numpy.bool_)
     m = msk.reshape(-1)
     nblk = (n + BLOCK - 1) // BLOCK
     stats = numpy.zeros((nblk, 4), numpy.int64)

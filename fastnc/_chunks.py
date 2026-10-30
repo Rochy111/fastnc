@@ -378,6 +378,18 @@ def warm(wait=True):
 def read_batch(items, src, buf, threads=None):
     """Decode the chunks of every item in one pass of the pool, biggest
     chunks first, into buf (uint8; each item's output starts at its base)."""
+    staged = [it for it in items if not all(f.id in SUPPORTED for f in it.ds.filters)]
+    if staged:
+        # other filters (szip, scale-offset, n-bit, bzip2, ...): stage by stage
+        from . import _staged
+        for it in staged:
+            if not _staged.handles(it.ds.filters):
+                bad = [f.id for f in it.ds.filters if not _staged.handles([f])]
+                raise NotImplementedError('filter %d is not supported yet' % bad[0])
+        _staged.read_items(staged, src, buf, threads)
+        items = [it for it in items if all(f.id in SUPPORTED for f in it.ds.filters)]
+        if not items:
+            return
     if not _READY.is_set() and all(f.id in SUPPORTED for it in items for f in it.ds.filters):
         # the kernels load in the background (~0.5-1 s, once per process),
         # started by the first read big enough to want them (the import holds
@@ -470,6 +482,51 @@ def read_batch(items, src, buf, threads=None):
         bad = np.nonzero(status)[0][0]
         raise IOError('chunk at byte %d of %s could not be decoded (error %d)'
                       % (addr[bad], items[var[bad]].ds.name, status[bad]))
+
+
+def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
+    """Place chunks already decoded into a staging buffer `src` (chunk i's
+    bytes at addr[i], size[i]): the batch kernel with only the remaining
+    stages (a final byte shuffle, mask bit per chunk), for the plan rows sel."""
+    ds, index = it.ds, it.index
+    rank = len(ds.shape)
+    esize = ds.type.size
+    V = np.zeros((1, V_COLS), np.int64)
+    VD = np.zeros((1, 4, max(rank, 1)), np.int64)
+    oshape = it.out.shape
+    cstr = np.ones(rank, np.int64)
+    ostr = np.ones(rank, np.int64)
+    for d in range(rank - 2, -1, -1):
+        cstr[d] = cstr[d + 1] * index.chunks[d + 1]
+        ostr[d] = ostr[d + 1] * oshape[d + 1]
+    nel = int(np.prod(index.chunks)) if rank else 1
+    V[0, :V_STAGE0] = (esize, rank, nel, nel * esize, int(bool(it.swap)), len(stages), it.base)
+    V[0, V_STAGE0:V_STAGE0 + len(stages)] = stages
+    VD[0, 0, :rank] = index.chunks
+    VD[0, 1, :rank] = cstr
+    VD[0, 2, :rank] = ostr
+    VD[0, 3, :rank] = [s[2] for s in it.box]
+    n = len(sel)
+    var = np.zeros(n, np.int64)
+    direct = np.full(n, -1, np.int64)
+    needend = np.ascontiguousarray(p.needend[sel])
+    cstart = np.ascontiguousarray(p.cstart[sel])
+    count = np.ascontiguousarray(p.count[sel])
+    ostart = np.ascontiguousarray(p.ostart[sel])
+    counter = np.zeros(1, np.int64)
+    status = np.zeros(n, np.int64)
+    addr = np.ascontiguousarray(addr, np.int64)
+    size = np.ascontiguousarray(size, np.int64)
+    mask = np.ascontiguousarray(mask, np.int64)
+
+    def work():
+        sc, tab, iws = _scratch(8)
+        _work(src, buf, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
+              counter, status, sc, tab, iws)
+    nbytes = int(np.prod(it.out.shape)) * esize
+    _pool.share(work, max(1, min(threads or _pool.threads(), n, nbytes >> 15)))
+    if status.any():
+        raise IOError('a staged chunk of %s could not be placed' % ds.name)
 
 
 def read(ds, index, src, sel, out, swap=False, threads=None):

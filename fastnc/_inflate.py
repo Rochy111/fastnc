@@ -58,6 +58,11 @@ TAB_SIZE = LSIZE + DSIZE + CSIZE
 IWS_SIZE = 2720                 # rev 0:320, lens 320:640, sub 640:2688, count, next
 
 
+def workspace_size(chunk_nbytes):
+    """Scratch bytes a staged inflate needs beyond its tables: none."""
+    return 0
+
+
 def workspace():
     """One thread's tables (uint32) and integer scratch (int64)."""
     return np.zeros(TAB_SIZE, np.uint32), np.zeros(IWS_SIZE, np.int64)

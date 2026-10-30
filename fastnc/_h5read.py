@@ -7,7 +7,7 @@ h5py keeps the stored order -- the values are the same).
 """
 import numpy as np
 
-from . import _chunks, _hdf5, _select
+from . import _arena, _chunks, _hdf5, _select
 
 
 def native(dt):
@@ -20,6 +20,83 @@ def native(dt):
                      'formats': [native(dt.fields[n][0]) for n in dt.names],
                      'offsets': [dt.fields[n][1] for n in dt.names],
                      'itemsize': dt.itemsize})
+
+
+# IEEE layouts (sign, exponent position, size, mantissa position, size, bias, implied)
+_IEEE = {2: (15, 10, 5, 0, 10, 15, 2), 4: (31, 23, 8, 0, 23, 127, 2), 8: (63, 52, 11, 0, 52, 1023, 2)}
+
+
+def reduced(t):
+    """True for a type whose stored bits are not the native type's: an
+    integer narrower than its size or off bit 0, a float with a non-IEEE
+    layout (n-bit data mostly), or a compound / array holding one."""
+    if t.cls in (0, 4):
+        return t.precision < 8 * t.size or t.offset != 0
+    if t.cls == 1:
+        return t.fields is not None and t.size in _IEEE and (
+            t.fields != _IEEE[t.size] or t.offset != 0 or t.precision != 8 * t.size)
+    if t.cls == 6:
+        return any(reduced(m[2]) for m in t.members)
+    if t.cls in (8, 10):
+        return reduced(t.base)
+    return False
+
+
+def convert_reduced(a, t):
+    """Values of a reduced type as HDF5 converts them to the native type
+    (what h5py and netCDF-c return): integers shifted down by their bit
+    offset and sign-extended from their precision, floats re-encoded from
+    their sign / exponent / mantissa fields into IEEE."""
+    if t.cls == 6:
+        out = a.astype(native(a.dtype))
+        for name, off, mt in t.members:
+            if reduced(mt):
+                out[name] = convert_reduced(a[name], mt)
+        return out
+    if t.cls in (8, 10):
+        return convert_reduced(a, t.base)
+    a = a.astype(a.dtype.newbyteorder('=')) if a.dtype.byteorder == '>' else a
+    u = a.view('u%d' % t.size).astype(np.uint64)
+    if t.cls in (0, 4):
+        mask = np.uint64((1 << t.precision) - 1)
+        v = (u >> np.uint64(t.offset)) & mask
+        if t.signed:
+            sign = np.uint64(1 << (t.precision - 1))
+            v = np.where(v & sign, v | ~mask, v)    # sign-extended, in two's complement
+        return v.astype(np.uint64).view(np.int64).astype(a.dtype) if t.signed else v.astype(a.dtype)
+    return _float_bits(u, t).astype(a.dtype)
+
+
+def float_target(t):
+    """The native float a custom float converts to (h5py's choice): the
+    smallest of float32 / float64 at least its size (and holding its fields)."""
+    spos, epos, esize, mpos, msize, bias, norm = t.fields
+    return np.dtype('f4') if t.size <= 4 and esize <= 8 and msize <= 23 else np.dtype('f8')
+
+
+def odd_float(raw, t):
+    """Values of a float type numpy has no dtype for (an odd size),
+    from its raw bytes (V-dtype array)."""
+    b = raw.reshape(-1).view(np.uint8).reshape(-1, t.size)
+    if t.order == '>':
+        b = b[:, ::-1]
+    pad = np.zeros((b.shape[0], 8), np.uint8)
+    pad[:, :t.size] = b
+    u = pad.view('<u8').reshape(raw.shape)
+    return _float_bits(u, t).astype(float_target(t))
+
+
+def _float_bits(u, t):
+    spos, epos, esize, mpos, msize, bias, norm = t.fields
+    s = ((u >> np.uint64(spos)) & np.uint64(1)).astype(bool)
+    e = ((u >> np.uint64(epos)) & np.uint64((1 << esize) - 1)).astype(np.int64)
+    m = ((u >> np.uint64(mpos)) & np.uint64((1 << msize) - 1)).astype(np.float64)
+    emax = (1 << esize) - 1
+    frac = m / float(1 << msize)
+    lead = 1.0 if norm == 2 else 0.0
+    val = np.where(e == 0, np.ldexp(frac, 1 - bias), np.ldexp(lead + frac, e - bias))
+    val = np.where(e == emax, np.where(m == 0, np.inf, np.nan), val)
+    return np.where(s, -val, val)
 
 
 def _simple_swap(dt):
@@ -38,8 +115,20 @@ class Reader:
     def index(self):
         if self._index is None:
             ds = self.ds
-            self._index = _chunks.ChunkIndex(ds.chunk_table(), ds.chunks, ds.shape)
+            if ds.layout.cls == 1:
+                self._index = _virtual_index(ds)
+            else:
+                self._index = _chunks.ChunkIndex(ds.chunk_table(), ds.chunks, ds.shape)
         return self._index
+
+    @property
+    def virtual(self):
+        """True for a big contiguous dataset read as virtual chunks through
+        the chunk engine (parallel, byte swap and selection fused)."""
+        ds = self.ds
+        return (ds.layout.cls == 1 and ds.layout.address != self.f.undef and len(ds.shape) >= 1
+                and ds.type.dtype is not None and not ds.null
+                and int(np.prod(ds.shape)) * ds.type.size >= VIRTUAL_MIN)
 
     def read(self, key=(), out=None, threads=None, scalars=True):
         """Raw values for key. scalars=False keeps a fully indexed result as
@@ -50,6 +139,9 @@ class Reader:
             return None
         box, post, drop = _select.normalize(key, ds.shape)
         shape = _select.box_shape(box)
+        if t.cls == _hdf5.Datatype.FLOAT and t.dtype is None and t.fields is not None and t.size <= 8:
+            raw = self._raw_box(box, shape, np.dtype('V%d' % t.size), threads)
+            return _select.finish(odd_float(raw, t), post, drop, scalars)
         if t.dtype is None or t.cls in (_hdf5.Datatype.VLEN, _hdf5.Datatype.REFERENCE):
             raw = self._raw_box(box, shape, np.dtype('V%d' % t.size), threads)
             vals = self.f.decode_values(t, shape, raw.tobytes()) if t.cls == _hdf5.Datatype.VLEN else raw
@@ -57,13 +149,26 @@ class Reader:
         stored = t.dtype
         nat = native(stored)
         swap = _simple_swap(stored)
+        if t.cls in (_hdf5.Datatype.COMPOUND, _hdf5.Datatype.ARRAY) and (reduced(t) or nat != stored):
+            # big-endian or reduced members: the stored bytes, then one conversion
+            raw = self._raw_box(box, shape, np.dtype('V%d' % t.size), threads)
+            vals = np.frombuffer(raw.tobytes(), stored)
+            vals = vals.reshape(tuple(shape) + vals.shape[1:])
+            vals = convert_reduced(vals, t) if reduced(t) else vals.astype(nat)
+            vals = _select.finish(vals, post, drop, scalars)
+            if out is not None:
+                out[...] = vals
+                return out
+            return vals
         direct_out = out is not None and post is None and not drop and out.shape == shape \
             and out.dtype == nat and out.flags.c_contiguous
-        res = out if direct_out else np.empty(shape, nat)
+        res = out if direct_out else _arena.empty(shape, nat)
         if res.size:
             self._read_into(box, res, swap, threads)
             if stored.byteorder == '>' and not swap:
                 res[...] = res.view(stored).astype(nat)     # compound / array types
+        if reduced(t) and res.size:
+            res = convert_reduced(res, t)
         res = _select.finish(res, post, drop, scalars)
         if out is not None and not direct_out:
             out[...] = res
@@ -81,7 +186,7 @@ class Reader:
         lay = ds.layout
         f = self.f
         esize = ds.type.size
-        if lay.cls == 2:
+        if lay.cls == 2 or (lay.cls == 1 and self.virtual):
             _chunks.read(ds, self.index, self.src, box, res, swap=swap, threads=threads)
             return
         if lay.cls == 1:
@@ -104,6 +209,38 @@ class Reader:
             _swap(res)
 
 
+VIRTUAL_MIN = 256 << 10         # contiguous datasets this big go through the engine
+VIRTUAL_CHUNK = 1 << 20
+
+
+def _virtual_index(ds):
+    """A contiguous dataset as chunks of about a megabyte, each one run of
+    the file: whole trailing dimensions, and a count along the first
+    dimension whose trailing part fits (dimensions before it taken one at
+    a time). Their addresses follow from the shape."""
+    shape = tuple(ds.shape)
+    esize = ds.type.size
+    rank = len(shape)
+    k = 0
+    inner = esize * int(np.prod(shape[1:]))
+    while k < rank - 1 and inner > VIRTUAL_CHUNK:
+        k += 1
+        inner = esize * int(np.prod(shape[k + 1:]))
+    chunks = [1] * k + [max(1, VIRTUAL_CHUNK // max(inner, 1))] + list(shape[k + 1:])
+    chunks[k] = min(chunks[k], shape[k]) or 1
+    grid = [-(-s // c) for s, c in zip(shape, chunks)]
+    n = int(np.prod(grid))
+    idx = np.indices(grid).reshape(rank, n).T * np.array(chunks)       # chunk origins
+    strides = np.ones(rank, np.int64)
+    for d in range(rank - 2, -1, -1):
+        strides[d] = strides[d + 1] * shape[d + 1]
+    base = ds.file.addr(ds.layout.address)
+    addr = base + (idx * strides).sum(axis=1) * esize
+    csize = int(np.prod(chunks)) * esize
+    table = [(tuple(o), int(a), csize, 0) for o, a in zip(idx.tolist(), addr.tolist())]
+    return _chunks.ChunkIndex(table, tuple(chunks), shape)
+
+
 def _swap(res):
     b = res.reshape(-1).view(np.uint8).reshape(-1, res.dtype.itemsize)
     b[:] = b[:, ::-1]
@@ -119,14 +256,14 @@ def read_many(readers, threads=None):
     for i, r in enumerate(readers):
         ds = r.ds
         t = ds.type
-        if (ds.layout.cls != 2 or ds.null or t.dtype is None or not ds.shape
+        if ((ds.layout.cls != 2 and not r.virtual) or ds.null or t.dtype is None or not ds.shape
                 or t.cls in (_hdf5.Datatype.VLEN, _hdf5.Datatype.REFERENCE)
                 or (t.dtype.byteorder == '>' and not _simple_swap(t.dtype))):
             continue
         n = int(np.prod(ds.shape)) * t.size
         batch.append((i, r, total, n))
         total += (n + 63) // 64 * 64                    # each array 64-byte aligned
-    buf = np.empty(total, np.uint8)
+    buf = _arena.empty((total,), np.uint8)
     items = []
     for i, r, base, n in batch:
         ds = r.ds

@@ -2,9 +2,9 @@
 
 Switching from netCDF4 should be an import change: the same attributes
 and methods, the same values (raw and masked/scaled), read-only. A
-Dataset opens netCDF-3 (classic, 64-bit offset, CDF-5) through `_nc3`
-and netCDF-4 / plain HDF5 through `_nc4`; both give backend objects
-(docs/contracts.md, section 2) wrapped here.
+Dataset opens netCDF-3 (classic, 64-bit offset, CDF-5) through `_nc3`,
+netCDF-4 / plain HDF5 through `_nc4` and HDF4 (SD) through `_hdf4`;
+each gives backend objects (docs/contracts.md, section 2) wrapped here.
 """
 import mmap
 import os
@@ -31,6 +31,8 @@ def _format(head):
         return {1: 'NETCDF3_CLASSIC', 2: 'NETCDF3_64BIT_OFFSET', 5: 'NETCDF3_64BIT_DATA'}.get(head[3])
     if _hdf5.find_superblock(head) is not None:
         return 'HDF5'
+    if head[:4] == b'\x0e\x03\x13\x01':
+        return 'HDF4'
     return None
 
 
@@ -178,8 +180,8 @@ class Variable:
     def chunking(self):
         c = self._bv.chunks
         if c is None:
-            # netCDF-4 contiguous storage says so; netCDF-3 has no storage choice (None)
-            return 'contiguous' if self._group._dataset.disk_format == 'HDF5' else None
+            # netCDF-4 / HDF4 contiguous storage says so; netCDF-3 has no choice (None)
+            return None if self._group._dataset.disk_format in ('NETCDF3', 'CDF5') else 'contiguous'
         return list(c)
 
     def endian(self):
@@ -331,6 +333,12 @@ class Group:
             from ._h5read import read_many
             for (k, v), a in zip(batch, read_many([v._bv._reader for _, v in batch], threads=threads)):
                 raws[k] = a
+        h4 = [(k, v) for k, v in vs if type(v._bv).__module__.endswith('_hdf4')]
+        if h4:
+            from ._hdf4 import read_many as read_many4
+            for (k, v), a in zip(h4, read_many4([v._bv for _, v in h4], threads=threads)):
+                if a is not None:
+                    raws[k] = a
         out = {}
         for k, v in vs:
             if k not in raws:
@@ -418,6 +426,12 @@ class Dataset(Group):
             self._backend = NC4File(_hdf5.H5File(self._mm), np.frombuffer(self._mm, np.uint8))
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF5'
+        elif fmt == 'HDF4':
+            from ._hdf4 import HDF4File
+            self._fh, self._mm = _open_bytes(self._filepath)
+            self._backend = HDF4File(self._mm, np.frombuffer(self._mm, np.uint8), self._filepath)
+            self.file_format = self._backend.data_model
+            self.disk_format = 'HDF4'
         else:
             from ._nc3 import NC3File                 # positional reads of its own
             self._backend = NC3File(self._filepath)

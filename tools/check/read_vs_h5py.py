@@ -11,6 +11,9 @@ _pool.fast_thread()
 
 
 def same(a, b):
+    if isinstance(a, (str, bytes)) or isinstance(b, (str, bytes)):
+        dec = lambda x: x.decode('utf-8', 'surrogateescape') if isinstance(x, bytes) else x
+        return dec(a) == dec(b)                  # the reader gives str; h5py's API bytes
     a = np.asarray(a); b = np.asarray(b)
     if a.shape != b.shape:
         return False
@@ -19,6 +22,8 @@ def same(a, b):
     if a.dtype.kind == 'O' or b.dtype.kind == 'O':
         return [x.decode() if isinstance(x, bytes) else x for x in a.ravel().tolist()] == \
                [x.decode() if isinstance(x, bytes) else x for x in b.ravel().tolist()] if a.dtype.kind == b.dtype.kind or True else False
+    if a.dtype.fields is not None and b.dtype.fields is not None:
+        return list(a.dtype.names) == list(b.dtype.names) and all(same(a[n], b[n]) for n in b.dtype.names)
     if b.dtype.kind in 'bc' or a.dtype.fields is not None:
         return a.tobytes() == np.ascontiguousarray(b).astype(_h5read.native(b.dtype)).tobytes() or \
                a.tobytes() == np.ascontiguousarray(b).tobytes()
