@@ -1,0 +1,91 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }} / ${{ matrix.numpy }}${{ matrix.extras && ' / xarray' || '' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba_cache
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]          # macos-latest: Apple Silicon (arm64)
+        python: ['3.9', '3.10', '3.11', '3.12', '3.13']
+        numpy: ['numpy<2', 'numpy>=2']
+        exclude:
+          - {python: '3.13', numpy: 'numpy<2'}                     # numpy 1 has no Python 3.13 wheels
+        include:
+          - {os: ubuntu-latest, python: '3.12', numpy: 'numpy>=2', extras: ',xarray'}   # the xarray backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "${{ matrix.numpy }}" -e ".[test${{ matrix.extras }}]"
+
+      - name: Versions
+        run: python -c "import sys, platform, numpy, numba; print(sys.version, platform.machine()); print('numpy', numpy.__version__, '/ numba', numba.__version__)"
+
+      # numba's cache checks a kernel's source file by modification time and
+      # size; a checkout gives every file a new time, so they are pinned, and
+      # the cache is only ever restored for exactly these sources (no
+      # restore-keys: a fallback to other sources with pinned times could
+      # serve stale kernels).
+      - name: Pin source times for numba's cache
+        run: python -c "import glob, os; [os.utime(p, (1700000000, 1700000000)) for p in glob.glob('fastnc/**/*.py', recursive=True)]"
+
+      - uses: actions/cache@v4
+        with:
+          path: .numba_cache
+          key: numba-${{ runner.os }}-py${{ matrix.python }}-${{ matrix.numpy }}-${{ hashFiles('fastnc/**/*.py', 'pyproject.toml') }}
+
+      - name: Tests (tests/data only)
+        run: python -m pytest -q -ra --refs corpus
+
+  references:
+    # Optional: does a freshly made corpus give the committed values, and do
+    # today's h5py / netCDF4-python (pip wheels) still read the committed
+    # files as the references say? Needs the reference readers, which the
+    # test jobs never install.
+    name: corpus and references still match
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy numba h5py netCDF4 hdf5plugin pytest
+          python -c "import h5py, netCDF4, hdf5plugin; print('h5py', h5py.__version__, 'HDF5', h5py.version.hdf5_version); print('netCDF4', netCDF4.__version__, netCDF4.__netcdf4libversion__); print('hdf5plugin', hdf5plugin.version)"
+
+      - name: Committed files read as the references say
+        run: python tools/make_references.py --set corpus --check
+
+      - name: A fresh corpus has the same values
+        run: |
+          python tools/make_corpus.py "$RUNNER_TEMP/corpus"
+          python tools/make_references.py --set corpus --check --data-dir "$RUNNER_TEMP/corpus"

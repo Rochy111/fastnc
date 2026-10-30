@@ -6,6 +6,9 @@ need neither library.
     python tools/make_references.py --set corpus     # tests/data only
     python tools/make_references.py --set real --jobs 3
     python tools/make_references.py --only nc4.nc --print
+    python tools/make_references.py --set corpus --check            # readers here still agree?
+    python tools/make_corpus.py /tmp/c && \
+    python tools/make_references.py --set corpus --check --data-dir /tmp/c   # corpus still the same?
 
 Sets, each written to tests/data/references_<set>.json.gz:
     corpus      tests/data/*            (committed: CI's tests use it)
@@ -78,11 +81,11 @@ REAL_DIR = os.environ.get('FASTNC_REAL_DATA') or next(
 HDF5_SIG = b'\x89HDF\r\n\x1a\n'
 
 
-def file_sets():
-    """name -> path for each set."""
+def file_sets(data_dir=None):
+    """The files of each set: {set: [path, ...]}."""
     real = sorted(p for p in glob.glob(os.path.join(REAL_DIR, '*.nc')) if '(1)' not in p)
     real += sorted(glob.glob(os.path.join(REAL_DIR, 'wrfout_d02_2024-11-06_01_30_00')))
-    corpus = sorted(p for p in glob.glob(os.path.join(helpers.DATA, '*'))
+    corpus = sorted(p for p in glob.glob(os.path.join(data_dir or helpers.DATA, '*'))
                     if not os.path.basename(p).startswith('references_') and os.path.isfile(p))
     synth = sorted(glob.glob(os.path.join(REAL_DIR, 'corpus', 'synthetic', '*')))
     return {'corpus': corpus, 'synthetic': synth, 'real': real}
@@ -547,6 +550,8 @@ def make_set(which, paths, alt, jobs, only):
             files[name] = rec
             report(name, rec, dt)
     files = {k: files[k] for k in sorted(files)}
+    for rec in files.values():                               # timings would make every regeneration differ
+        rec.pop('seconds', None)
     doc = {
         'about': ABOUT,
         'set': which,
@@ -615,7 +620,7 @@ def report(name, rec, dt):
         if 'note' in h5:
             bits.append('(alt env)')
     if 'seconds' in rec:
-        bits.append('(nc %.1f s incl. numpy-1 env, h5py %.1f s)' % (rec['seconds']['netcdf4'], rec['seconds']['h5py']))
+        bits.append('(netCDF4 %.1f s, h5py %.1f s)' % (rec['seconds']['netcdf4'], rec['seconds']['h5py']))
     a = rec.get('agreement', {})
     if a.get('differ'):
         bits.append('DISAGREE x%d' % len(a['differ']))
@@ -634,8 +639,73 @@ def write(doc, which):
                                                   len(raw) / 1e3))
 
 
+def value_digests(rec):
+    """(label, digest) of every value read in a file's record."""
+    nc, h5 = rec.get('netcdf4') or {}, rec.get('h5py') or {}
+    for vp, v in nc.get('variables', {}).items():
+        for m in ('raw', 'masked'):
+            yield 'netCDF4 %s %s full' % (vp, m), v[m]
+            for s, d in v['sel'].items():
+                yield 'netCDF4 %s %s %s' % (vp, m, s), d[m]
+    for p, o in h5.get('objects', {}).items():
+        if o.get('kind') == 'dataset':
+            yield 'h5py %s full' % p, o['raw']
+            for s, d in o['sel'].items():
+                yield 'h5py %s %s' % (p, s), d['raw']
+
+
+def check(doc, which):
+    """Compare freshly made value digests with the committed references:
+    the readers installed here, on the files given, must still give the
+    committed values. A read that fails on one side only (a plugin missing
+    here, or present here only) is listed, not counted. Returns the number
+    of digests that differ."""
+    old = helpers.references(which)
+    if not old:
+        print('  no committed references_%s.json.gz to check against' % which)
+        return 1
+    numpy1 = int(np.__version__.split('.')[0]) < 2
+    bad = notes = same = 0
+    for name, rec in doc['files'].items():
+        if name not in old['files']:
+            print('  not in the references (new file?):', name)
+            notes += 1
+            continue
+        mine = dict(value_digests(rec))
+        for label, ref in value_digests(old['files'][name]):
+            got = mine.get(label)
+            if got is None:
+                print('  missing here: %s %s' % (name, label))
+                notes += 1
+                continue
+            if ('error' in ref) != ('error' in got):
+                print('  %s %s: %s' % (name, label, 'fails here: ' + got['error'][:80] if 'error' in got
+                                       else 'readable here, an error in the references'))
+                notes += 1
+                continue
+            if 'error' in ref:
+                continue
+            want = dict(ref)
+            over = want.pop('numpy1', None)
+            if numpy1 and over:
+                want.update(over)
+            got = {k: v for k, v in got.items() if k != 'numpy1'}
+            ok, msg = helpers.same_values(got, want)
+            if ok:
+                same += 1
+            else:
+                bad += 1
+                print('  DIFFERS %s %s: %s' % (name, label, msg[:300]))
+    print('  check %s: %d digests equal, %d differ, %d notes' % (which, same, bad, notes))
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    ap.add_argument('--check', action='store_true',
+                    help='compare with the committed references instead of writing them (exit 1 if values differ)')
+    ap.add_argument('--data-dir', help='read the corpus set from this folder instead of tests/data '
+                                       '(e.g. a fresh tools/make_corpus.py output, with --check)')
     ap.add_argument('--set', choices=helpers.REFERENCE_SETS, action='append',
                     help='which set(s) to make (default: all)')
     ap.add_argument('--only', action='append', help='only these file names (debugging; not written)')
@@ -652,20 +722,24 @@ def main():
     if a.nc_worker:
         nc_worker(*a.nc_worker)
         return
-    sets = file_sets()
+    sets = file_sets(a.data_dir)
+    failed = 0
     for which in a.set or helpers.REFERENCE_SETS:
-        doc = make_set(which, sets[which], a.alt_python, a.jobs, a.only)
+        doc = make_set(which, sets[which], None if a.check else a.alt_python, a.jobs, a.only)
         s = doc['summary']
         print('  %d files, %d netCDF variables (%d selections), %d h5py datasets (%d selections)' % (
             s['files'], s['nc_variables'], s['nc_selections'], s['h5_datasets'], s['h5_selections']))
         for e in s['disagreements']:
             print('  DISAGREE', e)
-        if a.print:
+        if a.check:
+            failed += check(doc, which)
+        elif a.print:
             print(json.dumps(doc, indent=1)[:200000])
         elif a.only:
             print('  (--only: not written)')
         elif doc['files']:
             write(doc, which)
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == '__main__':

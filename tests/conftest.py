@@ -1,7 +1,10 @@
 """The tests' fixtures: files opened once per session (`opened`), the
 reference tests parametrized from the reference files (one test id per
 file, variable or HDF5 object), and the opt-in `--gpu` option, which runs
-the value comparisons again with device='gpu'."""
+the value comparisons again with device='gpu'. `--refs corpus` limits the
+reference tests to tests/data (as CI runs them)."""
+import os
+
 import pytest
 
 from helpers import REFERENCE_SETS, locate, references
@@ -10,10 +13,17 @@ from helpers import REFERENCE_SETS, locate, references
 def pytest_addoption(parser):
     parser.addoption('--gpu', action='store_true', default=False,
                      help="also compare every read with fastnc.Dataset(path, device='gpu')")
+    parser.addoption('--refs', default=','.join(REFERENCE_SETS),
+                     help='reference sets to test, of %s (default: all whose files are here)'
+                          % ','.join(REFERENCE_SETS))
 
 
 def pytest_configure(config):
     config.addinivalue_line('markers', 'gpu: runs on the GPU (only with --gpu)')
+    if os.environ.get('FASTNC_NEP50_WARN'):                  # tools/run_tests_numpy1.py --nep50
+        import numpy as np
+        if hasattr(np, '_set_promotion_state'):              # numpy 1.24-1.26 only
+            np._set_promotion_state('weak_and_warn')
 
 
 # ------------------------------------------------------------ parametrization
@@ -22,12 +32,30 @@ def _ids(which, name, path=None):
     return '%s/%s' % (which, name) + ('' if path is None else ':' + path)
 
 
-def _cases():
-    """(fixture name -> [(id, value)]) for every reference set present."""
-    out = {'nc_file': [], 'nc_var': [], 'h5_file': [], 'h5_obj': [], 'h5_dataset': []}
+def sets_here():
+    """{set: number of its files on this machine}; a set with none (the
+    real files and the synthetic corpus, in CI) has no tests at all."""
+    out = {}
     for which in REFERENCE_SETS:
         refs = references(which)
-        if not refs:
+        out[which] = sum(locate(which, n) is not None for n in refs['files']) if refs else 0
+    return out
+
+
+def pytest_report_header(config):
+    n = sets_here()
+    return 'fastnc references: ' + ', '.join(
+        '%s %d/%d files' % (w, n[w], len(references(w)['files'])) if references(w) else '%s (none made)' % w
+        for w in REFERENCE_SETS)
+
+
+def _cases(wanted):
+    """(fixture name -> [(id, value)]) for every reference set present."""
+    out = {'nc_file': [], 'nc_var': [], 'h5_file': [], 'h5_obj': [], 'h5_dataset': []}
+    here = sets_here()
+    for which in REFERENCE_SETS:
+        refs = references(which)
+        if which not in wanted or not refs or not here[which]:
             continue
         for name, rec in refs['files'].items():
             nc, h5 = rec.get('netcdf4') or {}, rec.get('h5py') or {}
@@ -52,7 +80,7 @@ def pytest_generate_tests(metafunc):
     for fx in ('nc_file', 'nc_var', 'h5_file', 'h5_obj', 'h5_dataset'):
         if fx in metafunc.fixturenames:
             if _CASES is None:
-                _CASES = _cases()
+                _CASES = _cases(metafunc.config.getoption('--refs').split(','))
             cases = _CASES[fx]
             metafunc.parametrize(fx, [c[1] for c in cases], ids=[c[0] for c in cases])
     if 'mode' in metafunc.fixturenames:
@@ -76,7 +104,6 @@ class Opened:
         p = locate(which, name)
         if p is None:
             pytest.skip('%s file %s is not on this machine' % (which, name))
-        import os
         want = references(which)['files'][name]['size']
         if os.path.getsize(p) != want:
             pytest.skip('%s differs from the file the references were made from (%d bytes, not %d)'

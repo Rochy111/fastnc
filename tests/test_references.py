@@ -127,7 +127,7 @@ def test_digest_rules():
     assert same_values(digest(a.astype('>f4')), digest(a))[0]
     assert not same_values(digest(a.astype('f8')), digest(a))[0]
     m1 = np.ma.masked_array(a, mask=a > 5, fill_value=np.float32(-1))
-    m2 = np.ma.masked_array(np.where(a > 5, 99, a), mask=a > 5, fill_value=np.float32(-1))
+    m2 = np.ma.masked_array(np.where(a > 5, np.float32(99), a), mask=a > 5, fill_value=np.float32(-1))
     assert digest(m1) == digest(m2)
     assert digest(m1) != digest(np.ma.masked_array(a, mask=a > 5, fill_value=np.float32(-2)))
     assert digest(m1) != digest(np.ma.masked_array(a, mask=a > 6, fill_value=np.float32(-1)))
