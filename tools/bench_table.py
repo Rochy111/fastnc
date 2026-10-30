@@ -33,9 +33,10 @@ def table(rows, key, cols, ours, title):
         cells = []
         for c in cols:
             v = d.get(c)
-            # h5py is compared with fastnc.File (same API), the rest with fastnc
-            base = d.get('fastnc.File') if c == 'h5py' and 'fastnc.File' in d else o
-            plain = c == ours or c == 'fastnc.File'
+            # h5py is compared with fastnc.File (same API), netCDF4-python with
+            # the same loop over variables where measured, the rest with fastnc
+            base = d.get('fastnc.File') if c == 'h5py' and 'fastnc.File' in d else                 d.get('fastnc loop', o) if c == 'netCDF4' else o
+            plain = c in (ours, 'fastnc.File', 'fastnc loop')
             cells.append(ms(v) + ('' if plain else ratio(v, base)) if v is not None else '-')
         out.append('| %s | %s |' % (r['file'], ' | '.join(cells)))
     return '\n'.join(out) + '\n'
@@ -51,9 +52,10 @@ def main():
               d['when'], m.get('cpu'), m.get('logical_cpus'), m.get('gpu'), m.get('python'),
               m.get('numpy'), m.get('numba'), m.get('h5py'), m.get('netCDF4'), m.get('xarray'),
               m.get('h5netcdf'), m.get('cupy')))
-    print(table(rows, 'all_raw', ['fastnc', 'netCDF4', 'h5py'], 'fastnc',
-                'Whole file, every variable, raw (ms)'))
-    print(table(rows, 'all_masked', ['fastnc', 'netCDF4'], 'fastnc',
+    print(table(rows, 'all_raw', ['fastnc', 'fastnc loop', 'netCDF4', 'h5py'], 'fastnc',
+                'Whole file, every variable, raw (ms; fastnc: Dataset.load() and the same '
+                'loop over variables as netCDF4-python, which its ratio is to)'))
+    print(table(rows, 'all_masked', ['fastnc', 'fastnc loop', 'netCDF4'], 'fastnc',
                 'Whole file, masked and scaled as netCDF4-python does by default (ms)'))
     print(table(rows, 'var_raw', ['fastnc', 'netCDF4', 'fastnc.File', 'h5py'], 'fastnc',
                 'Open + one variable, raw (ms; fastnc.Dataset vs netCDF4, fastnc.File vs h5py)'))
@@ -65,7 +67,9 @@ def main():
     print(table(xr, 'xarray_load', ['fastnc', 'netcdf4', 'h5netcdf', 'scipy'], 'fastnc',
                 'xarray.open_dataset(...).load(), by engine (ms)'))
     print(table(rows, 'first_call', ['fastnc', 'netCDF4', 'fastnc.File', 'h5py'], 'fastnc',
-                'First read in a fresh process: import + open + one variable (ms)'))
+                'First read in a fresh process: import + open + one variable, raw (ms)'))
+    print(table(rows, 'first_call_masked', ['fastnc', 'netCDF4'], 'fastnc',
+                'First read in a fresh process, masked and scaled (the default) (ms)'))
     print(table(rows, 'gpu_masked', ['fastnc gpu', 'fastnc cpu+upload', 'netCDF4+upload'],
                 'fastnc gpu', 'One variable, masked and scaled, to a cupy array (ms)'))
     t1 = ['| file | all threads | 1 thread |', '|---|---|---|']

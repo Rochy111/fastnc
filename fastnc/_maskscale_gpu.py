@@ -261,7 +261,7 @@ def apply(raw, attrs, dtype, mask=True, scale=True, always_mask=True, chartostri
     if (kind in ('primitive', 'enum') and isinstance(raw, cupy.ndarray) and raw.ndim > 0
             and raw.flags.c_contiguous and raw.size > 0):
         plan = _maskscale.make_plan(raw.dtype, attrs, dtype, kind, mask, scale, no_fill)
-        if plan is not None:
+        if plan is not None and not plan.nan_const:     # (a NaN constant: numpy's NaNs, on the host)
             return run_plan(plan, raw, always_mask)
     host = raw.get() if isinstance(raw, cupy.ndarray) else raw
     r = _maskscale.apply(host, attrs, dtype, mask=mask, scale=scale, always_mask=always_mask,

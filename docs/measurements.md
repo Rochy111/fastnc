@@ -179,3 +179,51 @@ for whole reads. Byte-swapping can ride along with the copy in L2.
 - **Concurrent readers**: eight user threads reading one open file (raw,
   masked, windows, load) get the values one thread gets, through the zlib
   path and the kernels (`tests/test_threads.py`).
+
+## Round 2 (2026-10-30)
+
+Same machine. Scripts in `tools/profile/`.
+
+**Fresh processes** (`fresh.py`, best of 3 processes, import + open + read).
+Importing numba and loading the cached kernels took 0.7-0.9 s (numba 300
+ms, the kernels' cache 350 ms, mostly `open_code` on ~300 modules -- Windows
+file opening). Started in the background at the first read (the old
+design), it made that read 3x slower: the pool's threads queue for the GIL
+after every zlib call while the import holds it (WRF d01 `T`, masked: 249
+ms with no background load, 824 with). Loading first (`fastnc.warm()`)
+cost ~1.1 s in every case. So reads now never wait for numba until 1 s of
+reading without it; with ctypes libdeflate and numpy the paths before
+that: WRF d01 masked `T` 715 -> 222 ms (netCDF4-python 238), whole VIIRS
+file masked 1176 -> 613 (3306), MODIS 1 km 921 -> 547 (1380), Metop-SG
+630 -> 365 (533, after gathering unfiltered chunk grids at once).
+
+**Non-temporal stores** (`ntstore.py`: u2 -> f4 scale over 941 MB, plain
+stores vs scaled into an L1 scratch and streamed out with
+`!nontemporal` 32-byte stores): 24 threads 41.7 vs 40.8 ms, 8 threads 45.6
+vs 48.0 -- no gain (Golden Cove already avoids the read-for-ownership on
+full-line writes). Not used.
+
+**One chunk on many threads from smaller sizes** (`par_min.py`, PAR_MIN 4
+MB / 1 MB / 512 kB / 256 kB): WRF `T` 4.50 / 4.26 / 4.00 / 3.86 ms, but
+whole-file loads 22.9 / 26.8 / 25.7 / 28.6 ms. Kept at 4 MB.
+
+**Mask/scale fused with decoding** (`fused_check.py`): GOES-19 C02 Rad 140
+-> 117-127 ms, C13 10.8 -> 8.9, VIIRS I05 13.9 -> 11.6, AVHRR 2.9 -> 2.4;
+WRF (four chunks per variable, mask only) slower fused (5.2 -> 6.1): such
+reads keep the usual path.
+
+**GPU pipeline** (`gpu_breakdown.py`, GOES-19 C02 Rad, 897 MB): CPU read 82
+ms, pinned upload 20.6 ms; band-by-band reads with uploads 111 ms; one
+decode with each band uploaded as it completes 90 ms (masked: 128 -> 95,
+against 120 on the CPU). Band size (`gpu_bands.py`): 8 MB a little ahead
+of 32, 4 and 2 MB.
+
+**Readahead across variables** (`readahead_check.py`, loop over variables
+/ xarray load): WRF d01 132 -> 60 / 152 -> 86 ms, Ku-band 71 -> 23 / 80 ->
+31, RCM 20 -> 8 / 31 -> 18, AVHRR 20 -> 14 / 38 -> 38.
+
+**CI findings.** numpy's masked arrays carry their `fill_value` type through
+arithmetic differently in numpy 2.5 than before, and numpy 1's default int
+is 32-bit on Windows only; NaN x NaN keeps the payload of the operand the
+compiler that built numpy ordered first (MSVC vs gcc builds differ). See
+internals, "Values that depend on the platform's numpy".

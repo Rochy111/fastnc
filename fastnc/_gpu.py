@@ -26,7 +26,9 @@ from . import _pool, _select
 _LOCK = threading.Lock()
 _PINNED = None                  # (cupy pinned memory, size)
 _STREAM = None
-BAND_BYTES = 32 << 20           # upload granularity: overlap without tiny copies
+BAND_BYTES = 32 << 20           # upload granularity of band-by-band reads
+PIPE_BAND_BYTES = 8 << 20       # ... of the pipelined read (measured: 8 MB a little ahead
+                                # of 32, 4 and 2 on VIIRS, GOES-19, AVHRR)
 
 
 def _cupy():
@@ -90,6 +92,64 @@ def _bands(bv, box):
     return out
 
 
+def _pipelined(bv, box, oshape, dt, host, dev, stream, threads):
+    """The box decoded by one pass of the pool, in bands of chunk rows, each
+    band uploaded (by a thread of its own) as soon as its last chunk is
+    placed: every core busy throughout, the bus too. False where this is
+    not such a read (the band-by-band reads then)."""
+    import time
+    from . import _chunks, _h5read
+    r = getattr(bv, '_reader', None)
+    if not isinstance(r, _h5read.Reader) or not _chunks._READY.is_set() or not oshape:
+        return False
+    ds = r.ds
+    t = ds.type
+    if t.cls not in (0, 1) or t.dtype is None or ds.null or _h5read.reduced(t):
+        return False
+    if not (ds.layout.cls == 2 or (ds.layout.cls == 1 and r.virtual)):
+        return False
+    if any(f.id not in _chunks.SUPPORTED for f in ds.filters) or box[0][2] != 1:
+        return False
+    stored = t.dtype
+    swap = _h5read._simple_swap(stored)
+    if _h5read.native(stored) != dt or (stored.byteorder == '>' and not swap):
+        return False
+    index = r.index
+    p = _chunks.plan(index, ds.shape, box)
+    if p.fill_needed or len(p.addr) < 2:
+        return False
+    c0 = int(index.chunks[0])
+    s = box[0][0]
+    e = s + oshape[0]
+    grow = (s + p.ostart[:, 0] - p.cstart[:, 0]) // c0      # each chunk's grid row
+    g0 = int(grow.min())
+    rowbytes = int(np.prod(oshape[1:])) * dt.itemsize
+    per = max(1, PIPE_BAND_BYTES // max(rowbytes * c0, 1))      # grid rows per band
+    band = (grow - g0) // per
+    nb = int(band.max()) + 1
+    expected = np.bincount(band, minlength=nb)
+    progress = np.zeros(nb, np.int64)
+    finished = []
+
+    def upload():
+        for b in range(nb):
+            while progress[b] < expected[b] and not finished:
+                time.sleep(0.0002)
+            lo = max((g0 + b * per) * c0, s) - s
+            hi = min((g0 + (b + 1) * per) * c0, e) - s
+            if hi > lo:
+                dev[lo:hi].set(host[lo:hi], stream=stream)   # async from pinned memory
+    up = threading.Thread(target=upload, name='fastnc-upload', daemon=True)
+    up.start()
+    try:
+        _chunks.read(ds, index, r.src, box, host, swap=swap, threads=threads,
+                     bands=(band, progress))
+    finally:
+        finished.append(True)
+        up.join()
+    return True
+
+
 def _itemsize(bv):
     dt = bv.dtype
     return np.dtype(dt).itemsize if dt is not str else 8
@@ -118,7 +178,7 @@ def read(var, key, threads=None):
             _STREAM = cp.cuda.Stream(non_blocking=True)
         stream = _STREAM
         dev = cp.empty(oshape, dt)
-        bands = _bands(bv, box)
+        bands = [] if _pipelined(bv, box, oshape, dt, host, dev, stream, threads)             else _bands(bv, box)
         r0 = box[0][0] if box else 0
         for b in bands:
             if oshape:

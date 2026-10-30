@@ -31,8 +31,22 @@ a bug.
   netCDF4-python and h5py read, values and metadata, from digests stored
   in `tests/data/references_*.json.gz`; per-part tests for each codec, the
   netCDF-3 and HDF4 readers, mask/scale, the arena, remote reads.
-- Packaging (`pyproject.toml`), MIT license, CI on Linux / Windows / macOS,
-  Python 3.9-3.13, numpy 1 and 2.
+- **Fresh processes** read without numba until reading has taken 1 s
+  (libdeflate / zlib through ctypes on every core, numpy for mask/scale
+  and for unfiltered chunk grids): the first masked read of a WRF
+  variable 715 -> 222 ms, a whole VIIRS file 1176 -> 613 ms (netCDF4-python:
+  3306).
+- **Readahead across variables** read whole in the file's order (xarray's
+  load, loops over `variables`): 1.8-3x.
+- **Mask/scale fused with decoding** for big scaled variables; **GPU
+  reads pipelined** (one decode, each band uploaded as soon as it is in).
+- Packaging (`pyproject.toml`), MIT license, a CI workflow for Linux /
+  Windows / macOS, Python 3.9-3.13, numpy 1 and 2, with and without the
+  kernels. (Its runs so far: Windows green throughout; Linux and macOS
+  showed numpy-version differences in masked arrays' fill_value types and
+  NaN payloads, fixed since; its latest runs were cut short by the
+  account's Actions minutes, so the full suite was run locally on Windows
+  under numpy 2.5 and 1.26.)
 
 ### Known gaps
 - HDF4 szip, zstd dictionaries, blosc2 variable-length blocks; reading

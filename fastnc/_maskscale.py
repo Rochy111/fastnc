@@ -607,6 +607,12 @@ def _plan(self, dtype, warn):
         opts[O_L2F4] = l2.itemsize == 4
         p.out_dtype = l2
     p.sf, p.off = sf, off
+    # a NaN scale_factor / add_offset: what NaN times a NaN gives (whose
+    # payload) is up to how the compiler that built numpy ordered the
+    # operands (MSVC and gcc builds differ), which no kernel can promise to
+    # follow: numpy itself does the work then (run_plan_numpy)
+    used = ([sf] if p.mode in (MODE_MUL, MODE_MULADD) else []) +         ([off] if p.mode in (MODE_ADD, MODE_MULADD) else [])
+    p.nan_const = any(bool(numpy.isnan(numpy.asarray(c, numpy.float64))) for c in used)
     p.opts, p.sc, p.xdt = opts, sc, xdt
     p.sc32 = sc.astype(numpy.float32)           # (exact where used: float32 values)
     return p
@@ -658,6 +664,8 @@ def finish(p, data, out, msk, stats, always_mask):
 def run_plan(p, raw, always_mask, threads=None):
     """The fast path: the kernel over raw (C-contiguous) on the pool."""
     from . import _pool
+    if p.nan_const:
+        return run_plan_numpy(p, raw, always_mask, threads)
     data = raw.view(p.view) if p.view is not None else raw
     x = data.reshape(-1)
     n = x.size

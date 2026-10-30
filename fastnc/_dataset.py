@@ -11,7 +11,10 @@ import os
 
 import numpy as np
 
-from . import _hdf5, _select
+from . import _hdf5, _readahead, _select
+
+FUSED = True                    # masked / scaled HDF5 reads through _fused when it can
+FUSED_LOAD_MIN = 32 << 20       # ... in load(): variables of at least this many raw bytes
 
 
 class _LazyRemote:
@@ -243,6 +246,25 @@ class Variable:
             return _gpu.read(self, key, threads=threads)
         k = key if isinstance(key, tuple) else (key,)
         bv = self._bv
+        if _readahead.ENABLED and hasattr(bv, '_reader') and _readahead.whole(k, bv.shape):
+            # whole variables read in the file's order: decoded several at a time
+            ra = self._group._readahead()
+            raw = ra.take(self)
+            if raw is None:
+                res = self._read(k, threads)
+                ra.note(self)
+                return res
+            box, post, drop = _select.normalize(k, bv.shape)
+            return self._post(raw, box, drop, threads)
+        return self._read(k, threads)
+
+    def _read(self, k, threads):
+        bv = self._bv
+        if FUSED and (self._mask or self._scale) and hasattr(bv, '_reader'):
+            from . import _fused                    # mask / scale while decoding
+            res = _fused.read(self, k, threads)
+            if res is not None:
+                return res
         box, post, drop = _select.normalize(k, bv.shape)
         if hasattr(bv, '_reader'):                  # the HDF5 reader takes any index
             raw = bv.read(k) if threads is None else bv.read(k, threads=threads)
@@ -287,6 +309,12 @@ class Group:
         self.dimensions = {name: Dimension(self, name, *_dim_info(d)) for name, d in bg.dimensions.items()}
         self.variables = {name: Variable(self, bv) for name, bv in bg.variables.items()}
         self.groups = {name: Group(dataset, sub, self) for name, sub in bg.groups.items()}
+
+    def _readahead(self):
+        ra = self.__dict__.get('_ra')
+        if ra is None:
+            ra = self.__dict__.setdefault('_ra', _readahead.Readahead(self))
+        return ra
 
     @property
     def path(self):
@@ -348,8 +376,20 @@ class Group:
         else:
             vs = [(n, self[n]) for n in names]
         raws = {}
+        fused = {}
+        if FUSED:
+            # big scaled variables of many chunks: masked / scaled while
+            # decoding, each on every core (faster than raw in the batch,
+            # then mask/scale: GOES-19 C02 269 -> ~176 ms)
+            from . import _fused
+            for k, v in vs:
+                if ((v._mask or v._scale) and getattr(v._bv, '_reader', None) is not None
+                        and _readahead._nbytes(v) >= FUSED_LOAD_MIN):
+                    r = _fused.read(v, (Ellipsis,), threads)
+                    if r is not None:
+                        fused[k] = r
         batch = [(k, v) for k, v in vs if getattr(v._bv, '_reader', None) is not None
-                 and v._bv.ds.type.cls in (0, 1, 4, 8) and v._bv.ds.shape]
+                 and k not in fused and v._bv.ds.type.cls in (0, 1, 4, 8) and v._bv.ds.shape]
         if batch:
             from ._h5read import read_many
             for (k, v), a in zip(batch, read_many([v._bv._reader for _, v in batch], threads=threads)):
@@ -361,7 +401,7 @@ class Group:
                 if a is not None:
                     raws[k] = a
         out = {}
-        rest = [(k, v) for k, v in vs if k not in raws]
+        rest = [(k, v) for k, v in vs if k not in raws and k not in fused]
         if len(rest) > 1:
             # the others (netCDF-3, special types) read concurrently on the pool:
             # each read stays parallel inside, and many small variables no
@@ -375,7 +415,9 @@ class Group:
         else:
             got = {k: v.read(Ellipsis, threads=threads) for k, v in rest}
         for k, v in vs:
-            if k in got:
+            if k in fused:
+                out[k] = fused[k]
+            elif k in got:
                 out[k] = got[k]
             else:
                 out[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads)

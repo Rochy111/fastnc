@@ -95,6 +95,22 @@ def fn_all(p, masked):
         d.load(recursive=True)
 
 
+def fn_loop(p, masked):
+    """fastnc as a drop-in for netCDF4-python: the same loop as nc4_all."""
+    import fastnc
+    with fastnc.Dataset(p) as d:
+        def walk(g):
+            for v in g.variables.values():
+                v.set_auto_maskandscale(masked)
+                try:
+                    v[...]
+                except Exception:
+                    pass
+            for s in g.groups.values():
+                walk(s)
+        walk(d)
+
+
 def xr_load(p, engine):
     import xarray as xr
     with xr.open_dataset(p, engine=engine) as ds:
@@ -127,12 +143,13 @@ FIRST = r'''
 import sys, time
 t = time.perf_counter()
 lib, p, v = sys.argv[1:4]
+masked = len(sys.argv) > 4
 if lib == 'fastnc':
     import fastnc
-    d = fastnc.Dataset(p); x = d[v]; x.set_auto_maskandscale(False); x[...]
+    d = fastnc.Dataset(p); x = d[v]; x.set_auto_maskandscale(masked); x[...]
 elif lib == 'netCDF4':
     import netCDF4
-    d = netCDF4.Dataset(p); x = d[v]; x.set_auto_maskandscale(False); x[...]
+    d = netCDF4.Dataset(p); x = d[v]; x.set_auto_maskandscale(masked); x[...]
 elif lib == 'fastnc.File':
     import fastnc
     f = fastnc.File(p); f[v][()]
@@ -143,15 +160,19 @@ print((time.perf_counter() - t) * 1e3)
 '''
 
 
-def first_call(lib, p, v):
+def first_call(lib, p, v, masked=False):
+    """Best of three fresh processes."""
     env = dict(os.environ)
     env.pop('PYTHONDONTWRITEBYTECODE', None)
-    out = subprocess.run([sys.executable, '-c', FIRST, lib, p, v], capture_output=True, text=True,
-                         cwd=ROOT, env=env)
-    try:
-        return float(out.stdout.strip().splitlines()[-1])
-    except Exception:
-        return None
+    got = []
+    for _ in range(3):
+        out = subprocess.run([sys.executable, '-c', FIRST, lib, p, v] + (['masked'] if masked else []),
+                             capture_output=True, text=True, cwd=ROOT, env=env)
+        try:
+            got.append(float(out.stdout.strip().splitlines()[-1]))
+        except Exception:
+            pass
+    return min(got) if got else None
 
 
 def machine():
@@ -204,6 +225,9 @@ def main():
             r['all_masked'] = dict(zip(['fastnc', 'netCDF4'], t))
         except Exception as e:
             r['all_masked'] = {'error': repr(e)[:100]}
+        r['all_raw']['fastnc loop'] = best([lambda: fn_loop(p, False)], max(2, n // 2))[0]
+        if 'error' not in r['all_masked']:
+            r['all_masked']['fastnc loop'] = best([lambda: fn_loop(p, True)], max(2, n // 2))[0]
         fastnc.set_threads(1)
         r['all_raw_1thread'] = best([lambda: fn_all(p, False)], max(2, n // 2))[0]
         fastnc.set_threads(None)
@@ -226,6 +250,7 @@ def main():
         r['var_raw_1thread'] = best([lambda: one('fastnc', p, v, Ellipsis, False)], n)[0]
         fastnc.set_threads(None)
         r['first_call'] = {l: first_call(l, p, v) for l in libs}
+        r['first_call_masked'] = {l: first_call(l, p, v, True) for l in ('fastnc', 'netCDF4')}
         if a.gpu:
             import cupy as cp
 
