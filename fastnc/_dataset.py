@@ -220,21 +220,29 @@ class Variable:
             return _gpu.read(self, key, threads=threads)
         k = key if isinstance(key, tuple) else (key,)
         bv = self._bv
+        box, post, drop = _select.normalize(k, bv.shape)
         if hasattr(bv, '_reader'):                  # the HDF5 reader takes any index
             raw = bv.read(k) if threads is None else bv.read(k, threads=threads)
         else:
             # other backends read boxes (contract section 2): reduce the index
             # here, and apply the rest (dropped, reversed, picked) afterwards
-            box, post, drop = _select.normalize(k, bv.shape)
             raw = bv.read(tuple(slice(s, e, st) for s, e, st in box))
             raw = _select.finish(raw, post, drop)
-        chars = self._chartostring and self._bv.dtype == np.dtype('S1') and '_Encoding' in self._bv.attrs
+        return self._post(raw, box, drop, threads)
+
+    def _post(self, raw, box, drop, threads=None):
+        """netCDF4-python's masking / scaling / char conversion of raw values."""
+        bv = self._bv
+        chars = self._chartostring and bv.dtype == np.dtype('S1') and '_Encoding' in bv.attrs
         if not (self._mask or self._scale or chars):
             return raw
         from . import _maskscale
-        return _maskscale.apply(raw, self._bv.attrs, self._bv.dtype, mask=self._mask,
-                                scale=self._scale, always_mask=self._always_mask,
-                                chartostring=self._chartostring)
+        dt = self.datatype
+        return _maskscale.apply(raw, bv.attrs, bv.dtype, mask=self._mask, scale=self._scale,
+                                always_mask=self._always_mask, chartostring=self._chartostring,
+                                var_dtype=None if isinstance(dt, np.dtype) or dt is str else dt,
+                                no_fill=getattr(bv, 'no_fill', False), var_shape=tuple(bv.shape),
+                                key=_norm_key(box, drop), threads=threads)
 
     def __array__(self, dtype=None, copy=None):
         a = np.asarray(self[...])
@@ -328,14 +336,7 @@ class Group:
             if k not in raws:
                 out[k] = v.read(Ellipsis, threads=threads)
                 continue
-            raw = raws[k]
-            chars = v._chartostring and v._bv.dtype == np.dtype('S1') and '_Encoding' in v._bv.attrs
-            if not (v._mask or v._scale or chars):
-                out[k] = raw
-                continue
-            from . import _maskscale
-            out[k] = _maskscale.apply(raw, v._bv.attrs, v._bv.dtype, mask=v._mask, scale=v._scale,
-                                      always_mask=v._always_mask, chartostring=v._chartostring)
+            out[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads)
         return out
 
     def set_auto_maskandscale(self, flag):
@@ -378,6 +379,11 @@ class Group:
     def __repr__(self):
         return "<class 'fastnc.Group'>\ngroup %s:\n    dimensions: %s\n    variables: %s\n    groups: %s" % (
             self.path, ', '.join(self.dimensions), ', '.join(self.variables), ', '.join(self.groups))
+
+
+def _norm_key(box, drop):
+    """The index read, one int (dropped dimension) or slice per dimension."""
+    return tuple(s if i in drop else slice(s, e, st) for i, (s, e, st) in enumerate(box))
 
 
 def _dim_info(d):

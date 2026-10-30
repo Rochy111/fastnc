@@ -101,7 +101,8 @@ def read(var, key, threads=None):
     cp = _cupy()
     bv = var._bv
     dt = bv.dtype
-    if dt is str or np.dtype(dt).kind in 'OSUV' or np.dtype(dt).fields is not None:
+    if (dt is str or not isinstance(var.datatype, np.dtype) or np.dtype(dt).kind in 'OSUV'
+            or np.dtype(dt).fields is not None):
         return _host_then_upload(var, key, threads)
     shape = var.shape
     box, post, drop = _select.normalize(key if isinstance(key, tuple) else (key,), shape)
@@ -126,31 +127,32 @@ def read(var, key, threads=None):
                 hb, db = host[lo:hi], dev[lo:hi]
             else:
                 hb, db = host, dev
-            bv.read(tuple(slice(s, e, k) for s, e, k in b), out=hb, threads=threads)
+            bk = tuple(slice(s, e, k) for s, e, k in b)
+            if hasattr(bv, '_reader'):
+                bv.read(bk, out=hb, threads=threads)
+            else:
+                bv.read(bk, out=hb)
             db.set(hb, stream=stream)               # async from pinned memory
         stream.synchronize()
     if drop:
         dev = dev.reshape([n for d, n in enumerate(oshape) if d not in drop])
-    return _post(var, dev)
+    return _post(var, dev, box, drop)
 
 
-def _post(var, dev):
-    """The mask / scale step on the card."""
+def _post(var, dev, box=None, drop=()):
+    """The mask / scale step on the card (fastnc._maskscale_gpu: the same
+    values as the CPU rule)."""
     bv = var._bv
     if not (var._mask or var._scale):
         return dev
-    try:
-        from . import _maskscale_gpu
-    except ImportError:
-        # until the GPU kernel is in: the CPU rule, uploaded (same values)
-        from . import _maskscale
-        cp = _cupy()
-        res = _maskscale.apply(cp.asnumpy(dev), bv.attrs, bv.dtype, mask=var._mask,
-                               scale=var._scale, always_mask=var._always_mask,
-                               chartostring=var._chartostring)
-        return _upload_result(res)
+    from . import _maskscale_gpu
+    from ._dataset import _norm_key
+    dt = var.datatype
     return _maskscale_gpu.apply(dev, bv.attrs, bv.dtype, mask=var._mask, scale=var._scale,
-                                always_mask=var._always_mask)
+                                always_mask=var._always_mask, chartostring=var._chartostring,
+                                var_dtype=None if isinstance(dt, np.dtype) or dt is str else dt,
+                                no_fill=getattr(bv, 'no_fill', False), var_shape=tuple(bv.shape),
+                                key=_norm_key(box, drop) if box is not None else None)
 
 
 def _upload_result(res):
@@ -171,6 +173,5 @@ def _host_then_upload(var, key, threads):
         res = var.read(key, threads=threads)
     finally:
         var.__dict__['_device'] = old
-    if isinstance(res, np.ndarray) and res.dtype.kind not in 'OSUV':
-        return cp.asarray(res)
-    return res
+    from ._maskscale_gpu import to_gpu
+    return to_gpu(res)
