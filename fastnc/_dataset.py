@@ -180,8 +180,8 @@ class Variable:
     def chunking(self):
         c = self._bv.chunks
         if c is None:
-            # netCDF-4 contiguous storage says so; netCDF-3 has no storage choice (None)
-            return 'contiguous' if self._group._dataset.disk_format == 'HDF5' else None
+            # netCDF-4 / HDF4 contiguous storage says so; netCDF-3 has no choice (None)
+            return None if self._group._dataset.disk_format in ('NETCDF3', 'CDF5') else 'contiguous'
         return list(c)
 
     def endian(self):
@@ -422,7 +422,8 @@ class Dataset(Group):
             self.disk_format = 'HDF5'
         elif fmt == 'HDF4':
             from ._hdf4 import HDF4File
-            self._backend = HDF4File(self._mm, src, self._filepath)
+            self._fh, self._mm = _open_bytes(self._filepath)
+            self._backend = HDF4File(self._mm, np.frombuffer(self._mm, np.uint8), self._filepath)
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF4'
         else:

@@ -158,7 +158,7 @@ class FastncBackendEntrypoint(BackendEntrypoint):
                     head = f.read(8)
             except OSError:
                 return False
-            return head.startswith((b'CDF', b'\x89HDF\r\n\x1a\n'))
+            return head.startswith((b'CDF', b'\x89HDF\r\n\x1a\n', b'\x0e\x03\x13\x01'))
         return False
 
     def open_dataset(self, filename_or_obj, *, mask_and_scale=True, decode_times=True,
