@@ -127,3 +127,23 @@ def test_fused_attribute_combinations(name, monkeypatch):
     assert not bad, bad[:5]
     if name in ('nc4.nc', 'nc4_classic.nc', 'filters.h5', 'idx_latest.h5'):
         assert calls                                # (these files have such variables)
+
+
+@pytest.mark.parametrize('name', FILES)
+def test_load_with_fused_equals_plain(name, monkeypatch):
+    """Group.load() taking big scaled variables through the fused path
+    (every size here) gives what it gives without."""
+    fastnc.warm()
+    monkeypatch.setattr(_maskscale, 'FAST_MIN_SIZE', 1)
+    monkeypatch.setattr(_dataset, 'FUSED_LOAD_MIN', 0)
+    path = os.path.join(DATA, name)
+    out = {}
+    for fused in (False, True):
+        monkeypatch.setattr(_dataset, 'FUSED', fused)
+        with fastnc.Dataset(path) as ds:
+            try:
+                got = ds.load(recursive=True, threads=2)
+            except Exception as e:
+                got = {'raised': type(e).__name__}
+            out[fused] = {k: _outcome(lambda v=v: v)[0] for k, v in got.items()}
+    assert out[True] == out[False]

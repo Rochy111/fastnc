@@ -47,7 +47,7 @@ test corpus (`tests/data`: every layout, chunk index, group and attribute
 storage, datatype and filter), of a synthetic corpus and of real WRF and
 satellite files (MODIS, VIIRS, Metop-SG, AVHRR, RCM, a Ku-band
 scatterometer) with what netCDF4-python and h5py read, from stored
-digests: 7,640 tests, raw and masked, on numpy 1 and 2 (each test a
+digests: about 6,900 tests, raw and masked, on numpy 1 and 2 (each test a
 variable or object, whole and in three selections). The GOES-19 ABI files
 (not in the repository) were checked the same way against both readers
 directly, with `tools/check/`.
@@ -61,163 +61,186 @@ cache, each read once before timing (flushing the cache needs admin rights
 on Windows: cold-cache reads were not measured); best of 5 runs with the
 readers alternated run by run; raw reads with mask and scale off; fastnc
 on every logical CPU unless a row says 1 thread; "first read" is a fresh
-Python process, timed from just before the import. Every variable of every
+Python process, timed from just before the import, best of three
+processes (numba is never loaded there: see below). Every variable of every
 file means every variable of every group. The files: the user's own WRF
 runs (wrfout d01 netCDF-4 deflate+shuffle; d02 netCDF-3) and satellite
 products as distributed (MODIS L1B, VIIRS, Metop-SG VII, AVHRR, RCM, a
 Ku-band scatterometer, GOES-19 ABI full disk from NOAA's S3 bucket).
 
-Measured 2026-10-29 22:53: Intel64 Family 6 Model 183 Stepping 1, GenuineIntel, 24 logical CPUs, NVIDIA GeForce RTX 5070 Ti; Python 3.12.16, numpy 2.5.4, numba 0.68.0; h5py 3.16.0, netCDF4 1.7.4, xarray 2026.9.0, h5netcdf 1.8.2, cupy 14.2.0.
+Measured 2026-10-30 02:30: Intel64 Family 6 Model 183 Stepping 1, GenuineIntel, 24 logical CPUs, NVIDIA GeForce RTX 5070 Ti; Python 3.12.16, numpy 2.5.4, numba 0.68.0; h5py 3.16.0, netCDF4 1.7.4, xarray 2026.9.0, h5netcdf 1.8.2, cupy 14.2.0.
 
-**Whole file, every variable, raw (ms)**
+**Whole file, every variable, raw (ms; fastnc: Dataset.load() and the same loop over variables as netCDF4-python, which its ratio is to)**
 
-| file | fastnc | netCDF4 | h5py |
-|---|---|---|---|
-| WRF d01 netCDF4 | 48.3 | 546 (11.3x) | 518 (10.7x) |
-| WRF d02 netCDF3 | 80.9 | 405 (5.0x) | - |
-| MODIS 1 km L1B | 52.9 | 959 (18.1x) | 965 (18.2x) |
-| MODIS 250 m L1B | 46.6 | 903 (19.4x) | 900 (19.3x) |
-| VIIRS I-band | 73.6 | 1886 (25.6x) | 1703 (23.2x) |
-| Metop-SG VII | 27.2 | 135 (5.0x) | 101 (3.7x) |
-| AVHRR HRPT | 9.7 | 193 (19.8x) | 191 (19.6x) |
-| RCM SAR winds | 6.6 | 43.9 (6.6x) | 39.9 (6.0x) |
-| Ku scatterometer | 18.4 | 72.5 (3.9x) | 62.1 (3.4x) |
-| GOES-19 ABI RadF C02 | 104 | 2549 (24.5x) | 2448 (23.5x) |
-| GOES-19 ABI RadF C13 | 10.9 | 161 (14.8x) | 153 (14.1x) |
+| file | fastnc | fastnc loop | netCDF4 | h5py |
+|---|---|---|---|---|
+| WRF d01 netCDF4 | 47.6 | 65.8 | 541 (8.2x) | 501 (10.5x) |
+| WRF d02 netCDF3 | 62.3 | 76.2 | 425 (5.6x) | - |
+| MODIS 1 km L1B | 54.4 | 92.7 | 955 (10.3x) | 956 (17.6x) |
+| MODIS 250 m L1B | 49.7 | 59.4 | 889 (15.0x) | 891 (17.9x) |
+| VIIRS I-band | 77.8 | 99.0 | 1948 (19.7x) | 1738 (22.3x) |
+| Metop-SG VII | 29.4 | 36.5 | 131 (3.6x) | 102 (3.5x) |
+| AVHRR HRPT | 13.1 | 15.8 | 198 (12.6x) | 196 (14.9x) |
+| RCM SAR winds | 6.6 | 8.7 | 45.0 (5.2x) | 42.6 (6.4x) |
+| Ku scatterometer | 16.2 | 23.7 | 75.0 (3.2x) | 62.3 (3.8x) |
+| GOES-19 ABI RadF C02 | 113 | 117 | 2585 (22.0x) | 2476 (21.9x) |
+| GOES-19 ABI RadF C13 | 10.8 | 13.4 | 165 (12.3x) | 160 (14.8x) |
 
 **Whole file, masked and scaled as netCDF4-python does by default (ms)**
 
-| file | fastnc | netCDF4 |
-|---|---|---|
-| WRF d01 netCDF4 | 99.0 | 608 (6.1x) |
-| WRF d02 netCDF3 | 128 | 515 (4.0x) |
-| MODIS 1 km L1B | 121 | 1185 (9.8x) |
-| MODIS 250 m L1B | 73.0 | 1078 (14.8x) |
-| VIIRS I-band | 149 | 3160 (21.2x) |
-| Metop-SG VII | 58.5 | 307 (5.3x) |
-| AVHRR HRPT | 26.6 | 224 (8.4x) |
-| RCM SAR winds | 13.4 | 48.1 (3.6x) |
-| Ku scatterometer | 21.6 | 78.1 (3.6x) |
-| GOES-19 ABI RadF C02 | 178 | 5032 (28.2x) |
-| GOES-19 ABI RadF C13 | 23.1 | 324 (14.1x) |
+| file | fastnc | fastnc loop | netCDF4 |
+|---|---|---|---|
+| WRF d01 netCDF4 | 86.0 | 98.9 | 592 (6.0x) |
+| WRF d02 netCDF3 | 93.4 | 125 | 547 (4.4x) |
+| MODIS 1 km L1B | 85.1 | 114 | 1178 (10.4x) |
+| MODIS 250 m L1B | 85.1 | 69.1 | 1053 (15.2x) |
+| VIIRS I-band | 148 | 179 | 3192 (17.8x) |
+| Metop-SG VII | 58.7 | 63.2 | 311 (4.9x) |
+| AVHRR HRPT | 25.1 | 21.7 | 226 (10.4x) |
+| RCM SAR winds | 12.0 | 14.6 | 49.1 (3.4x) |
+| Ku scatterometer | 22.3 | 29.2 | 81.3 (2.8x) |
+| GOES-19 ABI RadF C02 | 269 | 176 | 5565 (31.7x) |
+| GOES-19 ABI RadF C13 | 21.6 | 21.6 | 324 (15.0x) |
 
 **Open + one variable, raw (ms; fastnc.Dataset vs netCDF4, fastnc.File vs h5py)**
 
 | file | fastnc | netCDF4 | fastnc.File | h5py |
 |---|---|---|---|---|
-| WRF d01 netCDF4 | 12.7 | 45.7 (3.6x) | 6.0 | 27.0 (4.5x) |
-| WRF d02 netCDF3 | 3.3 | 17.8 (5.4x) | - | - |
-| MODIS 1 km L1B | 26.6 | 320 (12.0x) | 24.1 | 321 (13.3x) |
-| MODIS 250 m L1B | 42.5 | 652 (15.3x) | 38.4 | 652 (17.0x) |
-| VIIRS I-band | 12.6 | 181 (14.4x) | 9.5 | 176 (18.4x) |
-| Metop-SG VII | 7.4 | 19.5 (2.6x) | 2.5 | 4.4 (1.8x) |
-| AVHRR HRPT | 2.4 | 17.6 (7.3x) | 2.1 | 15.2 (7.4x) |
-| RCM SAR winds | 2.3 | 6.0 (2.6x) | 1.3 | 2.4 (1.8x) |
-| Ku scatterometer | 4.8 | 18.3 (3.8x) | 2.6 | 11.7 (4.6x) |
-| GOES-19 ABI RadF C02 | 91.4 | 2131 (23.3x) | 90.7 | 2104 (23.2x) |
-| GOES-19 ABI RadF C13 | 9.5 | 132 (13.9x) | 7.9 | 125 (15.8x) |
+| WRF d01 netCDF4 | 12.7 | 47.5 (3.7x) | 6.0 | 27.6 (4.6x) |
+| WRF d02 netCDF3 | 3.1 | 18.3 (5.8x) | - | - |
+| MODIS 1 km L1B | 26.2 | 324 (12.4x) | 24.0 | 321 (13.4x) |
+| MODIS 250 m L1B | 43.8 | 648 (14.8x) | 42.8 | 648 (15.1x) |
+| VIIRS I-band | 11.9 | 180 (15.2x) | 10.2 | 172 (16.8x) |
+| Metop-SG VII | 7.5 | 18.2 (2.4x) | 2.7 | 4.4 (1.7x) |
+| AVHRR HRPT | 2.6 | 18.1 (7.0x) | 2.5 | 15.7 (6.4x) |
+| RCM SAR winds | 2.3 | 6.0 (2.6x) | 1.4 | 2.5 (1.8x) |
+| Ku scatterometer | 4.3 | 18.4 (4.2x) | 2.5 | 11.9 (4.7x) |
+| GOES-19 ABI RadF C02 | 115 | 2169 (18.9x) | 101 | 2137 (21.1x) |
+| GOES-19 ABI RadF C13 | 10.6 | 136 (12.8x) | 7.9 | 130 (16.5x) |
 
 **Open + one variable, masked and scaled (ms)**
 
 | file | fastnc | netCDF4 |
 |---|---|---|
-| WRF d01 netCDF4 | 14.2 | 47.4 (3.3x) |
-| WRF d02 netCDF3 | 3.9 | 21.6 (5.6x) |
-| MODIS 1 km L1B | 31.5 | 367 (11.6x) |
-| MODIS 250 m L1B | 50.3 | 739 (14.7x) |
-| VIIRS I-band | 18.8 | 347 (18.5x) |
-| Metop-SG VII | 8.8 | 26.3 (3.0x) |
-| AVHRR HRPT | 3.6 | 22.5 (6.3x) |
-| RCM SAR winds | 2.7 | 6.1 (2.3x) |
-| Ku scatterometer | 4.9 | 18.7 (3.8x) |
-| GOES-19 ABI RadF C02 | 149 | 4101 (27.5x) |
-| GOES-19 ABI RadF C13 | 15.6 | 256 (16.3x) |
+| WRF d01 netCDF4 | 13.8 | 49.0 (3.5x) |
+| WRF d02 netCDF3 | 4.2 | 22.4 (5.4x) |
+| MODIS 1 km L1B | 31.6 | 375 (11.9x) |
+| MODIS 250 m L1B | 50.7 | 738 (14.5x) |
+| VIIRS I-band | 15.6 | 344 (22.0x) |
+| Metop-SG VII | 7.2 | 25.9 (3.6x) |
+| AVHRR HRPT | 3.9 | 23.4 (6.0x) |
+| RCM SAR winds | 2.8 | 6.1 (2.2x) |
+| Ku scatterometer | 4.4 | 18.3 (4.2x) |
+| GOES-19 ABI RadF C02 | 147 | 4205 (28.5x) |
+| GOES-19 ABI RadF C13 | 13.1 | 265 (20.2x) |
 
 **Open + a window of it (ms)**
 
 | file | fastnc | netCDF4 | fastnc.File | h5py |
 |---|---|---|---|---|
-| WRF d01 netCDF4 | 11.5 | 24.2 (2.1x) | 4.3 | 6.1 (1.4x) |
-| WRF d02 netCDF3 | 1.8 | 4.5 (2.5x) | - | - |
-| MODIS 1 km L1B | 13.6 | 117 (8.6x) | 11.9 | 112 (9.5x) |
-| MODIS 250 m L1B | 8.0 | 121 (15.1x) | 7.5 | 120 (15.9x) |
-| VIIRS I-band | 4.0 | 11.8 (3.0x) | 2.1 | 7.8 (3.8x) |
-| Metop-SG VII | 6.7 | 14.1 (2.1x) | 1.6 | 1.8 (1.1x) |
-| AVHRR HRPT | 1.9 | 5.8 (3.0x) | 1.4 | 3.4 (2.4x) |
-| RCM SAR winds | 2.0 | 5.6 (2.9x) | 1.0 | 2.2 (2.1x) |
-| Ku scatterometer | 3.9 | 10.0 (2.5x) | 1.7 | 3.9 (2.3x) |
-| GOES-19 ABI RadF C02 | 7.1 | 58.4 (8.2x) | 4.7 | 51.1 (11.0x) |
-| GOES-19 ABI RadF C13 | 3.8 | 13.3 (3.5x) | 2.2 | 7.1 (3.2x) |
+| WRF d01 netCDF4 | 10.9 | 24.5 (2.3x) | 4.4 | 6.4 (1.4x) |
+| WRF d02 netCDF3 | 2.1 | 4.8 (2.3x) | - | - |
+| MODIS 1 km L1B | 13.9 | 118 (8.5x) | 11.1 | 115 (10.3x) |
+| MODIS 250 m L1B | 7.9 | 123 (15.6x) | 7.0 | 121 (17.3x) |
+| VIIRS I-band | 3.8 | 12.1 (3.2x) | 2.2 | 7.8 (3.5x) |
+| Metop-SG VII | 5.9 | 14.7 (2.5x) | 1.5 | 1.5 (1.0x) |
+| AVHRR HRPT | 2.0 | 5.9 (3.0x) | 1.5 | 3.6 (2.3x) |
+| RCM SAR winds | 1.9 | 5.7 (2.9x) | 1.1 | 2.2 (2.0x) |
+| Ku scatterometer | 3.5 | 10.2 (2.9x) | 1.6 | 3.9 (2.4x) |
+| GOES-19 ABI RadF C02 | 6.8 | 57.6 (8.4x) | 4.6 | 52.4 (11.3x) |
+| GOES-19 ABI RadF C13 | 3.7 | 12.3 (3.3x) | 2.1 | 7.3 (3.5x) |
 
 **xarray.open_dataset(...).load(), by engine (ms)**
 
 | file | fastnc | netcdf4 | h5netcdf | scipy |
 |---|---|---|---|---|
-| WRF d01 netCDF4 | 174 | 601 (3.5x) | 11121 (64.0x) | - |
-| WRF d02 netCDF3 | 102 | 442 (4.3x) | - | 421 (4.1x) |
-| MODIS 1 km L1B | 6.0 | 8.5 (1.4x) | 23.2 (3.9x) | - |
-| MODIS 250 m L1B | 4.5 | 7.5 (1.7x) | 18.6 (4.1x) | - |
-| VIIRS I-band | 2.4 | 5.4 (2.3x) | 5.3 (2.2x) | - |
-| Metop-SG VII | 5.6 | 14.1 (2.5x) | 2.7 (0.5x) | - |
-| AVHRR HRPT | 43.3 | 241 (5.6x) | 257 (5.9x) | - |
-| RCM SAR winds | 33.1 | 58.5 (1.8x) | 118 (3.6x) | - |
-| Ku scatterometer | 76.7 | 96.3 (1.3x) | 1186 (15.5x) | - |
-| GOES-19 ABI RadF C02 | 889 | 4993 (5.6x) | 4967 (5.6x) | - |
-| GOES-19 ABI RadF C13 | 77.2 | 319 (4.1x) | 374 (4.8x) | - |
+| WRF d01 netCDF4 | 89.9 | 598 (6.7x) | 11540 (128.4x) | - |
+| WRF d02 netCDF3 | 101 | 457 (4.5x) | - | 409 (4.0x) |
+| MODIS 1 km L1B | 4.8 | 9.1 (1.9x) | 25.7 (5.4x) | - |
+| MODIS 250 m L1B | 4.0 | 7.3 (1.8x) | 18.7 (4.7x) | - |
+| VIIRS I-band | 2.2 | 6.3 (2.9x) | 5.5 (2.5x) | - |
+| Metop-SG VII | 5.5 | 15.2 (2.7x) | 2.3 (0.4x) | - |
+| AVHRR HRPT | 44.0 | 243 (5.5x) | 263 (6.0x) | - |
+| RCM SAR winds | 23.4 | 59.4 (2.5x) | 123 (5.3x) | - |
+| Ku scatterometer | 35.3 | 92.2 (2.6x) | 1197 (33.9x) | - |
+| GOES-19 ABI RadF C02 | 940 | 5036 (5.4x) | 4939 (5.3x) | - |
+| GOES-19 ABI RadF C13 | 75.6 | 334 (4.4x) | 390 (5.2x) | - |
 
-**First read in a fresh process: import + open + one variable (ms)**
+**First read in a fresh process: import + open + one variable, raw (ms)**
 
 | file | fastnc | netCDF4 | fastnc.File | h5py |
 |---|---|---|---|---|
-| WRF d01 netCDF4 | 232 | 261 (1.1x) | 198 | 275 (1.4x) |
-| WRF d02 netCDF3 | 199 | 241 (1.2x) | - | - |
-| MODIS 1 km L1B | 304 | 535 (1.8x) | 300 | 561 (1.9x) |
-| MODIS 250 m L1B | 332 | 903 (2.7x) | 318 | 896 (2.8x) |
-| VIIRS I-band | 239 | 407 (1.7x) | 235 | 446 (1.9x) |
-| Metop-SG VII | 216 | 240 (1.1x) | 197 | 268 (1.4x) |
-| AVHRR HRPT | 185 | 240 (1.3x) | 182 | 260 (1.4x) |
-| RCM SAR winds | 173 | 212 (1.2x) | 173 | 235 (1.4x) |
-| Ku scatterometer | 206 | 224 (1.1x) | 200 | 247 (1.2x) |
-| GOES-19 ABI RadF C02 | 677 | 2347 (3.5x) | 660 | 2334 (3.5x) |
-| GOES-19 ABI RadF C13 | 251 | 359 (1.4x) | 221 | 374 (1.7x) |
+| WRF d01 netCDF4 | 198 | 264 (1.3x) | 187 | 289 (1.5x) |
+| WRF d02 netCDF3 | 185 | 231 (1.2x) | - | - |
+| MODIS 1 km L1B | 252 | 545 (2.2x) | 247 | 580 (2.3x) |
+| MODIS 250 m L1B | 266 | 874 (3.3x) | 260 | 913 (3.5x) |
+| VIIRS I-band | 201 | 393 (2.0x) | 201 | 449 (2.2x) |
+| Metop-SG VII | 191 | 243 (1.3x) | 191 | 250 (1.3x) |
+| AVHRR HRPT | 176 | 228 (1.3x) | 178 | 266 (1.5x) |
+| RCM SAR winds | 185 | 221 (1.2x) | 172 | 251 (1.5x) |
+| Ku scatterometer | 219 | 228 (1.0x) | 217 | 255 (1.2x) |
+| GOES-19 ABI RadF C02 | 459 | 2349 (5.1x) | 453 | 2370 (5.2x) |
+| GOES-19 ABI RadF C13 | 203 | 354 (1.7x) | 200 | 389 (1.9x) |
+
+**First read in a fresh process, masked and scaled (the default) (ms)**
+
+| file | fastnc | netCDF4 |
+|---|---|---|
+| WRF d01 netCDF4 | 204 | 266 (1.3x) |
+| WRF d02 netCDF3 | 187 | 232 (1.2x) |
+| MODIS 1 km L1B | 304 | 603 (2.0x) |
+| MODIS 250 m L1B | 316 | 960 (3.0x) |
+| VIIRS I-band | 239 | 567 (2.4x) |
+| Metop-SG VII | 197 | 244 (1.2x) |
+| AVHRR HRPT | 194 | 242 (1.2x) |
+| RCM SAR winds | 187 | 220 (1.2x) |
+| Ku scatterometer | 227 | 242 (1.1x) |
+| GOES-19 ABI RadF C02 | 731 | 5029 (6.9x) |
+| GOES-19 ABI RadF C13 | 246 | 533 (2.2x) |
 
 **One variable, masked and scaled, to a cupy array (ms)**
 
 | file | fastnc gpu | fastnc cpu+upload | netCDF4+upload |
 |---|---|---|---|
-| WRF d01 netCDF4 | 14.1 | 14.9 (1.1x) | 47.0 (3.3x) |
-| WRF d02 netCDF3 | 4.6 | 5.9 (1.3x) | 24.0 (5.2x) |
-| MODIS 1 km L1B | 28.4 | 34.0 (1.2x) | 375 (13.2x) |
-| MODIS 250 m L1B | 43.5 | 57.0 (1.3x) | 749 (17.2x) |
-| VIIRS I-band | 20.8 | 28.7 (1.4x) | 362 (17.4x) |
-| Metop-SG VII | 8.3 | 9.3 (1.1x) | 26.1 (3.1x) |
-| AVHRR HRPT | 3.0 | 5.0 (1.7x) | 25.0 (8.3x) |
-| RCM SAR winds | 3.1 | 3.3 (1.1x) | 6.4 (2.1x) |
-| Ku scatterometer | 5.2 | 4.8 (0.9x) | 18.5 (3.5x) |
-| GOES-19 ABI RadF C02 | 138 | 277 (2.0x) | 4235 (30.6x) |
-| GOES-19 ABI RadF C13 | 12.5 | 22.2 (1.8x) | 266 (21.3x) |
+| WRF d01 netCDF4 | 14.7 | 14.4 (1.0x) | 50.2 (3.4x) |
+| WRF d02 netCDF3 | 5.1 | 6.6 (1.3x) | 25.0 (4.9x) |
+| MODIS 1 km L1B | 29.1 | 34.8 (1.2x) | 380 (13.1x) |
+| MODIS 250 m L1B | 48.6 | 58.2 (1.2x) | 760 (15.7x) |
+| VIIRS I-band | 15.2 | 28.7 (1.9x) | 355 (23.3x) |
+| Metop-SG VII | 8.7 | 7.6 (0.9x) | 25.8 (3.0x) |
+| AVHRR HRPT | 4.3 | 5.4 (1.3x) | 24.9 (5.8x) |
+| RCM SAR winds | 3.6 | 2.9 (0.8x) | 7.3 (2.0x) |
+| Ku scatterometer | 5.3 | 4.8 (0.9x) | 19.4 (3.7x) |
+| GOES-19 ABI RadF C02 | 118 | 292 (2.5x) | 4378 (37.2x) |
+| GOES-19 ABI RadF C13 | 11.9 | 21.8 (1.8x) | 279 (23.4x) |
 
 **fastnc, whole file raw: every core vs one (ms)**
 
 | file | all threads | 1 thread |
 |---|---|---|
-| WRF d01 netCDF4 | 48.3 | 272 (5.6x) |
-| WRF d02 netCDF3 | 80.9 | 170 (2.1x) |
-| MODIS 1 km L1B | 52.9 | 541 (10.2x) |
-| MODIS 250 m L1B | 46.6 | 530 (11.4x) |
-| VIIRS I-band | 73.6 | 1025 (13.9x) |
-| Metop-SG VII | 27.2 | 45.7 (1.7x) |
-| AVHRR HRPT | 9.7 | 110 (11.3x) |
-| RCM SAR winds | 6.6 | 17.7 (2.7x) |
-| Ku scatterometer | 18.4 | 79.1 (4.3x) |
-| GOES-19 ABI RadF C02 | 104 | 1467 (14.1x) |
-| GOES-19 ABI RadF C13 | 10.9 | 97.2 (8.9x) |
+| WRF d01 netCDF4 | 47.6 | 275 (5.8x) |
+| WRF d02 netCDF3 | 62.3 | 179 (2.9x) |
+| MODIS 1 km L1B | 54.4 | 554 (10.2x) |
+| MODIS 250 m L1B | 49.7 | 530 (10.7x) |
+| VIIRS I-band | 77.8 | 1021 (13.1x) |
+| Metop-SG VII | 29.4 | 48.8 (1.7x) |
+| AVHRR HRPT | 13.1 | 109 (8.3x) |
+| RCM SAR winds | 6.6 | 19.4 (2.9x) |
+| Ku scatterometer | 16.2 | 81.0 (5.0x) |
+| GOES-19 ABI RadF C02 | 113 | 1715 (15.2x) |
+| GOES-19 ABI RadF C13 | 10.8 | 99.7 (9.2x) |
+
+"fastnc loop" is fastnc used as a drop-in: the same loop over variables
+as netCDF4-python's column (readahead decodes the following variables
+together); `Dataset.load()` decodes them all in one pass. (GOES-19 C02
+masked `load()` measured 269 ms here; it now takes the fused path for big
+scaled variables and runs at the loop's speed, ~160-176 ms.)
 
 The GPU pays where values are many and scaled (VIIRS, MODIS, GOES: the
-packed integers cross PCIe, float32 is made on the card): 1.2-2x over
-reading on the CPU and uploading the floats. For small or unscaled
-variables it is even, and for the Ku-band file's small arrays it loses
-(0.9x). Decompressing deflate on the card was measured and loses on every
+packed integers cross PCIe while the CPU decodes, float32 is made on the
+card): 1.2-2.5x over reading on the CPU and uploading the floats. For
+small or unscaled variables it is even, and for the small arrays of the
+Ku-band, Metop-SG and RCM files it loses (0.8-0.9x). Decompressing deflate on the card was measured and loses on every
 file (nVIDIA's nvCOMP: 142 ms for VIIRS where the CPU takes ~75 ms, 4.3 s
 for MODIS where it takes 0.1 s), so the CPU always decompresses. The first
 GPU call of a process takes ~9 s (CUDA and cupy starting), not counted

@@ -14,6 +14,7 @@ import numpy as np
 from . import _hdf5, _readahead, _select
 
 FUSED = True                    # masked / scaled HDF5 reads through _fused when it can
+FUSED_LOAD_MIN = 32 << 20       # ... in load(): variables of at least this many raw bytes
 
 
 class _LazyRemote:
@@ -375,8 +376,20 @@ class Group:
         else:
             vs = [(n, self[n]) for n in names]
         raws = {}
+        fused = {}
+        if FUSED:
+            # big scaled variables of many chunks: masked / scaled while
+            # decoding, each on every core (faster than raw in the batch,
+            # then mask/scale: GOES-19 C02 269 -> ~176 ms)
+            from . import _fused
+            for k, v in vs:
+                if ((v._mask or v._scale) and getattr(v._bv, '_reader', None) is not None
+                        and _readahead._nbytes(v) >= FUSED_LOAD_MIN):
+                    r = _fused.read(v, (Ellipsis,), threads)
+                    if r is not None:
+                        fused[k] = r
         batch = [(k, v) for k, v in vs if getattr(v._bv, '_reader', None) is not None
-                 and v._bv.ds.type.cls in (0, 1, 4, 8) and v._bv.ds.shape]
+                 and k not in fused and v._bv.ds.type.cls in (0, 1, 4, 8) and v._bv.ds.shape]
         if batch:
             from ._h5read import read_many
             for (k, v), a in zip(batch, read_many([v._bv._reader for _, v in batch], threads=threads)):
@@ -388,7 +401,7 @@ class Group:
                 if a is not None:
                     raws[k] = a
         out = {}
-        rest = [(k, v) for k, v in vs if k not in raws]
+        rest = [(k, v) for k, v in vs if k not in raws and k not in fused]
         if len(rest) > 1:
             # the others (netCDF-3, special types) read concurrently on the pool:
             # each read stays parallel inside, and many small variables no
@@ -402,7 +415,9 @@ class Group:
         else:
             got = {k: v.read(Ellipsis, threads=threads) for k, v in rest}
         for k, v in vs:
-            if k in got:
+            if k in fused:
+                out[k] = fused[k]
+            elif k in got:
                 out[k] = got[k]
             else:
                 out[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads)
