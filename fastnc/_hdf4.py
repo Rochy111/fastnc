@@ -704,6 +704,20 @@ def _attrs(f, vg):
     return out
 
 
+def _guard(fn):
+    """fn, with a truncated or garbled structure (struct / index errors deep in
+    the parsing) reported as FormatError."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except (struct.error, IndexError, OverflowError) as ex:
+            raise FormatError('corrupt HDF4 file: %s' % ex) from None
+    return wrapped
+
+
 class Variable:
     """An SD variable (backend contract, docs/contracts.md section 2)."""
 
@@ -726,6 +740,7 @@ class Variable:
                         'blosc': False, 'shuffle': False, 'complevel': 0, 'fletcher32': False}
 
     @property
+    @_guard
     def attrs(self):
         a = self._attrs
         if not isinstance(a, dict):
@@ -737,6 +752,7 @@ class Variable:
         return 'little' if self.hdftype & DFNT_LITEND else 'big'
 
     @property
+    @_guard
     def elem(self):
         if self._elem is None:
             self._elem = self.nc.f.element(self.data_tag, self.data_ref) if self.data_ref else Elem('none', -1)
@@ -782,6 +798,7 @@ class Variable:
         return self.fill_bytes()
 
     # -- reading
+    @_guard
     def read(self, key=(), out=None, threads=None):
         box, post, drop = _select.normalize(key, self.shape)
         shape = _select.box_shape(box)
