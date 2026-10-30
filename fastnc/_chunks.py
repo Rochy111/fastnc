@@ -894,6 +894,55 @@ def _quick(it, p, i, src, a, n, m, C, nel, esize):
     return True
 
 
+GRID_MIN = 32                   # chunks from which an unfiltered dataset is gathered at once
+GRID_MAX = 256 << 20            # ... and at most this many bytes of them
+
+
+def _gather_grid(it, p, src):
+    """_read_python for a dataset without filters and many chunks (Metop-SG:
+    19,000 one-row chunks; a numpy step per chunk would cost 25 us each):
+    the chunks' bytes concatenated in grid order, the chunk grid's axes
+    interleaved by one transposing copy, and the selection assigned from
+    that. False if not such a case (a chunk not stored, too big): the
+    chunk-by-chunk path then."""
+    ds = it.ds
+    C = tuple(int(c) for c in it.index.chunks)
+    rank = len(C)
+    n = len(p.addr)
+    esize = ds.type.size
+    cb = int(np.prod(C)) * esize
+    if ds.filters or rank == 0 or n < GRID_MIN or n * cb > GRID_MAX or p.fill_needed:
+        return False
+    start = np.array([b[0] for b in it.box], np.int64)
+    step = np.array([b[2] for b in it.box], np.int64)
+    Ca = np.array(C, np.int64)
+    g = (start + p.ostart * step - p.cstart) // Ca      # each chunk's grid position
+    g0 = g.min(axis=0)
+    gn = g.max(axis=0) - g0 + 1
+    if int(np.prod(gn)) != n:
+        return False
+    order = np.argsort(np.ravel_multi_index(tuple((g - g0).T), tuple(gn)))
+    staged = np.concatenate([src[a:a + cb] for a in p.addr[order].tolist()])
+    if esize in (1, 2, 4, 8):
+        u = np.dtype('u%d' % esize)
+        A = staged.view(u.newbyteorder('S') if it.swap else u).reshape(tuple(gn) + C)
+        tail = ()
+    else:
+        A = staged.reshape(tuple(gn) + C + (esize,))
+        tail = (rank * 2,)
+    perm = [x for d in range(rank) for x in (d, rank + d)] + list(tail)
+    R = A.transpose(perm).reshape(tuple(int(gn[d]) * C[d] for d in range(rank)) + A.shape[2 * rank:])
+    sl = tuple(slice(int(b[0] - g0[d] * C[d]), int(b[0] - g0[d] * C[d]) + (int(m) - 1) * int(b[2]) + 1,
+                     int(b[2]))
+               for d, (b, m) in enumerate(zip(it.box, it.out.shape)))
+    if esize in (1, 2, 4, 8):
+        it.out.view(u)[...] = R[sl]
+    else:
+        sel = R[sl]
+        it.out.view(np.uint8).reshape(it.out.shape + (esize,))[...] = sel[..., ::-1] if it.swap else sel
+    return True
+
+
 def _read_python(items, src, threads=None):
     """Reads before the kernels are loaded: zlib and numpy -- the reference
     path itself, so the values are the same -- chunk by chunk on the pool."""
@@ -905,10 +954,12 @@ def _read_python(items, src, threads=None):
         p = plan(index, ds.shape, box)
         if p.fill_needed:
             _fill(out, ds)
-        jobs.extend((it, p, i) for i in range(len(p.addr)))
         plans.append(p)
-    if jobs:
+    if any(len(p.addr) for p in plans):
         fetch_chunks(items, plans)
+    for it, p in zip(items, plans):
+        if not _gather_grid(it, p, src):
+            jobs.extend((it, p, i) for i in range(len(p.addr)))
     jobs.sort(key=lambda j: -int(j[1].size[j[2]]))
 
     def one(job):
