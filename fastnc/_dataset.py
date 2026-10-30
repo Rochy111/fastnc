@@ -2,9 +2,9 @@
 
 Switching from netCDF4 should be an import change: the same attributes
 and methods, the same values (raw and masked/scaled), read-only. A
-Dataset opens netCDF-3 (classic, 64-bit offset, CDF-5) through `_nc3`
-and netCDF-4 / plain HDF5 through `_nc4`; both give backend objects
-(docs/contracts.md, section 2) wrapped here.
+Dataset opens netCDF-3 (classic, 64-bit offset, CDF-5) through `_nc3`,
+netCDF-4 / plain HDF5 through `_nc4` and HDF4 (SD) through `_hdf4`;
+each gives backend objects (docs/contracts.md, section 2) wrapped here.
 """
 import mmap
 import os
@@ -31,6 +31,8 @@ def _format(head):
         return {1: 'NETCDF3_CLASSIC', 2: 'NETCDF3_64BIT_OFFSET', 5: 'NETCDF3_64BIT_DATA'}.get(head[3])
     if _hdf5.find_superblock(head) is not None:
         return 'HDF5'
+    if head[:4] == b'\x0e\x03\x13\x01':
+        return 'HDF4'
     return None
 
 
@@ -330,6 +332,11 @@ class Dataset(Group):
             self._backend = NC4File(_hdf5.H5File(self._mm), src)
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF5'
+        elif fmt == 'HDF4':
+            from ._hdf4 import HDF4File
+            self._backend = HDF4File(self._mm, src, self._filepath)
+            self.file_format = self._backend.data_model
+            self.disk_format = 'HDF4'
         else:
             from ._nc3 import NC3File
             self._backend = NC3File(self._mm, src)
