@@ -25,6 +25,8 @@ from xarray.core.utils import FrozenDict
 from xarray.core.variable import Variable
 
 from . import _dataset
+from ._intrin import take
+from ._jit import njit
 
 _LOCK = threading.Lock()
 
@@ -67,21 +69,71 @@ class DecodedArray(BackendArray):
     are elementwise, so the values are xarray's by construction."""
 
     BLOCK = 1 << 18
+    LUT_MIN = 1 << 16               # values from which an 8 / 16-bit read goes through a table
 
     def __init__(self, raw, funcs, dtype):
         self.raw, self.funcs = raw, funcs
         self.shape = raw.shape
         self.dtype = np.dtype(dtype)
+        self._luts = {}
+
+    def _lut(self, rdt):
+        """For raw values of 8 or 16 bits: xarray's functions applied once
+        to every possible value -- a table (64K entries at most) the decoded
+        array is then looked up in, value by value. The same functions on
+        the same values: the same results, bit for bit. None where it does
+        not apply (wider types; a NaN scale_factor / add_offset, where NaN
+        times NaN would depend on numpy's loop order)."""
+        if rdt.kind not in 'iu' or rdt.itemsize > 2:
+            return None
+        if rdt.str in self._luts:
+            return self._luts[rdt.str]
+        lut = None
+        try:
+            for f in self.funcs:
+                for k in ('scale_factor', 'add_offset'):
+                    c = getattr(f, 'keywords', {}).get(k)
+                    if c is not None and np.isnan(np.asarray(c, np.float64)).any():
+                        raise ValueError('NaN constant')
+            x = np.arange(1 << (8 * rdt.itemsize), dtype='u%d' % rdt.itemsize).view(rdt)
+            for f in self.funcs:
+                x = f(x)
+            x = np.asarray(x)
+            if x.shape == (1 << (8 * rdt.itemsize),) and x.dtype == self.dtype:
+                lut = np.ascontiguousarray(x)
+        except Exception:
+            lut = None
+        self._luts[rdt.str] = lut
+        return lut
 
     def __getitem__(self, key):
         return indexing.explicit_indexing_adapter(key, self.shape, indexing.IndexingSupport.OUTER,
                                                   self._getitem)
 
+    FUSED_THREADS = None            # (tests: 1, so that small arrays take the fused path)
+
     def _getitem(self, key):
+        var = getattr(self.raw, 'var', None)
+        if var is not None and getattr(self.raw, '_values', None) is None \
+                and isinstance(var.dtype, np.dtype) and var.dtype.isnative:
+            lut = self._lut(np.dtype(var.dtype))
+            if lut is not None:
+                # looked up as each chunk is decoded: the raw array never
+                # goes to memory and back
+                from . import _fused
+                var.set_auto_maskandscale(False)
+                var.set_auto_chartostring(False)
+                res = _fused.read_lut(var, key, lut, self.FUSED_THREADS, self.LUT_MIN)
+                if res is not None:
+                    return res
         raw = np.asarray(self.raw._getitem(key))   # (ascontiguousarray makes 0-d 1-d)
         if not raw.flags.c_contiguous:
             raw = raw.copy()
         funcs = self.funcs
+        if raw.size >= self.LUT_MIN and raw.dtype.isnative:
+            lut = self._lut(raw.dtype)
+            if lut is not None:
+                return _lookup(raw, lut)
         if raw.size <= self.BLOCK:
             x = raw
             for f in funcs:
@@ -100,6 +152,44 @@ class DecodedArray(BackendArray):
             dst[i * blk:(i + 1) * blk] = x
         _pool.map_items(one, range(-(-n // blk)))
         return out
+
+
+def _lookup(raw, lut):
+    """lut[raw] (raw 8 / 16-bit, viewed unsigned as the index), copied as
+    bits; on every thread."""
+    from . import _arena, _chunks, _pool
+    u = np.dtype('u%d' % lut.dtype.itemsize) if lut.dtype.itemsize in (1, 2, 4, 8) else None
+    out = _arena.empty(raw.shape, lut.dtype)
+    if u is None:
+        out[...] = lut[raw.view('u%d' % raw.dtype.itemsize)]
+        return out
+    idx = raw.reshape(-1).view('u%d' % raw.dtype.itemsize)
+    tab = lut.view(u)
+    dst = out.reshape(-1).view(u)
+    n = idx.size
+    blk = 1 << 18
+    nb = -(-n // blk)
+    if _chunks._READY.is_set():
+        ctr = np.zeros(1, np.int64)
+        _pool.share(lambda: _gather(idx, tab, dst, ctr, blk), nb)
+    else:
+        def one(i):
+            np.take(tab, idx[i * blk:(i + 1) * blk], out=dst[i * blk:(i + 1) * blk], mode='clip')
+        _pool.map_items(one, range(nb))
+    return out
+
+
+@njit(cache=True, nogil=True)
+def _gather(idx, tab, dst, ctr, blk):
+    """dst[i] = tab[idx[i]], blocks of blk taken off ctr[0]."""
+    n = idx.size
+    nb = (n + blk - 1) // blk
+    while True:
+        b = take(ctr, 0)
+        if b >= nb:
+            return
+        for i in range(b * blk, min(n, b * blk + blk)):
+            dst[i] = tab[idx[i]]
 
 
 _MASK_SCALE = ('_FillValue', 'missing_value', 'scale_factor', 'add_offset', '_Unsigned')

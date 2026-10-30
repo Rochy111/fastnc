@@ -872,60 +872,207 @@ def _pybuf(nbytes):
     return b
 
 
-def _quick(it, p, i, src, a, n, m, C, nel, esize):
-    """_read_python's common chunks done fast: deflate (then a byte
-    shuffle, a fletcher32 checksum of the stored bytes first) inflated by
-    _zlib straight into this thread's buffer -- or into the output, when
-    the chunk is a whole contiguous part of it -- and placed by numpy
-    copies, one per byte plane when shuffled. False: not such a chunk (or
-    not the expected size): the general path does it."""
-    from . import _zlib
-    filters = it.ds.filters
-    stages = [filters[k].id for k in range(len(filters) - 1, -1, -1) if not (m >> k) & 1]
-    if stages[:1] == [F_FLETCHER]:
-        n -= 4                                      # (checksum of the stored bytes)
-        stages = stages[1:]
-    if stages == [F_DEFLATE]:
-        shuffled = False
-    elif stages == [F_DEFLATE, F_SHUFFLE]:
-        shuffled = esize > 1
-    else:
-        return False
-    cbytes = nel * esize
-    rank = len(C)
-    out = it.out
-    step = [s[2] for s in it.box]
-    cs, cn, os_ = p.cstart[i], p.count[i], p.ostart[i]
-    if (not shuffled and not it.swap and rank and all(k == 1 for k in step)
-            and all(int(cs[d]) == 0 and int(cn[d]) == C[d] for d in range(rank))
-            and all(C[d] == out.shape[d] for d in range(1, rank))):
-        o = int(os_[0]) * cbytes // C[0]            # a whole contiguous part of out
-        flat = out.reshape(-1).view(np.uint8)
-        return _zlib.inflate_into(src, a, n, flat, o, cbytes) == cbytes
-    buf = _pybuf(cbytes)
-    if _zlib.inflate_into(src, a, n, buf, 0, cbytes) != cbytes:
-        return False
-    src_sl = tuple(slice(int(c0), int(c0) + (int(k) - 1) * s + 1, s)
-                   for c0, k, s in zip(cs, cn, step))
-    dst_sl = tuple(slice(int(o0), int(o0) + int(k)) for o0, k in zip(os_, cn))
-    if shuffled:
-        planes = buf[:cbytes].reshape((esize,) + C)
-        ob = out.view(np.uint8).reshape(out.shape + (esize,))
-        for k in range(esize):
-            ob[dst_sl + (esize - 1 - k if it.swap else k,)] = planes[k][src_sl]
-    elif esize in (1, 2, 4, 8):
-        u = np.dtype('u%d' % esize)
-        chunk = buf[:cbytes].view(u.newbyteorder('S') if it.swap else u).reshape(C)
-        out.view(u)[dst_sl] = chunk[src_sl]
-    else:
-        chunk = buf[:cbytes].reshape(C + (esize,))
-        sel = chunk[src_sl]
-        out.view(np.uint8).reshape(out.shape + (esize,))[dst_sl] = sel[..., ::-1] if it.swap else sel
-    return True
+class _Quick:
+    """_read_python's common chunks done fast, for one item: deflate (then
+    a byte shuffle; a fletcher32 checksum of the stored bytes first)
+    inflated by _zlib straight into this thread's buffer -- or into the
+    output, when the chunk is a whole contiguous part of it -- and placed
+    by numpy copies, one per byte plane when shuffled. Everything per chunk
+    that numpy can work out for all chunks at once is worked out here, as
+    plain Python numbers: the per-chunk Python runs under the GIL, so on
+    24 threads it was the bottleneck (GOES-19 C02's 3,616 chunks)."""
+
+    def __init__(self, it, p):
+        from . import _zlib
+        self.inflate = _zlib.inflate_into
+        ds = it.ds
+        self.esize = esize = ds.type.size
+        self.C = C = tuple(int(c) for c in it.index.chunks)
+        rank = len(C)
+        nel = int(np.prod(C)) if C else 1
+        self.cbytes = cbytes = nel * esize
+        self.swap = it.swap
+        self.filters = [f.id for f in ds.filters]
+        self.specs = {}
+        out = it.out
+        self.out = out
+        step = [s[2] for s in it.box]
+        self.step = step
+        self.addr = p.addr.tolist()
+        self.size = p.size.tolist()
+        self.mask = p.mask.tolist()
+        self.cs = p.cstart.tolist()
+        self.cn = p.count.tolist()
+        self.os = p.ostart.tolist()
+        whole = np.zeros(len(p.addr), bool)
+        if (not it.swap and rank and all(k == 1 for k in step)
+                and all(C[d] == out.shape[d] for d in range(1, rank))):
+            whole = np.all(p.cstart == 0, axis=1) & np.all(p.count == np.array(C), axis=1)
+        self.whole = whole.tolist()
+        self.wofs = (p.ostart[:, 0] * (cbytes // C[0])).tolist() if rank else [0] * len(p.addr)
+        self.flat = out.reshape(-1).view(np.uint8)
+        if esize > 1:
+            self.ob = out.view(np.uint8).reshape(out.shape + (esize,))
+        if esize in (1, 2, 4, 8):
+            u = np.dtype('u%d' % esize)
+            self.u = u.newbyteorder('S') if it.swap else u
+            self.ou = out.view(u)
+
+    def spec(self, m):
+        """(shuffled, checksum bytes to cut) for filter mask m, or None."""
+        sp = self.specs.get(m, False)
+        if sp is False:
+            f = self.filters
+            stages = [f[k] for k in range(len(f) - 1, -1, -1) if not (m >> k) & 1]
+            cut = 0
+            if stages[:1] == [F_FLETCHER]:
+                cut = 4
+                stages = stages[1:]
+            if stages == [F_DEFLATE]:
+                sp = (False, cut)
+            elif stages == [F_DEFLATE, F_SHUFFLE]:
+                sp = (self.esize > 1, cut)
+            else:
+                sp = None
+            self.specs[m] = sp
+        return sp
+
+    def run(self, i, src):
+        """Chunk i done; False if not such a chunk (or not of the size
+        expected): the general path does it."""
+        sp = self.spec(self.mask[i])
+        if sp is None:
+            return False
+        shuffled, cut = sp
+        cbytes = self.cbytes
+        a, n = self.addr[i], self.size[i] - cut
+        if self.whole[i] and not shuffled:
+            return self.inflate(src, a, n, self.flat, self.wofs[i], cbytes) == cbytes
+        buf = _pybuf(cbytes)
+        if self.inflate(src, a, n, buf, 0, cbytes) != cbytes:
+            return False
+        cs, cn, os_ = self.cs[i], self.cn[i], self.os[i]
+        src_sl = tuple([slice(c0, c0 + (k - 1) * s + 1, s) for c0, k, s in zip(cs, cn, self.step)])
+        dst_sl = tuple([slice(o0, o0 + k) for o0, k in zip(os_, cn)])
+        esize, C = self.esize, self.C
+        if shuffled:
+            planes = buf[:cbytes].reshape((esize,) + C)
+            ob = self.ob
+            swap = self.swap
+            for k in range(esize):
+                ob[dst_sl + (esize - 1 - k if swap else k,)] = planes[k][src_sl]
+        elif esize in (1, 2, 4, 8):
+            self.ou[dst_sl] = buf[:cbytes].view(self.u).reshape(C)[src_sl]
+        else:
+            sel = buf[:cbytes].reshape(C + (esize,))[src_sl]
+            self.ob[dst_sl] = sel[..., ::-1] if self.swap else sel
+        return True
 
 
 GRID_MIN = 32                   # chunks from which an unfiltered dataset is gathered at once
 GRID_MAX = 256 << 20            # ... and at most this many bytes of them
+ZGRID_CHUNK = 64 << 10          # deflated chunks up to this size are inflated into one
+ZGRID_MAX = 64 << 20            # staging buffer (at most this big) and placed all at once
+ZGRID_SOLO = 16 << 10           # ... on one thread when they average less than this compressed
+ZGRID_BAND = 4 << 20            # ... placed in bands of at least this many bytes
+
+
+def _zgrid(it, p, src, threads):
+    """_read_python for a deflated (and maybe shuffled) dataset of many
+    small chunks (the Ku-band file: 15,000 chunks of 3.5 kB, where a numpy
+    step per chunk was most of the time): each chunk inflated straight
+    into a staging buffer in grid order -- one ctypes call per chunk, on
+    every core -- then the byte planes and the chunk grid's axes put in
+    order by numpy, band by band on the pool. False if not such a case."""
+    from . import _zlib
+    ds = it.ds
+    C = tuple(int(c) for c in it.index.chunks)
+    rank = len(C)
+    n = len(p.addr)
+    esize = ds.type.size
+    nel = int(np.prod(C)) if C else 1
+    cb = nel * esize
+    if (rank == 0 or n < GRID_MIN or cb > ZGRID_CHUNK or n * cb > ZGRID_MAX or p.fill_needed
+            or not ds.filters):
+        return False
+    f = [x.id for x in ds.filters]
+    if f not in ([F_DEFLATE], [F_SHUFFLE, F_DEFLATE], [F_DEFLATE, F_FLETCHER],
+                 [F_SHUFFLE, F_DEFLATE, F_FLETCHER]) or p.mask.any():
+        return False
+    inflate = _zlib.inflater()
+    if inflate is None:
+        return False
+    shuffled = F_SHUFFLE in f and esize > 1
+    cut = 4 if F_FLETCHER in f else 0
+    start = np.array([b[0] for b in it.box], np.int64)
+    step = np.array([b[2] for b in it.box], np.int64)
+    Ca = np.array(C, np.int64)
+    g = (start + p.ostart * step - p.cstart) // Ca
+    g0 = g.min(axis=0)
+    gn = g.max(axis=0) - g0 + 1
+    if int(np.prod(gn)) != n:
+        return False
+    order = np.argsort(np.ravel_multi_index(tuple((g - g0).T), tuple(gn)))
+    staged = np.empty(n * cb, np.uint8)
+    base = staged.ctypes.data
+    sbase = src.ctypes.data
+    sa = (p.addr[order] + sbase).tolist()
+    sn = (p.size[order] - cut).tolist()
+    bad = []
+    # (each ctypes call lets go of the GIL and takes it back: for chunks of
+    # a few hundred bytes the threads only queue for it -- measured on the
+    # Ku-band file, 1 thread 32 ms, 4 threads 60, 24 threads 73)
+    mean = int(p.size.sum()) // n
+    nthr = 1 if mean < ZGRID_SOLO else max(1, min(threads or _pool.threads(), n // 16))
+    per = -(-n // nthr)
+
+    def inflate_part(t):
+        o = base + t * per * cb
+        for j in range(t * per, min(n, t * per + per)):
+            if inflate(sa[j], sn[j], o, cb) != cb:
+                bad.append(j)
+                return
+            o += cb
+    _pool.map_items(inflate_part, range(nthr))
+    if bad:
+        return False
+    # (grid rows, chunk dims, element bytes) with the planes undone, then
+    # the grid's axes interleaved: (g0, c0, g1, c1, ..., esize)
+    if shuffled:
+        A = staged.reshape(tuple(gn) + (esize,) + C)
+        A = np.moveaxis(A, rank, 2 * rank)
+    else:
+        A = staged.reshape(tuple(gn) + C + (esize,))
+    perm = [x for d in range(rank) for x in (d, rank + d)] + [2 * rank]
+    A = A.transpose(perm)
+    ob = it.out.view(np.uint8).reshape(it.out.shape + (esize,))
+    if it.swap:
+        A = A[..., ::-1]
+    # split along the first grid dimension: each band one numpy copy
+    nb = max(1, min(int(gn[0]), threads or _pool.threads(), (n * cb) // ZGRID_BAND))
+    rows = -(-int(gn[0]) // nb)
+    s0, k0 = int(it.box[0][0]), int(it.box[0][2])
+    m0 = it.out.shape[0]
+    lo0 = s0 - int(g0[0]) * C[0]
+    rest = tuple(slice(int(b[0] - g0[d] * C[d]), int(b[0] - g0[d] * C[d]) + (int(m) - 1) * int(b[2]) + 1,
+                       int(b[2]))
+                 for d, (b, m) in enumerate(zip(it.box, it.out.shape)) if d > 0)
+
+    def place(t):
+        r0, r1 = t * rows, min(int(gn[0]), t * rows + rows)
+        if r0 >= r1:
+            return
+        sub = A[r0:r1].reshape(((r1 - r0) * C[0],) + tuple(int(gn[d]) * C[d] for d in range(1, rank))
+                               + (esize,))
+        # output rows j with lo0 + j * k0 in [r0 * C0, r1 * C0)
+        a0 = r0 * C[0]
+        j0 = max(0, -(-(a0 - lo0) // k0))
+        j1 = min(m0, -(-(r1 * C[0] - lo0) // k0))
+        if j1 <= j0:
+            return
+        ob[j0:j1] = sub[(slice(lo0 + j0 * k0 - a0, lo0 + (j1 - 1) * k0 - a0 + 1, k0),) + rest]
+    _pool.map_items(place, range(nb))
+    return True
 
 
 def _gather_grid(it, p, src):
@@ -987,21 +1134,28 @@ def _read_python(items, src, threads=None):
         plans.append(p)
     if any(len(p.addr) for p in plans):
         fetch_chunks(items, plans)
-    for it, p in zip(items, plans):
-        if not _gather_grid(it, p, src):
-            jobs.extend((it, p, i) for i in range(len(p.addr)))
-    jobs.sort(key=lambda j: -int(j[1].size[j[2]]))
+    quick = {}
+    sizes = []
+    for k, (it, p) in enumerate(zip(items, plans)):
+        if len(p.addr) and not _gather_grid(it, p, src) and not _zgrid(it, p, src, threads):
+            quick[k] = _Quick(it, p)
+            jobs.extend((k, i) for i in range(len(p.addr)))
+            sizes.append(p.size)
+    if jobs:
+        order = np.argsort(-np.concatenate(sizes), kind='stable').tolist()
+        jobs = [jobs[j] for j in order]
 
     def one(job):
-        it, p, i = job
+        k, i = job
+        if quick[k].run(i, src):
+            return
+        it, p = items[k], plans[k]
         ds = it.ds
         esize = ds.type.size
         C = tuple(int(c) for c in it.index.chunks)
         nel = int(np.prod(C)) if C else 1
         filters = ds.filters
         a, n, m = int(p.addr[i]), int(p.size[i]), int(p.mask[i])
-        if _quick(it, p, i, src, a, n, m, C, nel, esize):
-            return
         data = src[a:a + n]
         for k in range(len(filters) - 1, -1, -1):  # each stage in decoding order
             if (m >> k) & 1:

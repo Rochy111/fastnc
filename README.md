@@ -274,6 +274,13 @@ above.
   MB, doubling to 256 MB while the reads keep to the order; dropped when
   they do not): a WRF variable of four chunks alone keeps four cores busy.
   xarray's load of wrfout d01 152 -> 86 ms, of the Ku-band file 80 -> 31.
+- **xarray's decoding by table.** For 8- and 16-bit packed data (GOES,
+  VIIRS, MODIS radiances) xarray's own mask / scale functions are applied
+  once to every possible raw value -- at most 65,536 -- and the decoded
+  array is a lookup into that table, done as each chunk is decoded: the
+  same functions on the same values, so the same bits, without xarray's
+  several passes over the array. xarray `.load()`: GOES-19 C02 810 -> 160
+  ms (engine='netcdf4': ~5000), VIIRS I-band 417 -> 110.
 - **Mask and scale while decoding.** For big scaled variables each chunk
   becomes float32 and a mask while still in cache, so the raw integers
   never go to memory and back (GOES-19 C02 140 -> ~122 ms).
