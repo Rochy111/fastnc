@@ -85,6 +85,8 @@ def lookup3(data, initval=0):
 
 _HASH_OK = [None]               # lookup3 checked against a file's own name index
 _HASHES = {}                    # name -> lookup3 hash
+_NAME_BYTES = {}                # name -> its UTF-8 bytes
+_ATTR_HEAD = struct.Struct('<BBHHH')    # attribute message: version, flags, name / type / space sizes
 _BT1_REC = {}                   # rank -> numpy dtype of a v1 B-tree chunk record
 
 
@@ -674,8 +676,13 @@ class H5File:
 
     # -- shared / committed messages
     def message_datatype(self, m):
-        """The datatype a message holds, following a shared (committed) one."""
-        return self.datatype_at(self.b, m[2], bool(m[1] & 2))
+        """The datatype a message holds, following a shared (committed) one
+        (each distinct encoding parsed once per file, as for attributes)."""
+        key = (m[1] & 2, bytes(self.b[m[2]:m[2] + m[3]]))
+        t = self._attr_types.get(key)
+        if t is None:
+            t = self._attr_types[key] = self.datatype_at(self.b, m[2], bool(m[1] & 2))
+        return t
 
     def datatype_at(self, b, p, shared):
         """The datatype at b[p:], or the committed one a shared message there
@@ -977,6 +984,13 @@ class H5File:
         return refs
 
     @staticmethod
+    def _attr_name_bytes(b, p):
+        version = b[p]
+        nlen = b[p + 2] | (b[p + 3] << 8)
+        q = p + 8 + (1 if version == 3 else 0)
+        return bytes(b[q:q + nlen]).split(b'\0', 1)[0]
+
+    @staticmethod
     def _attr_name(b, p):
         version = b[p]
         nlen = _u16(b, p + 2)[0]
@@ -997,10 +1011,14 @@ class H5File:
         b = self.b
         compact = self._compact.get(h.address)
         if compact is None:
+            # (names as raw bytes up to their NUL: nothing decoded at open)
             compact = self._compact[h.address] = {
-                self._attr_name(b, m[2]): (b, m[2], m[4] if m[4] is not None else i)
+                self._attr_name_bytes(b, m[2]): (b, m[2], m[4] if m[4] is not None else i)
                 for i, m in enumerate(h.all(0x0C))}
-        r = compact.get(name)
+        key = _NAME_BYTES.get(name)
+        if key is None:
+            key = _NAME_BYTES[name] = name.encode('utf-8')
+        r = compact.get(key)
         if r is not None:
             return r
         ai = h.first(0x15)
@@ -1074,32 +1092,30 @@ class H5File:
         return {a.name: a for a in out}
 
     def _attribute(self, b, p, corder):
-        version = b[p]
-        flags = b[p + 1]
-        nlen, tlen, slen = _u16(b, p + 2)[0], _u16(b, p + 4)[0], _u16(b, p + 6)[0]
-        p += 8
-        if version == 3:
-            p += 1
-        pad = (lambda n: (n + 7) // 8 * 8) if version == 1 else (lambda n: n)
-        name = bytes(b[p:p + nlen]).split(b'\0')[0].decode('utf-8', 'replace')
-        p += pad(nlen)
+        version, flags, nlen, tlen, slen = _ATTR_HEAD.unpack_from(b, p)
+        p += 9 if version == 3 else 8
+        if version == 1:                            # (fields padded to 8 bytes)
+            pn, pt, ps = (nlen + 7) & ~7, (tlen + 7) & ~7, (slen + 7) & ~7
+        else:
+            pn, pt, ps = nlen, tlen, slen
+        name = bytes(b[p:p + nlen]).split(b'\0', 1)[0].decode('utf-8', 'replace')
+        p += pn
         # (a file's attributes mostly repeat a few datatypes and dataspaces:
         # each distinct encoding is parsed once -- a Datatype is not changed
         # once parsed, so attributes can share one)
-        sp = p + pad(tlen)
-        key = (flags & 1, bytes(b[p:p + tlen]), bytes(b[sp:sp + slen]))
+        sp = p + pt
+        key = (flags & 1, bytes(b[p:sp + slen]), tlen)
         ts = self._attr_types.get(key)
         if ts is None:
-            ts = self._attr_types[key] = (self.datatype_at(b, p, bool(flags & 1)),
-                                          _parse_dataspace(b, sp, self.L)[0])
-        t, shape = ts
-        p = sp + pad(slen)
-        if shape is None:
+            shape = _parse_dataspace(b, sp, self.L)[0]
             n = 0
-        else:
-            n = 1
-            for s in shape:
-                n *= s
+            if shape is not None:
+                n = 1
+                for s in shape:
+                    n *= s
+            ts = self._attr_types[key] = (self.datatype_at(b, p, bool(flags & 1)), shape, n)
+        t, shape, n = ts
+        p = sp + ps
         raw = bytes(b[p:p + n * t.size])
         return Attribute(name, t, shape, raw, corder, self)
 

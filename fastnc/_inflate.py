@@ -24,7 +24,7 @@ nothing is ever written outside [out_start, out_end).
 """
 import numpy as np
 
-from ._intrin import ld64, st64
+from ._intrin import call_inflate, ld64, st64
 from ._jit import njit
 
 LBITS = 11                      # literal/length main table bits
@@ -64,9 +64,15 @@ def workspace_size(chunk_nbytes):
     return 0
 
 
+# two int64 slots after the scratch: libdeflate's zlib_decompress (its
+# address) and this thread's decompressor -- zero (the default), or a
+# workspace no longer than IWS_SIZE (blosc's), means this module's inflate
+NATIVE = IWS_SIZE
+
+
 def workspace():
     """One thread's tables (uint32) and integer scratch (int64)."""
-    return np.zeros(TAB_SIZE, np.uint32), np.zeros(IWS_SIZE, np.int64)
+    return np.zeros(TAB_SIZE, np.uint32), np.zeros(IWS_SIZE + 2, np.int64)
 
 
 @njit(cache=True, nogil=True)
@@ -604,7 +610,15 @@ def inflate(src, p, pend, dst, o0, oend, ostop, tab, iws):
 @njit(cache=True, nogil=True)
 def zlib_inflate(src, p, pend, dst, o0, oend, ostop, tab, iws):
     """inflate() of a zlib stream (2-byte header, deflate, Adler-32 trailer,
-    which is not checked)."""
+    which is not checked). A whole stream wanted, and libdeflate's address
+    in the workspace: libdeflate decodes it (~1.15-1.3x this inflate on the
+    real files); if it does not fill exactly oend - o0 bytes (or rejects
+    the stream: a bad Adler-32 too), this inflate does -- its answer, as
+    before, whatever libdeflate thought."""
+    if ostop == oend and iws.shape[0] > NATIVE + 1 and iws[NATIVE] != 0:
+        r = call_inflate(iws[NATIVE], iws[NATIVE + 1], src, p, pend - p, dst, o0, oend - o0)
+        if r == oend - o0:
+            return oend
     if pend - p < 2:
         return ERR_INPUT
     cmf = np.int64(src[p])

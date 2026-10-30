@@ -126,3 +126,16 @@ def inflate_into(src, a, n, dst, o, cap):
         return -1
     dst[o:o + len(data)] = memoryview(data)
     return len(data)
+
+
+def native():
+    """(address of libdeflate_zlib_decompress, a decompressor of this
+    thread's) as ints for the numba kernels to call, or (0, 0) without
+    libdeflate."""
+    kind, lib = _load()
+    if kind != 'libdeflate' or os.environ.get('FASTNC_NO_NATIVE_INFLATE'):
+        return 0, 0
+    d = getattr(_LOCAL, 'dec', None)
+    if d is None:
+        d = _LOCAL.dec = lib.libdeflate_alloc_decompressor()
+    return ctypes.cast(lib.libdeflate_zlib_decompress, ctypes.c_void_p).value or 0, d or 0

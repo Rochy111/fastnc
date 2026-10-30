@@ -6,11 +6,16 @@ runs `work()` on the caller and n - 1 pool threads at once, and each takes
 items off an atomic counter (`_intrin.take`) inside a nogil kernel until
 none is left -- thousands of 3 kB chunks cost no Python per chunk, and a
 thread that starts late or sits on an efficiency core just takes fewer.
+
+The threads are fastnc's own, not a ThreadPoolExecutor's: each parks on a
+lock of its own and is woken by releasing it, and a helper that wakes
+after the work is done does nothing and is not waited for. Handing work
+to 23 helpers cost ~100 us through futures and a queue (4.4 us each) --
+for a WRF file read variable by variable, 160 such hand-offs were 16 ms.
 """
 import os
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
 
 _POOL = None
 _POOL_LOCK = threading.Lock()
@@ -60,25 +65,117 @@ def set_threads(n=None):
         _THREADS = 0 if n is None else int(n)
         old, _POOL = _POOL, None
     if old is not None:
-        old.shutdown(wait=False)
+        old.shutdown()
+
+
+class _Job:
+    """One share(): helpers join until the caller closes it; the caller then
+    waits only for those that joined."""
+    __slots__ = ('work', 'lock', 'active', 'closed', 'done', 'error')
+
+    def __init__(self, work):
+        self.work = work
+        self.lock = threading.Lock()
+        self.active = 0
+        self.closed = False
+        self.done = threading.Lock()
+        self.done.acquire()
+        self.error = None
+
+    def run(self):
+        with self.lock:
+            if self.closed:
+                return
+            self.active += 1
+        try:
+            self.work()
+        except BaseException as e:                  # (raised by the caller)
+            self.error = e
+        finally:
+            with self.lock:
+                self.active -= 1
+                last = self.closed and self.active == 0
+            if last:
+                self.done.release()
+
+    def close(self):
+        with self.lock:
+            self.closed = True
+            wait = self.active > 0
+        if wait:
+            self.done.acquire()
+        if self.error is not None:
+            raise self.error
+
+
+class _Worker:
+    __slots__ = ('pool', 'wake', 'job', 'thread')
+
+    def __init__(self, pool):
+        self.pool = pool
+        self.wake = threading.Lock()
+        self.wake.acquire()
+        self.job = None
+        self.thread = threading.Thread(target=self.loop, name='fastnc', daemon=True)
+        self.thread.start()
+
+    def loop(self):
+        fast_thread()
+        pool = self.pool
+        while True:
+            self.wake.acquire()
+            job, self.job = self.job, None
+            if job is None:
+                return                              # (the pool shut down)
+            job.run()
+            with pool.lock:
+                if pool.stopped:
+                    return
+                pool.idle.append(self)
+
+
+class _Pool:
+    def __init__(self, n):
+        self.lock = threading.Lock()
+        self.stopped = False
+        self.idle = []
+        self.idle = [_Worker(self) for _ in range(n)]
+
+    def share(self, work, n):
+        job = _Job(work)
+        with self.lock:
+            k = min(n - 1, len(self.idle))
+            helpers = self.idle[len(self.idle) - k:]
+            del self.idle[len(self.idle) - k:]
+        for w in helpers:
+            w.job = job
+            w.wake.release()
+        try:
+            work()
+        finally:
+            job.close()
+
+    def shutdown(self):
+        with self.lock:
+            self.stopped = True
+            idle, self.idle = self.idle, []
+        for w in idle:
+            w.job = None
+            w.wake.release()
 
 
 def share(work, n):
     """work() on the calling thread and on up to n - 1 pool threads at once,
     for a nogil kernel whose callers take items off a shared counter. The
-    caller works too and, once done, calls off helpers not yet started
-    (there is nothing left for them): it never waits on a busy pool."""
+    caller works too and, once done, closes the job: helpers not yet
+    started do nothing (there is nothing left for them), and it waits only
+    for those already working -- never on a busy pool. Called from a pool
+    thread (work within work), it gets whichever threads are idle."""
     n = max(1, min(n, threads()))
     if n == 1:
         work()
         return
-    futs = [pool().submit(work) for _ in range(n - 1)]
-    try:
-        work()
-    finally:
-        for f in futs:
-            if not f.cancel():
-                f.result()
+    pool().share(work, n)
 
 
 def map_items(fn, items):
@@ -108,7 +205,7 @@ def pool():
     global _POOL
     with _POOL_LOCK:
         if _POOL is None:
-            _POOL = ThreadPoolExecutor(threads(), initializer=fast_thread)
+            _POOL = _Pool(threads())
     return _POOL
 
 

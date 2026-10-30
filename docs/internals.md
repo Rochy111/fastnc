@@ -23,7 +23,7 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 | `_readahead` | Whole variables read in the file's order decoded several at a time (a bounded window) |
 | `_staged`, `_codecs` | Filter pipelines beyond deflate / shuffle / fletcher32: stage by stage over all chunks, one small batch kernel per codec |
 | `_select` | numpy / netCDF4 indexes reduced to boxes, then post-indexing |
-| `_inflate` | Deflate / zlib in numba |
+| `_inflate` | Deflate / zlib in numba; whole streams through libdeflate, where installed, called from the kernel by function pointer (`_intrin.call_inflate`) with this inflate as the fallback |
 | `_pinflate` | One deflate stream inflated on many threads (speculative, verified) |
 | `_lzf`, `_lz4`, `_zstd`, `_blosc`, `_blosc2`, `_bitshuffle`, `_szip`, `_scaleoffset`, `_nbit`, `_fletcher32`, `_bzip2`, `_shuffle` | The other HDF5 filters, each `decode(src, p, pend, dst, o, oend, cd, ws)` |
 | `_maskscale` | netCDF4-python's masking and scaling: its own rules carried over line for line, and a fused numba kernel for the common cases; `_maskscale_gpu` the same on the card |
@@ -31,7 +31,7 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 | `_arena` | Big output arrays carved from pooled, already-mapped memory |
 | `_pio` | Big unfiltered batches read with positional reads instead of through a fresh mapping |
 | `_remote` | HTTP(S) / S3 / file-object sources: a sparse buffer filled by parallel byte-range requests |
-| `_pool` | The thread pool, `share()` and `set_threads()` |
+| `_pool` | fastnc's threads (each parked on a lock of its own: a hand-off costs ~3 us for any number), `share()` and `set_threads()` |
 | `_jit`, `_intrin` | numba imported on first use, the stale-cache stamp; unaligned word loads/stores and an atomic counter |
 
 ## Opening a file

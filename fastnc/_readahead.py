@@ -18,7 +18,7 @@ import threading
 
 import numpy as np
 
-START = 32 << 20                # first window (bytes of raw values)
+START = 64 << 20                # first window (bytes of raw values; 32, 64, 128, 256 MB: WRF xarray load 64, 59, 59, 57 ms)
 MAX = 256 << 20                 # the window grows by doubling up to this
 BIG = 256 << 10                 # reads of variables at least this big drive the pattern
 ENABLED = True
