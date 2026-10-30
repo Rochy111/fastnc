@@ -227,3 +227,28 @@ arithmetic differently in numpy 2.5 than before, and numpy 1's default int
 is 32-bit on Windows only; NaN x NaN keeps the payload of the operand the
 compiler that built numpy ordered first (MSVC vs gcc builds differ). See
 internals, "Values that depend on the platform's numpy".
+
+## Round 3 (2026-10-30)
+
+**xarray decoding by lookup table** (8 / 16-bit data; xarray `.load()`):
+GOES-19 C02 810 -> 191 ms with the table looked up after the read, 160 with
+it looked up as each chunk is decoded; C13 63 -> 27 -> 22; VIIRS I-band
+group 417 -> 132 -> 110; AVHRR 38 -> 28 -> 27.
+
+**The same idea for netCDF4-python's masked read** (value table + flag
+table, numba): GOES-19 C02 masked read 118 ms, a bare value-table lookup
+while decoding 103 ms before writing any mask -- at most 5-10%; not done.
+**In numpy** (the no-kernel path): `np.take` is ~2.3 ns per value on one
+thread (default mode; `mode='clip'` 1.6x faster), against ~0.3 ns per ufunc
+step, so VIIRS masked went 232 -> 864 ms: reverted. (The xarray no-kernel
+lookup uses `mode='clip'`.)
+
+**No-kernel chunk path.** Per-chunk Python runs under the GIL, so on 24
+threads it was the limit: GOES-19 C02 raw 233 ms where libdeflate alone
+inflates every chunk in 57. Working out per-chunk numbers for all chunks
+at once (`_chunks._Quick`): C02 233 -> 145, VIIRS 169 -> 92, WRF d01 63 ->
+47. Many small deflated chunks inflated into one staging buffer and placed
+by a few numpy copies (`_zgrid`): Ku-band 199 -> 73 ms on 24 threads; on 1
+thread 32 ms (2 threads 37, 4 threads 60: each ctypes call gives up the GIL
+and takes it back, so for chunks of a few hundred bytes threads only
+queue) -- such chunks go on one thread (netCDF4-python: 75 ms).

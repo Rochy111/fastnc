@@ -174,7 +174,7 @@ def _lookup(raw, lut):
         _pool.share(lambda: _gather(idx, tab, dst, ctr, blk), nb)
     else:
         def one(i):
-            np.take(tab, idx[i * blk:(i + 1) * blk], out=dst[i * blk:(i + 1) * blk])
+            np.take(tab, idx[i * blk:(i + 1) * blk], out=dst[i * blk:(i + 1) * blk], mode='clip')
         _pool.map_items(one, range(nb))
     return out
 

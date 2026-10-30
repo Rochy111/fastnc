@@ -73,14 +73,20 @@ def _reads(path):
     return out
 
 
+@pytest.mark.parametrize('split', [False, True])
 @pytest.mark.parametrize('name', FILES)
-def test_without_kernels_same_values(name, monkeypatch):
+def test_without_kernels_same_values(name, split, monkeypatch):
+    """(split: the staged grid's chunks inflated, and placed, on many
+    threads however small)"""
     path = os.path.join(DATA, name)
     fastnc.warm()
     want = _reads(path)                             # (the kernels: checked against the references)
     monkeypatch.setattr(_chunks, '_READY', __import__('threading').Event())
     monkeypatch.setattr(_chunks, 'LOAD_AFTER', float('inf'))
     monkeypatch.setattr(_chunks, 'GRID_MIN', 1)
+    if split:
+        monkeypatch.setattr(_chunks, 'ZGRID_SOLO', 0)
+        monkeypatch.setattr(_chunks, 'ZGRID_BAND', 1)
     got = _reads(path)
     assert [r[:3] for r in got] == [r[:3] for r in want]
     bad = [r[:3] for r, w in zip(got, want) if not _same(r[3], w[3])]

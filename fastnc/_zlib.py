@@ -102,6 +102,16 @@ def which():
     return _load()[0]
 
 
+def inflater():
+    """A function f(sptr, n, dptr, cap) -> bytes written or -1, on raw
+    addresses (no per-call array lookups: for loops over many small
+    chunks), or None when no library was found."""
+    kind, lib = _load()
+    if kind is None:
+        return None
+    return lambda sptr, n, dptr, cap: _call(kind, lib, sptr, n, dptr, cap)
+
+
 def inflate_into(src, a, n, dst, o, cap):
     """Inflate the zlib stream src[a:a+n] (uint8 arrays) into dst[o:o+cap];
     the number of bytes it gave, or -1 if more than cap. Raises on a bad
