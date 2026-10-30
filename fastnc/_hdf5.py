@@ -423,11 +423,13 @@ class Dataset:
 SIGNATURE = b'\x89HDF\r\n\x1a\n'
 
 
-def find_superblock(b):
+def find_superblock(b, need=None):
     """The superblock's offset (0, 512, 1024, 2048, ...) or None."""
     n = len(b)
     at = 0
     while at + 8 <= n:
+        if need is not None:
+            need(at, 8)
         if bytes(b[at:at + 8]) == SIGNATURE:
             return at
         at = 512 if at == 0 else at * 2
@@ -435,14 +437,21 @@ def find_superblock(b):
 
 
 class H5File:
-    """The HDF5 structure of a file mapped (or held) in `buf`."""
+    """The HDF5 structure of a file mapped (or held) in `buf`.
 
-    def __init__(self, buf):
+    source: a remote file (`_remote.Source`) whose bytes arrive as asked
+    for: every structure is asked for (`need`) before it is read."""
+
+    def __init__(self, buf, source=None):
         self.buf = buf
         self.b = b = memoryview(buf).cast('B') if not isinstance(buf, memoryview) else buf
-        sb = find_superblock(b)
+        self.source = source
+        if source is not None:
+            self.need, self.prefetch = source.need, source.prefetch
+        sb = find_superblock(b, self.need if source is not None else None)
         if sb is None:
             raise FormatError('not an HDF5 file')
+        self.need(sb, 256)
         v = b[sb + 8]
         self.sb_version = v
         self._headers = {}
@@ -474,6 +483,13 @@ class H5File:
         self.root_address = root
         self.root = Group(self, root, '/')
 
+    # -- remote files: bytes asked for before they are read (local: no-ops)
+    def need(self, at, n):
+        """Bytes [at, at + n) are about to be read."""
+
+    def prefetch(self, addrs, n):
+        """need(a, n) for each a of addrs, in one go."""
+
     # -- addresses and integers
     def addr(self, a):
         return self.base + a
@@ -494,6 +510,7 @@ class H5File:
             return h
         b = self.b
         at = self.addr(address)
+        self.need(at, 64)
         msgs = []
         if bytes(b[at:at + 4]) == b'OHDR':
             version = b[at + 4]
@@ -506,12 +523,14 @@ class H5File:
             n = 1 << (flags & 3)
             size = _uint(b, p, n)
             p += n
+            self.need(p, size + 4)
             self._v2_messages(p, p + size, flags, msgs)
         elif b[at] == 1:
             version = 1
             flags = 0
             nmsg = _u16(b, at + 2)[0]
             size = _u32(b, at + 8)[0]
+            self.need(at + 16, size)
             self._v1_messages(at + 16, at + 16 + size, msgs, nmsg)
         else:
             raise FormatError('no object header at %d' % at)
@@ -528,6 +547,7 @@ class H5File:
                 mtype, size, mflags = _u16(b, p)[0], _u16(b, p + 2)[0], b[p + 4]
                 data = p + 8
                 if mtype == 0x10:
+                    self.need(self.addr(self.offset(data)), self.length(data + self.O))
                     todo.append((self.addr(self.offset(data)),
                                  self.addr(self.offset(data)) + self.length(data + self.O)))
                 elif mtype:
@@ -548,6 +568,7 @@ class H5File:
                 if mtype == 0x10:
                     a = self.addr(self.offset(data))
                     n = self.length(data + self.O)
+                    self.need(a, n)
                     if bytes(b[a:a + 4]) != b'OCHK':
                         raise FormatError('bad continuation block at %d' % a)
                     todo.append((a + 4, a + n - 4))      # less signature and checksum
@@ -701,6 +722,7 @@ class H5File:
             else:
                 btree, heap = self.root_cache
             out = self._symbol_table(btree, heap)
+            self.prefetch([self.addr(t) for k, t in out.values() if k == 'hard'], 1024)
             return dict(sorted(out.items()))
         links = []
         for m in h.all(0x06):
@@ -721,6 +743,7 @@ class H5File:
             links.sort(key=lambda l: (l[3] if l[3] is not None else 0, l[0]))
         else:
             links.sort(key=lambda l: l[0])
+        self.prefetch([self.addr(l[2]) for l in links if l[1] == 'hard'], 1024)
         return {l[0]: (l[1], l[2]) for l in links}
 
     def _link(self, p):
@@ -761,19 +784,24 @@ class H5File:
     def _symbol_table(self, btree, heap):
         b = self.b
         ha = self.addr(heap)
+        self.need(ha, 8 + 2 * self.L + self.O)
         if bytes(b[ha:ha + 4]) != b'HEAP':
             raise FormatError('bad local heap')
         data = self.addr(self.offset(ha + 8 + 2 * self.L))
+        self.need(data, self.length(ha + 8))
         out = {}
         O = self.O
         stack = [btree]
         while stack:
             a = self.addr(stack.pop())
+            self.need(a, 8 + 2 * O)
             if bytes(b[a:a + 4]) != b'TREE':
                 raise FormatError('bad v1 B-tree node')
             level = b[a + 5]
             n = _u16(b, a + 6)[0]
             p = a + 8 + 2 * O + self.L                  # first child after key 0
+            self.need(a, 8 + 2 * O + (n + 1) * (O + self.L))
+            self.prefetch([self.addr(self.offset(p + i * (O + self.L))) for i in range(n)], 1024)
             for i in range(n):
                 child = self.offset(p)
                 p += O + self.L
@@ -781,9 +809,11 @@ class H5File:
                     stack.append(child)
                     continue
                 s = self.addr(child)
+                self.need(s, 8)
                 if bytes(b[s:s + 4]) != b'SNOD':
                     raise FormatError('bad symbol table node')
                 ns = _u16(b, s + 6)[0]
+                self.need(s, 8 + ns * (2 * O + 24))
                 e = s + 8
                 for _ in range(ns):
                     name = self._cstr(data + self.offset(e))
@@ -899,6 +929,8 @@ class H5File:
         if t.cls == Datatype.VLEN:
             out = np.empty(n, object)
             O = self.O
+            if self.source is not None:
+                self.prefetch(sorted({self.addr(_uint(raw, i * t.size + 4, O)) for i in range(n)}), 4096)
             for i in range(n):
                 q = i * t.size
                 ln = _u32(raw, q)[0]
@@ -929,6 +961,8 @@ class H5File:
         out = []
         raw = a.raw
         n = len(raw) // t.size if t.size else 0
+        if self.source is not None:
+            self.prefetch(sorted({self.addr(_uint(raw, i * t.size + 4, O)) for i in range(n)}), 4096)
         for i in range(n):
             q = i * t.size
             ln = _u32(raw, q)[0]
@@ -945,9 +979,11 @@ class H5File:
         if objs is None:
             b = self.b
             a = self.addr(coll)
+            self.need(a, 8 + self.L)
             if bytes(b[a:a + 4]) != b'GCOL':
                 raise FormatError('bad global heap collection')
             size = self.length(a + 8)
+            self.need(a, size)
             p = a + 8 + self.L
             end = a + size
             objs = {}
@@ -973,6 +1009,7 @@ class H5File:
         """Every record of a v2 B-tree (bytes objects), in key order."""
         b = self.b
         a = self.addr(address)
+        self.need(a, 22 + self.O + self.L)
         if bytes(b[a:a + 4]) != b'BTHD':
             raise FormatError('bad v2 B-tree header')
         node_size = _u32(b, a + 6)[0]
@@ -997,6 +1034,7 @@ class H5File:
 
         def node(addr, nrec, d):
             q = self.addr(addr)
+            self.need(q, node_size)
             p = q + 6
             if d == 0:
                 for i in range(nrec):
@@ -1004,6 +1042,8 @@ class H5File:
                 return
             recs = [bytes(b[p + i * rsize:p + (i + 1) * rsize]) for i in range(nrec)]
             p += nrec * rsize
+            stride = self.O + max_nrec_size + (cum_size[d - 1] if d > 1 else 0)
+            self.prefetch([self.addr(self.offset(p + i * stride)) for i in range(nrec + 1)], node_size)
             for i in range(nrec + 1):
                 child = self.offset(p)
                 p += self.O
@@ -1070,11 +1110,13 @@ class H5File:
         stack = [address]
         while stack:
             a = self.addr(stack.pop())
+            self.need(a, 8 + 2 * O)
             if bytes(b[a:a + 4]) != b'TREE':
                 raise FormatError('bad chunk B-tree node')
             level = b[a + 5]
             n = _u16(b, a + 6)[0]
             p = a + 8 + 2 * O
+            self.need(a, 8 + 2 * O + n * (ksize + O) + ksize)
             kids = []
             for i in range(n):
                 size = _u32(b, p)[0]
@@ -1086,12 +1128,14 @@ class H5File:
                 else:
                     out.append((offs, self.addr(child), size, mask))
                 p += ksize + O
+            self.prefetch([self.addr(k) for k in kids], 8 + 2 * O + max(n, 64) * (ksize + O) + ksize)
             stack.extend(reversed(kids))
         return out
 
     def _btree2_chunks(self, address, rank, chunks, filtered, csize):
         b = self.b
         a = self.addr(address)
+        self.need(a, 12)
         rsize = _u16(b, a + 10)[0]
         O = self.O
         out = []
@@ -1125,6 +1169,7 @@ class H5File:
     def _farray(self, address):
         b = self.b
         a = self.addr(address)
+        self.need(a, 12 + self.L + self.O)
         if bytes(b[a:a + 4]) != b'FAHD':
             raise FormatError('bad fixed array header')
         client = b[a + 5]
@@ -1132,6 +1177,8 @@ class H5File:
         page_bits = b[a + 7]
         n = self.length(a + 8)
         db = self.addr(self.offset(a + 8 + self.L))
+        npg = -(-n // (1 << page_bits))
+        self.need(db, 6 + self.O + (npg + 7) // 8 + 4 + n * esize + 4 * npg + 4)
         if bytes(b[db:db + 4]) != b'FADB':
             raise FormatError('bad fixed array data block')
         p = db + 6 + self.O
@@ -1152,6 +1199,7 @@ class H5File:
         b = self.b
         lay = ds.layout
         a = self.addr(lay.address)
+        self.need(a, 16 + 6 * self.L + self.O)
         if bytes(b[a:a + 4]) != b'EAHD':
             raise FormatError('bad extensible array header')
         client = b[a + 5]
@@ -1171,6 +1219,7 @@ class H5File:
             sb.append((nd, dn, start_idx, start_dblk))
             start_idx += nd * dn
             start_dblk += nd
+        self.need(iblk, 6 + self.O + iblk_n * esize + (2 * (sblk_min_ptrs - 1) + nsblks) * self.O + 4)
         if bytes(b[iblk:iblk + 4]) != b'EAIB':
             raise FormatError('bad extensible array index block')
         q = iblk + 6 + self.O
@@ -1184,8 +1233,13 @@ class H5File:
         off_size = (max_bits + 7) // 8
         page = 1 << page_bits
 
+        def dblock_size(dn):
+            npg = -(-dn // page) if dn > page else 0
+            return 6 + self.O + off_size + 4 + dn * esize + 4 * npg + 4
+
         def dblock(addr, dn):
             d = self.addr(addr)
+            self.need(d, dblock_size(dn))
             if bytes(b[d:d + 4]) != b'EADB':
                 raise FormatError('bad extensible array data block')
             r = d + 6 + self.O + off_size
@@ -1206,6 +1260,8 @@ class H5File:
                 break
             nd, dn, sidx, sdblk = sb[s]
             if s < ib_nsblks:
+                self.prefetch([self.addr(x) for x in dblk_addrs[sdblk:sdblk + nd] if x != self.undef],
+                              dblock_size(dn))
                 for k in range(nd):
                     da = dblk_addrs[sdblk + k]
                     all_elems.extend(dblock(da, dn) if da != self.undef else [(self.undef, None, 0)] * dn)
@@ -1215,11 +1271,14 @@ class H5File:
                     all_elems.extend([(self.undef, None, 0)] * (nd * dn))
                     continue
                 r = self.addr(sa)
+                self.need(r, 6 + self.O + off_size + (nd * (-(-dn // page)) + 7) // 8 + nd * self.O + 4)
                 if bytes(b[r:r + 4]) != b'EASB':
                     raise FormatError('bad extensible array super block')
                 r += 6 + self.O + off_size
                 if dn > page:
                     r += (nd * (-(-dn // page)) + 7) // 8   # page init bitmap
+                self.prefetch([self.addr(self.offset(r + k * self.O)) for k in range(nd)
+                               if self.offset(r + k * self.O) != self.undef], dblock_size(dn))
                 for k in range(nd):
                     da = self.offset(r + k * self.O)
                     all_elems.extend(dblock(da, dn) if da != self.undef else [(self.undef, None, 0)] * dn)
@@ -1280,6 +1339,7 @@ class FractalHeap:
         self.f = f
         b = f.b
         a = f.addr(address)
+        f.need(a, 26 + 12 * f.L + 3 * f.O)
         if bytes(b[a:a + 4]) != b'FRHP':
             raise FormatError('bad fractal heap header')
         O, L = f.O, f.L
@@ -1318,6 +1378,7 @@ class FractalHeap:
                     self._huge_map[_uint(rec, O + L, L)] = (_uint(rec, 0, O), _uint(rec, O, L))
             a, n = self._huge_map[_uint(hid, 1, min(self.id_len - 1, 8))]
         a = f.addr(a)
+        f.need(a, n)
         return f.b[a:a + n]
 
     def _row_size(self, r):
@@ -1340,6 +1401,7 @@ class FractalHeap:
         off = _uint(hid, 1, self.off_size)
         ln = _uint(hid, 1 + self.off_size, self.len_size)
         blk, boff = self._direct_block(off)
+        self.f.need(blk + (off - boff), ln)
         return self.f.b[blk + (off - boff):blk + (off - boff) + ln]
 
     def _direct_block(self, off):
@@ -1353,6 +1415,7 @@ class FractalHeap:
         f = self.f
         b = f.b
         a = f.addr(address)
+        f.need(a, 5 + f.O + self.off_size + nrows * self.width * f.O)
         if bytes(b[a:a + 4]) != b'FHIB':
             raise FormatError('bad fractal heap indirect block')
         boff = _uint(b, a + 5 + f.O, self.off_size)

@@ -494,6 +494,7 @@ def read_batch(items, src, buf, threads=None):
     cstart = np.concatenate([pad(p.cstart) for p, _ in plans])
     count = np.concatenate([pad(p.count) for p, _ in plans])
     ostart = np.concatenate([pad(p.ostart) for p, _ in plans])
+    fetch_chunks(items, addr, size)
     if n > 1:
         order = np.argsort(-size, kind='stable')     # biggest first: no straggler at the end
         addr, size, mask, needend, direct, var = (addr[order], size[order], mask[order],
@@ -562,6 +563,15 @@ def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
         raise IOError('a staged chunk of %s could not be placed' % ds.name)
 
 
+def fetch_chunks(items, addr, size):
+    """The hook for files read from elsewhere (`_remote`): every planned
+    chunk's bytes (addr, size: int64 arrays) are fetched into src before
+    the kernel reads them. Local files: one attribute check."""
+    source = getattr(getattr(items[0].ds, 'file', None), 'source', None)
+    if source is not None:
+        source.fetch(addr, size)
+
+
 def read(ds, index, src, sel, out, swap=False, threads=None):
     """Decode the chunks of dataset ds touched by sel into out: a C-contiguous
     array with one dimension per dataset dimension, sized to the selection
@@ -596,12 +606,16 @@ def _read_python(items, src, threads=None):
     path itself, so the values are the same -- chunk by chunk on the pool."""
     import zlib
     jobs = []
+    plans = []
     for it in items:
         ds, index, box, out = it.ds, it.index, it.box, it.out
         p = plan(index, ds.shape, box)
         if p.fill_needed:
             _fill(out, ds)
         jobs.extend((it, p, i) for i in range(len(p.addr)))
+        plans.append(p)
+    if jobs:
+        fetch_chunks(items, np.concatenate([p.addr for p in plans]), np.concatenate([p.size for p in plans]))
     jobs.sort(key=lambda j: -int(j[1].size[j[2]]))
 
     def one(job):
