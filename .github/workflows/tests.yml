@@ -26,11 +26,13 @@ jobs:
         exclude:
           - {python: '3.13', numpy: 'numpy<2'}                     # numpy 1 has no Python 3.13 wheels
         include:
-          - {os: ubuntu-latest, python: '3.12', numpy: 'numpy>=2', extras: ',xarray'}   # the xarray backend
+          # (numpy spelled 'numpy>=2.0' below: an include matching an existing
+          # combination would be merged into that job instead of adding one)
+          - {os: ubuntu-latest, python: '3.12', numpy: 'numpy>=2.0', extras: ',xarray'}   # the xarray backend
           # every read as a fresh process does it: numba's kernels never loaded
-          - {os: ubuntu-latest, python: '3.12', numpy: 'numpy>=2', kernels: 'off'}
-          - {os: windows-latest, python: '3.12', numpy: 'numpy>=2', kernels: 'off'}
-          - {os: macos-latest, python: '3.12', numpy: 'numpy>=2', kernels: 'off'}
+          - {os: ubuntu-latest, python: '3.12', numpy: 'numpy>=2.0', kernels: 'off'}
+          - {os: windows-latest, python: '3.12', numpy: 'numpy>=2.0', kernels: 'off'}
+          - {os: macos-latest, python: '3.12', numpy: 'numpy>=2.0', kernels: 'off'}
     steps:
       - uses: actions/checkout@v4
 

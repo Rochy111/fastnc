@@ -13,6 +13,8 @@ import numpy as np
 
 from . import _hdf5, _select
 
+FUSED = True                    # masked / scaled HDF5 reads through _fused when it can
+
 
 class _LazyRemote:
     """fastnc._remote, imported when a URL or file object is opened: its
@@ -243,6 +245,11 @@ class Variable:
             return _gpu.read(self, key, threads=threads)
         k = key if isinstance(key, tuple) else (key,)
         bv = self._bv
+        if FUSED and (self._mask or self._scale) and hasattr(bv, '_reader'):
+            from . import _fused                    # mask / scale while decoding
+            res = _fused.read(self, k, threads)
+            if res is not None:
+                return res
         box, post, drop = _select.normalize(k, bv.shape)
         if hasattr(bv, '_reader'):                  # the HDF5 reader takes any index
             raw = bv.read(k) if threads is None else bv.read(k, threads=threads)
