@@ -87,6 +87,7 @@ def test_another_format_is_ignored(fresh):
 
 
 def test_load_threshold_is_this_machines(fresh, monkeypatch):
+    monkeypatch.setattr(_chunks, 'LOAD_AFTER', None)    # (--kernels off sets it)
     assert _chunks._load_after() == _chunks.LOAD_GUESS
     _hw.save_tuned(cpu={'load_s': 0.3})
     assert _chunks._load_after() == 0.3
