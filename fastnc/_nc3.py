@@ -784,15 +784,15 @@ def _gather(f, big, es, base, dims, res):
             tmp[:n] = src[base:base + n]
         src, base = tmp, 0
     total = res.nbytes
-    if total > GATHER_PAR and _kernels():
-        nrows = total // (counts[-1] * es)
-        rpb = max(1, GATHER_BLOCK // (counts[-1] * es))
-        ctr = np.zeros(1, np.int64)
+    nrows = total // (counts[-1] * es)
+    rpb = max(1, GATHER_BLOCK // (counts[-1] * es))
+    nblocks = -(-nrows // rpb)
+    if total > GATHER_PAR and nblocks > 1 and _pool.threads() > 1 and _kernels():
+        ctr = np.zeros(1, np.int64)             # (on one thread numpy's copy is faster)
         c = np.array(counts, np.int64)
         s = np.array(strides, np.int64)
         dst = res.reshape(-1).view(np.uint8)
-        _pool.share(lambda: _gather_rows(src, base, c, s, es, dst, ctr, nrows, rpb),
-                    -(-nrows // rpb))
+        _pool.share(lambda: _gather_rows(src, base, c, s, es, dst, ctr, nrows, rpb), nblocks)
         return
     view = np.ndarray(counts, big, buffer=src, offset=base, strides=strides)
     np.copyto(res.reshape(counts), view)
