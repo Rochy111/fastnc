@@ -181,7 +181,6 @@ def main():
         p = os.path.join(D, f)
         if not os.path.exists(p):
             continue
-        is_hdf5 = open(p, 'rb').read(4) != b'CDF\x01'[:3] + open(p, 'rb').read(4)[3:4] or True
         hdf5 = not open(p, 'rb').read(3) == b'CDF'
         r = {'file': label, 'path': f, 'MB': os.path.getsize(p) / 1e6, 'variable': v}
         # warm the OS cache and every reader
