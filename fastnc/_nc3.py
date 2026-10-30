@@ -46,6 +46,7 @@ _TYPES = {
 _BIG = {t: np.dtype(a) for t, (a, b) in _TYPES.items()}
 _NATIVE = {t: np.dtype(b) for t, (a, b) in _TYPES.items()}
 _SIZE = {t: d.itemsize for t, d in _BIG.items()}
+_SIZES = (0,) + tuple(_SIZE[t] for t in range(1, 12))   # by nc_type
 
 _DATA_MODEL = {1: 'NETCDF3_CLASSIC', 2: 'NETCDF3_64BIT_OFFSET', 5: 'NETCDF3_64BIT_DATA'}
 
@@ -54,6 +55,7 @@ _HEAD = 1 << 16                 # first read of the header; grown when it is lon
 PIECE = 1 << 20                 # bytes per positional read on the pool
 RUN_MIN = 1 << 16               # runs at least this long are read, not gathered
 PAR_MIN = 1 << 21               # requests this big go on the pool
+MAP_MAX = 1 << 16               # requests up to this big are copied out of the mapping
 SWAP_NUMPY = 1 << 16            # smaller reads swap with numpy
 GATHER_PAR = 1 << 20            # strided requests this big go on the pool (with numba)
 GATHER_BLOCK = 1 << 20          # output bytes per block a gathering thread takes (smaller:
@@ -63,7 +65,7 @@ KERNELS = None                  # numba kernels: None = once numba is loaded; Tr
 _u32 = struct.Struct('>I').unpack_from
 _u64 = struct.Struct('>Q').unpack_from
 _u32x2 = struct.Struct('>II').unpack_from
-_u64x2 = struct.Struct('>QQ').unpack_from
+_u32u64 = struct.Struct('>IQ').unpack_from
 
 
 class _Short(Exception):
@@ -80,9 +82,9 @@ def _decode_name(raw):
 def _att_list(b, p, ver):
     """(offset of the first attribute, number of attributes, offset past the
     list) for the attribute list whose tag is at p."""
+    sizes = _SIZES
     if ver == 5:
-        tag = _u32(b, p)[0]
-        n = _u64(b, p + 4)[0]
+        tag, n = _u32u64(b, p)
         p += 12
     else:
         tag, n = _u32x2(b, p)
@@ -91,24 +93,21 @@ def _att_list(b, p, ver):
         raise FormatError('netCDF3: bad attribute list tag %d' % tag)
     first = p
     if ver == 5:
+        u64, u32u64 = _u64, _u32u64
         for _ in range(n):
-            ln = _u64(b, p)[0]
-            p += 8 + ((ln + 3) & ~3)
-            t = _u32(b, p)[0]
-            m = _u64(b, p + 4)[0]
-            sz = _SIZE.get(t)
-            if sz is None:
+            p += 8 + ((u64(b, p)[0] + 3) & ~3)
+            t, m = u32u64(b, p)
+            if not 0 < t < 12:
                 raise FormatError('netCDF3: bad attribute type %d' % t)
-            p += 12 + ((m * sz + 3) & ~3)
+            p += 12 + ((m * sizes[t] + 3) & ~3)
     else:
+        u32, u32x2 = _u32, _u32x2
         for _ in range(n):
-            ln = _u32(b, p)[0]
-            p += 4 + ((ln + 3) & ~3)
-            t, m = _u32x2(b, p)
-            sz = _SIZE.get(t)
-            if sz is None or t > 6:
+            p += 4 + ((u32(b, p)[0] + 3) & ~3)
+            t, m = u32x2(b, p)
+            if not 0 < t < 7:
                 raise FormatError('netCDF3: bad attribute type %d' % t)
-            p += 8 + ((m * sz + 3) & ~3)
+            p += 8 + ((m * sizes[t] + 3) & ~3)
     if p > len(b):
         raise _Short
     return first, n, p
@@ -210,13 +209,12 @@ def _parse(b, size):
                 p += 4
                 ids = struct.unpack_from('>%dI' % nd, b, p)
                 p += 4 * nd
-            for i in ids:
-                if i >= ndim:
-                    raise FormatError('netCDF3: variable %r uses dimension id %d of %d'
-                                      % (name, i, ndim))
+            if nd and max(ids) >= ndim:
+                raise FormatError('netCDF3: variable %r uses dimension id %d of %d'
+                                  % (name, max(ids), ndim))
             afirst, an, p = _att_list(b, p, ver)
             t = _u32(b, p)[0]
-            if t not in _SIZE or (ver != 5 and t > 6):
+            if not 0 < t < (12 if ver == 5 else 7):
                 raise FormatError('netCDF3: variable %r has bad type %d' % (name, t))
             if ver == 1:
                 begin = _u32(b, p + 8)[0]      # (vsize skipped: computed as netCDF-C does)
@@ -276,49 +274,47 @@ class NC3File:
         self._mlock = threading.Lock()
         self._closed = False
 
-        unlim = [i for i, (_, ln) in enumerate(dims) if ln == 0]
-        rec_id = unlim[0] if unlim else -1
-        # sizes, element counts and record size as netCDF-C's NC_computeshapes
-        specs = []
+        dsize = [ln for _, ln in dims]
+        dnames = [name for name, _ in dims]
+        rec_id = dsize.index(0) if 0 in dsize else -1
+        # element counts and record size as netCDF-C's NC_computeshapes
         recsize = 0
-        nrec_vars = 0
+        nrec = 0
         first_rec = None
-        for name, ids, afirst, an, t, begin in vars_:
-            es = _SIZE[t]
-            is_rec = bool(ids) and ids[0] == rec_id
-            n = 1
-            for k, i in enumerate(ids):
-                if not (k == 0 and is_rec):
-                    n *= dims[i][1]
-            ln = n * es
-            if es < 4 and ln % 4:
-                ln += 4 - ln % 4                # padded to 4 bytes
-            if is_rec:
-                recsize += ln
-                nrec_vars += 1
+        recs = []
+        sizes = _SIZES
+        for v in vars_:
+            ids = v[1]
+            if ids and ids[0] == rec_id:
+                n = 1
+                for i in ids[1:]:
+                    n *= dsize[i]
+                ln = n * sizes[v[4]]
+                pad = ln + (-ln & 3)            # padded to 4 bytes
+                recsize += pad
+                nrec += 1
                 if first_rec is None:
-                    first_rec = (n * es, ln, begin)
-            specs.append((is_rec, n, ln))
-        if nrec_vars == 1 and recsize == first_rec[1]:
+                    first_rec = (ln, pad)
+                recs.append(v[5])
+        if nrec == 1 and recsize == first_rec[1]:
             recsize = first_rec[0]              # one record variable: not padded
         self._recsize = recsize
         stream = numrecs == ((1 << 64) - 1 if ver == 5 else 0xFFFFFFFF)
         if stream:                              # streaming: as many records as the file holds
-            begin_rec = min((v[5] for v, s in zip(vars_, specs) if s[0]), default=size)
-            numrecs = max(0, (size - begin_rec) // recsize) if recsize else 0
+            numrecs = max(0, (size - min(recs)) // recsize) if recsize else 0
         self.numrecs = numrecs
         self.streaming = stream
+        if rec_id >= 0:
+            dsize[rec_id] = numrecs
 
         root = NC3Group(self, '/', gfirst, gn)
-        root.dimensions = {name: ((numrecs, True) if i == rec_id else (ln, False))
-                           for i, (name, ln) in enumerate(dims)}
-        dnames = [d[0] for d in dims]
+        root.dimensions = {name: (n, i == rec_id) for i, (name, n) in
+                           enumerate(zip(dnames, dsize))}
         variables = {}
-        for (name, ids, afirst, an, t, begin), (is_rec, n, ln) in zip(vars_, specs):
-            variables[name] = NC3Variable(self, name, tuple(dnames[i] for i in ids),
-                                          tuple(numrecs if (k == 0 and is_rec) else dims[i][1]
-                                                for k, i in enumerate(ids)),
-                                          t, begin, is_rec, afirst, an)
+        for name, ids, afirst, an, t, begin in vars_:
+            variables[name] = NC3Variable(self, name, tuple([dnames[i] for i in ids]),
+                                          tuple([dsize[i] for i in ids]), t, begin,
+                                          bool(ids) and ids[0] == rec_id, afirst, an)
         root.variables = variables
         self.root = root
 
@@ -596,15 +592,7 @@ class NC3Variable:
         self.is_record = is_rec
         self._att = (afirst, an)
         self._attrs = None
-        es = self.dtype.itemsize
-        strides = []
-        s = es
-        for n in reversed(shape[1:] if is_rec else shape):
-            strides.append(s)
-            s *= n
-        if is_rec:
-            strides.append(file._recsize)
-        self._bstrides = tuple(reversed(strides))   # bytes in the file per index step
+        self._bstrides = None
 
     @property
     def attrs(self):
@@ -613,6 +601,20 @@ class NC3Variable:
             f = self.file
             a = self._attrs = _decode_atts(f._header, self._att[0], self._att[1], f.version)
         return a
+
+    def _strides(self):
+        """Bytes in the file from one index to the next, per dimension."""
+        es = self.dtype.itemsize
+        shape = self.shape
+        strides = []
+        s = es
+        for n in reversed(shape[1:] if self.is_record else shape):
+            strides.append(s)
+            s *= n
+        if self.is_record:
+            strides.append(self.file._recsize)
+        st = self._bstrides = tuple(reversed(strides))
+        return st
 
     def __repr__(self):
         return '<NC3Variable %r %s %s>' % (self.name, self.shape, self.dtype)
@@ -633,7 +635,7 @@ class NC3Variable:
         base = self.begin
         oshape = []
         dims = []                               # (count, byte stride) of what is selected
-        for k, n, bs in zip(key, shape, self._bstrides):
+        for k, n, bs in zip(key, shape, self._bstrides or self._strides()):
             if type(k) is slice:
                 start, stop, step = k.start, k.stop, k.step
                 if start is None or stop is None or step is None or start < 0 or stop > n:
@@ -685,10 +687,10 @@ def _read(f, big, es, base, dims, res):
         nruns = 1
         for c, _ in merged:
             nruns *= c
-        if nruns == 1 or run >= RUN_MIN:
+        if (nruns == 1 and run > MAP_MAX) or run >= RUN_MIN:
             _read_runs(f, big, es, base, merged, run, nruns, res)
             return
-        merged.append((run // es, es))
+        merged.append((run // es, es))          # (small: a copy out of the mapping)
     _gather(f, big, es, base, merged, res)
 
 

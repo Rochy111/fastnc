@@ -31,7 +31,7 @@ def timeit(fn, reps):
 
 
 def fmt(ts):
-    return '%8.3f ms (med %8.3f)' % (min(ts) * 1e3, np.median(ts) * 1e3)
+    return '%8.3f (%8.3f) ms' % (min(ts) * 1e3, np.median(ts) * 1e3)
 
 
 def main():
@@ -53,6 +53,7 @@ def main():
     nc.set_auto_maskandscale(False)
     f = _nc3.NC3File(D02)
     V = f.root.variables
+    _nc3.KERNELS = True
     for v in V.values():                       # warm the cache and the kernels
         v.read(())
     for v in nc.variables.values():
@@ -87,21 +88,25 @@ def main():
         rows.append((label, lambda n=name, k=nk: V[n].read(k),
                      lambda n=name, k=key: nc.variables[n][k] if k else nc.variables[n][...]))
     total = sum(v.dtype.itemsize * int(np.prod(v.shape)) for v in V.values())
-    print('d02: %d variables, %.0f MB, %d threads' % (len(V), total / 1e6, _pool.threads()))
-    print('%-34s %-30s %-30s %-30s %s' % ('', 'fastnc all threads', 'fastnc 1 thread',
-                                          'netCDF4-python', 'nc4/fast'))
+    print('d02: %d variables, %.0f MB, %d threads; min (median) of %d alternated runs' % (
+        len(V), total / 1e6, _pool.threads(), reps))
+    cols = (('fastnc', dict(KERNELS=True)), ('fastnc 1 thread', dict(KERNELS=True, threads=1)),
+            ('fastnc no numba', dict(KERNELS=False)))
+    print('%-30s' % '' + ''.join('%-26s' % c for c, _ in cols) + '%-26s%s' % ('netCDF4-python', 'nc4 / fastnc'))
     for label, fa, fb in rows:
-        ta, t1, tb = [], [], []
+        ts = [[] for _ in cols]
+        tb = []
         for _ in range(reps):                  # alternated
-            ta += timeit(fa, 1)
-            _pool.set_threads(1)
-            t1 += timeit(fa, 1)
+            for (c, st), t in zip(cols, ts):
+                _nc3.KERNELS = st['KERNELS']
+                _pool.set_threads(st.get('threads'))
+                t += timeit(fa, 1)
             _pool.set_threads(None)
             if fb is not None:
                 tb += timeit(fb, 1)
-        ratio = '%6.1fx (med %.1fx)' % (min(tb) / min(ta), np.median(tb) / np.median(ta)) \
-            if tb else ''
-        print('%-34s %-30s %-30s %-30s %s' % (label, fmt(ta), fmt(t1), fmt(tb) if tb else '', ratio))
+        ratio = '%6.1fx (%.1fx)' % (min(tb) / min(ts[0]), np.median(tb) / np.median(ts[0]))             if tb else ''
+        print('%-30s' % label + ''.join('%-26s' % fmt(t) for t in ts) +
+              '%-26s%s' % (fmt(tb) if tb else '', ratio))
     f.close()
     nc.close()
 
