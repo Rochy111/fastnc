@@ -263,11 +263,12 @@ class NC3File:
     parsed, file handles for the positional reads, a mapping made on first
     need."""
 
-    def __init__(self, path):
+    def __init__(self, path, source=None):
         self.path = os.fspath(path)
-        fh = open(self.path, 'rb', buffering=0)
+        self._remote = source           # a remote file (_remote.Source): read from its buffer
+        fh = open(self.path, 'rb', buffering=0) if source is None else source.file()
         try:
-            self._size = size = os.fstat(fh.fileno()).st_size
+            self._size = size = os.fstat(fh.fileno()).st_size if source is None else source.size
             b, (ver, numrecs, dims, gfirst, gn, vars_, _) = _read_header(fh, size)
         except BaseException:
             fh.close()
@@ -350,6 +351,10 @@ class NC3File:
                 return
             u8[o + avail:o + n] = 0
             n = avail
+        if self._remote is not None:            # fetched by _read already: a copy
+            self._remote.fetch(np.array([off]), np.array([n]))
+            u8[o:o + n] = self._remote.buf[off:off + n]
+            return
         got = self._reader().read(u8, addr, o, n, off)
         if got < n:                             # the file shrank since it was opened
             u8[o + got:o + n] = 0
@@ -361,7 +366,10 @@ class NC3File:
             with self._mlock:
                 if self._src is None:
                     import mmap
-                    if self._size:
+                    if self._remote is not None:
+                        from ._remote import readonly
+                        self._src = readonly(self._remote)
+                    elif self._size:
                         self._mm = mmap.mmap(self._fh.fileno(), 0, access=mmap.ACCESS_READ)
                         self._src = np.frombuffer(self._mm, np.uint8)
                     else:
@@ -686,6 +694,9 @@ class NC3Variable:
 def _read(f, big, es, base, dims, res):
     """res (C-contiguous, native) filled with the elements at base + sum(i_d *
     stride_d) for i_d < count_d over dims [(count_d, stride_d)] (counts > 1)."""
+    if f._remote is not None:                   # a remote file: its runs fetched first
+        from ._remote import runs
+        f._remote.fetch(*runs(base, dims, es))
     merged = []                                 # dims merged where the file is contiguous
     for c, s in dims:
         if merged and merged[-1][1] == c * s:

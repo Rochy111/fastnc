@@ -23,6 +23,8 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 HDF5 = ['filters.h5', 'groups_new.h5', 'groups_old.h5', 'idx_implicit.h5', 'idx_latest.h5',
         'idx_v1btree.h5', 'layouts.h5', 'types.h5', 'nc4.nc', 'nc4_classic.nc']
 NETCDF4 = ['nc4.nc', 'nc4_classic.nc']
+OTHER = ['nc3_classic.nc', 'nc3_64bit.nc', 'nc3_cdf5.nc',              # netCDF-3: _nc3 with source=
+         'hdf4/comp.hdf', 'hdf4/types.hdf', 'hdf4/many.hdf']          # HDF4: fetched whole
 TINY = {'block_size': 512, 'initial': 1024, 'gap': 0, 'part': 4096, 'tail': 512}
 EXACT = {'block_size': 8, 'initial': 64, 'gap': 0, 'part': 4096, 'tail': 0}   # read-ahead: 8 bytes
 
@@ -89,6 +91,8 @@ def same(a, b):
             return False
         if a.dtype.kind == 'O':
             return all(same(x, y) for x, y in zip(a.ravel().tolist(), b.ravel().tolist()))
+        if a.dtype.hasobject:                       # references in compounds: by address
+            return repr(a.tolist()) == repr(b.tolist())
         if np.ma.isMaskedArray(a) or np.ma.isMaskedArray(b):
             return (np.array_equal(np.ma.getmaskarray(a), np.ma.getmaskarray(b))
                     and np.ma.getdata(a).tobytes() == np.ma.getdata(b).tobytes())
@@ -97,6 +101,8 @@ def same(a, b):
         return type(a) is type(b) and len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
     if isinstance(a, float) and a != a:
         return b != b
+    if isinstance(a, fastnc._h5py.Reference):       # equal by address, whatever the file
+        return type(a) is type(b) and repr(a) == repr(b)
     return type(a) is type(b) and a == b
 
 
@@ -158,9 +164,9 @@ def test_h5py_default_blocks(server, name):
     compare(want, got)
 
 
-def values(v):
+def values(v, key=Ellipsis):
     try:
-        return v[...]
+        return v[key]
     except (NotImplementedError, ImportError) as e:     # a filter / module not here yet
         return 'unsupported: %s' % type(e).__name__
 
@@ -175,6 +181,9 @@ def nc_tree(ds):
                  'attrs': {a: v.getncattr(a) for a in v.ncattrs()}, 'masked': values(v)}
             v.set_auto_maskandscale(False)
             r['raw'] = values(v)
+            if v.shape and all(n > 2 for n in v.shape):     # strided and offset selections
+                r['part'] = values(v, tuple(slice(1, None, 2) for _ in v.shape))
+                r['row'] = values(v, (v.shape[0] // 2,))
             rec[k] = r
         out[g.path] = rec
     return out
@@ -202,6 +211,47 @@ def test_netcdf4_http(server, name, opts):
         assert ds.data_model == model
         assert ds.filepath() == server + name
     compare(want, got)
+
+
+@pytest.mark.parametrize('name', OTHER)
+@pytest.mark.parametrize('opts', ['TINY', 'EXACT'])
+def test_other_formats_http(server, name, opts):
+    with fastnc.Dataset(os.path.join(DATA, name)) as ds:
+        want = nc_tree(ds)
+        model = ds.data_model
+    with fastnc.Dataset(server + name, storage_options=globals()[opts]) as ds:
+        got = nc_tree(ds)
+        assert ds.data_model == model
+    compare(want, got)
+
+
+def test_nc3_fetches_what_it_reads(server):
+    """A record variable's slice asks for its records' bytes, not the file's
+    (the header read takes the first 64 kB: these small files whole)."""
+    with fastnc.Dataset(os.path.join(DATA, 'nc3_64bit.nc')) as ds:
+        ds.set_auto_maskandscale(False)
+        name = max((k for k, v in ds.variables.items() if v.dimensions[:1] == ('time',)),
+                   key=lambda k: ds[k].size)
+        want = ds[name][1:3, 2:5]
+    with fastnc.Dataset(server + 'nc3_64bit.nc', storage_options=EXACT) as ds:
+        ds.set_auto_maskandscale(False)
+        asked = []
+        fetch = ds._source.fetch
+        ds._source.fetch = lambda a, n, gap=None: (asked.append((list(a), list(n))), fetch(a, n, gap))
+        got = ds[name][1:3, 2:5]
+        assert same(want, got)
+        assert sum(sum(n) for a, n in asked) == got.nbytes      # one run per record and row
+
+
+def test_runs():
+    st, sz = _remote.runs(100, [(3, 1000), (4, 48), (10, 4)], 4)
+    assert sz.tolist() == [40] * 12 and st.tolist()[:5] == [100, 148, 196, 244, 1100]
+    st, sz = _remote.runs(0, [(3, 160), (4, 40), (10, 4)], 4)      # contiguous: one run
+    assert st.tolist() == [0] and sz.tolist() == [480]
+    st, sz = _remote.runs(8, [(5, 12)], 4)                          # strided elements
+    assert st.tolist() == [8, 20, 32, 44, 56] and sz.tolist() == [4] * 5
+    st, sz = _remote.runs(8, [(5, 12)], 4, most=2)                  # too many: one range
+    assert st.tolist() == [8] and sz.tolist() == [52]
 
 
 def test_load_many(server):

@@ -23,12 +23,13 @@ byte ranges present. Two calls bring bytes in before they are read:
 of a B-tree node, the object headers of a group's members): one parallel
 round instead of a round trip each.
 
-netCDF-3 (`_nc3`) plugs in the same way: its backend gets the Source as
-`source=` and calls `source.need(0, n)` while it reads the header (the
-first `initial` bytes are already here) and `source.fetch(starts, sizes)`
-with a variable's byte ranges (a record variable: one range per record)
-before reading them from `src`. A backend that does not take `source`
-gets the whole file fetched first.
+netCDF-3 (`_nc3`, which reads with positional reads of its own) takes
+the Source as `NC3File(name, source=...)`: it reads the header through
+`source.file()` (seek / read over need()), calls `source.fetch(*runs(base,
+dims, esize))` with a variable read's byte runs (a record variable: one
+run per record, merged across small gaps) and then copies from
+`source.buf` where it would read the file or its mapping. HDF4 is fetched
+whole (`whole()`): its parser has no need() calls.
 
 HTTP errors become OSError; 5xx, 429, timeouts and dropped connections are
 retried with exponential backoff. No dependencies beyond the standard
@@ -85,21 +86,37 @@ def readonly(source):
     return v
 
 
-def nc3_open(NC3File, buf, src, source):
-    """A netCDF-3 backend over buf / src; for a remote file it is given the
-    Source (`source=`) to fetch what it reads, or, if it does not take one,
-    the whole file is fetched first."""
-    if source is None:
-        return NC3File(buf, src)
-    import inspect
-    try:
-        takes = 'source' in inspect.signature(NC3File).parameters
-    except (TypeError, ValueError):
-        takes = False
-    if takes:
-        return NC3File(buf, src, source=source)
+def whole(source):
+    """The whole file fetched, as a read-only array (for readers without
+    need() calls)."""
     source.fetch_all()
-    return NC3File(buf, src)
+    return readonly(source)
+
+
+def runs(base, dims, esize, most=1 << 20):
+    """(starts, sizes) of the byte runs of a strided selection: elements at
+    base + sum(i_d * stride_d), i_d < count_d over dims [(count_d,
+    stride_d)]; dimensions contiguous in the file merged into the run, and
+    one range over all when there would be more than `most` runs."""
+    merged = []
+    for c, st in dims:
+        if merged and merged[-1][1] == c * st:
+            merged[-1] = (merged[-1][0] * c, st)
+        else:
+            merged.append((c, st))
+    run = esize
+    if merged and merged[-1][1] == esize:
+        run = merged.pop()[0] * esize
+    n = 1
+    for c, _ in merged:
+        n *= c
+    if n > most:
+        last = base + sum((c - 1) * st for c, st in merged) + run
+        return np.array([base], np.int64), np.array([last - base], np.int64)
+    offs = np.array([base], np.int64)
+    for c, st in merged:
+        offs = (offs[:, None] + np.arange(c, dtype=np.int64) * st).reshape(-1)
+    return offs, np.full(len(offs), run, np.int64)
 
 
 def _source_opts(opts):
@@ -212,13 +229,12 @@ class Source:
         int64): the missing ones merged across gaps under `gap` bytes and
         fetched in parallel."""
         addr = np.asarray(addr, np.int64).ravel()
-        end = addr + np.asarray(size, np.int64).ravel()
-        keep = end > addr
+        end = np.minimum(addr + np.asarray(size, np.int64).ravel(), self.size)
+        keep = end > addr                       # (empty, or past the end of the file)
         if not keep.all():
             addr, end = addr[keep], end[keep]
         if not len(addr):
             return
-        np.minimum(end, self.size, out=end)
         s, e = self._iv[2], self._iv[3]
         if len(s):
             i = np.searchsorted(s, addr, 'right') - 1
@@ -235,6 +251,11 @@ class Source:
 
     def fetch_all(self):
         self._get([(0, self.size)])
+
+    def file(self):
+        """A read-only file object over the source (seek / read / readinto,
+        each read asking for its bytes first)."""
+        return SourceFile(self)
 
     def _missing(self, a, end):
         s, e = self._iv[0], self._iv[1]
@@ -306,6 +327,42 @@ class Source:
 
     def close(self):
         self.t.close()
+
+
+class SourceFile:
+    """A Source as a file object: what a reader written for files (the
+    netCDF-3 header) reads it through."""
+
+    def __init__(self, source):
+        self.s = source
+        self.pos = 0
+
+    def seek(self, off, whence=0):
+        self.pos = off if whence == 0 else (self.pos + off if whence == 1 else self.s.size + off)
+        return self.pos
+
+    def tell(self):
+        return self.pos
+
+    def read(self, n=-1):
+        a = self.pos
+        b = self.s.size if n is None or n < 0 else min(self.s.size, a + n)
+        if b <= a:
+            return b''
+        self.s.need(a, b - a)
+        self.pos = b
+        return self.s.buf[a:b].tobytes()
+
+    def readinto(self, out):
+        d = self.read(len(out))
+        out[:len(d)] = d
+        return len(d)
+
+    def fileno(self):
+        raise OSError('a remote file has no file descriptor')
+
+    def close(self):
+        pass
 
 
 def _merge(pairs, gap):
