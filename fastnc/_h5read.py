@@ -197,6 +197,8 @@ class Reader:
                 return
             n = int(np.prod(ds.shape)) if ds.shape else 1
             a = f.addr(lay.address)
+            if f.source is not None:                    # a remote file: fetch the selection's runs
+                f.source.fetch(*contiguous_runs(a, ds.shape, esize, box))
             whole = np.ndarray(ds.shape, np.dtype('V%d' % esize), buffer=self.src, offset=a)
         elif lay.cls == 0:
             p, n = lay.data
@@ -239,6 +241,34 @@ def _virtual_index(ds):
     csize = int(np.prod(chunks)) * esize
     table = [(tuple(o), int(a), csize, 0) for o, a in zip(idx.tolist(), addr.tolist())]
     return _chunks.ChunkIndex(table, tuple(chunks), shape)
+
+
+def contiguous_runs(a, shape, esize, box, most=1 << 20):
+    """(starts, sizes) in bytes of the runs of a contiguous array at byte a
+    that a box selects: one per row along the last dimension (stepped
+    selections: from the first to the last element of each row), or one
+    range over all when there would be more than `most`."""
+    rank = len(shape)
+    if rank == 0:
+        return np.array([a], np.int64), np.array([esize], np.int64)
+    stride = [esize] * rank
+    for d in range(rank - 2, -1, -1):
+        stride[d] = stride[d + 1] * shape[d + 1]
+    first = [s for s, e, k in box]
+    last = [s + (len(range(s, e, k)) - 1) * k for s, e, k in box]
+    nrows = 1
+    for s, e, k in box[:-1]:
+        nrows *= len(range(s, e, k))
+    run = (last[-1] - first[-1] + 1) * esize
+    if nrows > most:
+        lo = a + sum(f * st for f, st in zip(first, stride))
+        hi = a + sum(l * st for l, st in zip(last, stride)) + esize
+        return np.array([lo], np.int64), np.array([hi - lo], np.int64)
+    off = np.zeros(1, np.int64) + a + first[-1] * esize
+    for d in range(rank - 1):
+        s, e, k = box[d]
+        off = (off[:, None] + np.arange(s, e, k, dtype=np.int64)[None, :] * stride[d]).ravel()
+    return off, np.full(len(off), run, np.int64)
 
 
 def _swap(res):

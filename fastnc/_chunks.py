@@ -556,6 +556,7 @@ def read_batch(items, src, buf, threads=None):
             if not _staged.handles(it.ds.filters):
                 bad = [f.id for f in it.ds.filters if not _staged.handles([f])]
                 raise NotImplementedError('filter %d is not supported yet' % bad[0])
+        fetch_chunks(items)                         # (all: one round with the fast ones)
         _staged.read_items(staged, src, buf, threads)
         items = [it for it in items if all(f.id in SUPPORTED for f in it.ds.filters)]
         if not items:
@@ -633,6 +634,7 @@ def read_batch(items, src, buf, threads=None):
     cstart = np.concatenate([pad(p.cstart) for p, _ in plans])
     count = np.concatenate([pad(p.count) for p, _ in plans])
     ostart = np.concatenate([pad(p.ostart) for p, _ in plans])
+    fetch_chunks(items, [p for p, _ in plans])
     if n > 1:
         order = np.argsort(-size, kind='stable')     # biggest first: no straggler at the end
         addr, size, mask, needend, direct, var = (addr[order], size[order], mask[order],
@@ -721,6 +723,33 @@ def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
         raise IOError('a staged chunk of %s could not be placed' % ds.name)
 
 
+def fetch_chunks(items, plans=None):
+    """The hook for files read from elsewhere (`_remote`): the stored bytes
+    of every planned chunk (plans: one Plan per item; None: planned here)
+    are fetched into src before anything reads them -- of an unfiltered
+    chunk only from its first to its last selected element. Local files:
+    one attribute check."""
+    source = getattr(getattr(items[0].ds, 'file', None), 'source', None)
+    if source is None:
+        return
+    addr, size = [], []
+    for k, it in enumerate(items):
+        p = plans[k] if plans is not None else plan(it.index, it.ds.shape, it.box)
+        if it.ds.filters or not len(p.addr):
+            addr.append(p.addr)
+            size.append(p.size)
+            continue
+        C = it.index.chunks
+        cstr = np.ones(len(C), np.int64)
+        for d in range(len(C) - 2, -1, -1):
+            cstr[d] = cstr[d + 1] * C[d + 1]
+        esize = it.ds.type.size
+        lo = (p.cstart * cstr).sum(axis=1) * esize if len(C) else np.zeros(len(p.addr), np.int64)
+        addr.append(p.addr + lo)
+        size.append(np.minimum(p.needend * esize, p.size) - lo)
+    source.fetch(np.concatenate(addr), np.concatenate(size))
+
+
 def read(ds, index, src, sel, out, swap=False, threads=None):
     """Decode the chunks of dataset ds touched by sel into out: a C-contiguous
     array with one dimension per dataset dimension, sized to the selection
@@ -755,12 +784,16 @@ def _read_python(items, src, threads=None):
     path itself, so the values are the same -- chunk by chunk on the pool."""
     import zlib
     jobs = []
+    plans = []
     for it in items:
         ds, index, box, out = it.ds, it.index, it.box, it.out
         p = plan(index, ds.shape, box)
         if p.fill_needed:
             _fill(out, ds)
         jobs.extend((it, p, i) for i in range(len(p.addr)))
+        plans.append(p)
+    if jobs:
+        fetch_chunks(items, plans)
     jobs.sort(key=lambda j: -int(j[1].size[j[2]]))
 
     def one(job):
