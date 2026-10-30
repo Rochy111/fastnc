@@ -10,7 +10,8 @@ skip[i] set: the filter was not applied to that chunk (HDF5's filter mask:
 an optional filter that could not shrink it), so its bytes are copied.
 outlen[i] gets the decoded length, status[i] a negative error code.
 """
-from . import _bzip2, _inflate, _nbit, _scaleoffset, _shuffle, _szip
+from . import (_bitshuffle, _blosc, _blosc2, _bzip2, _inflate, _lz4, _lzf, _nbit,
+               _scaleoffset, _shuffle, _szip, _zstd)
 from ._intrin import ld64, st64, take
 from ._jit import njit
 
@@ -144,7 +145,121 @@ def run_shuffle(src, ioff, ilen, dst, ooff, olen, skip, cd, ws, counter, status,
             outlen[i] = r
 
 
-# filter id -> (driver, module) ; codecs merged later register here too
+@njit(cache=True, nogil=True)
+def run_lzf(src, ioff, ilen, dst, ooff, olen, skip, cd, ws, counter, status, outlen):
+    n = ioff.shape[0]
+    while True:
+        i = take(counter, 0)
+        if i >= n:
+            return
+        if skip[i]:
+            r = _copy(src, ioff[i], ilen[i], dst, ooff[i], olen[i])
+        else:
+            r = _lzf.decode(src, ioff[i], ioff[i] + ilen[i], dst, ooff[i], ooff[i] + olen[i], cd, ws)
+            if r >= 0:
+                r -= ooff[i]
+        if r < 0:
+            status[i] = r
+        else:
+            outlen[i] = r
+
+
+@njit(cache=True, nogil=True)
+def run_lz4(src, ioff, ilen, dst, ooff, olen, skip, cd, ws, counter, status, outlen):
+    n = ioff.shape[0]
+    while True:
+        i = take(counter, 0)
+        if i >= n:
+            return
+        if skip[i]:
+            r = _copy(src, ioff[i], ilen[i], dst, ooff[i], olen[i])
+        else:
+            r = _lz4.decode(src, ioff[i], ioff[i] + ilen[i], dst, ooff[i], ooff[i] + olen[i], cd, ws)
+            if r >= 0:
+                r -= ooff[i]
+        if r < 0:
+            status[i] = r
+        else:
+            outlen[i] = r
+
+
+@njit(cache=True, nogil=True)
+def run_bitshuffle(src, ioff, ilen, dst, ooff, olen, skip, cd, ws, counter, status, outlen):
+    n = ioff.shape[0]
+    while True:
+        i = take(counter, 0)
+        if i >= n:
+            return
+        if skip[i]:
+            r = _copy(src, ioff[i], ilen[i], dst, ooff[i], olen[i])
+        else:
+            r = _bitshuffle.decode(src, ioff[i], ioff[i] + ilen[i], dst, ooff[i], ooff[i] + olen[i], cd, ws)
+            if r >= 0:
+                r -= ooff[i]
+        if r < 0:
+            status[i] = r
+        else:
+            outlen[i] = r
+
+
+@njit(cache=True, nogil=True)
+def run_zstd(src, ioff, ilen, dst, ooff, olen, skip, cd, ws, counter, status, outlen):
+    n = ioff.shape[0]
+    while True:
+        i = take(counter, 0)
+        if i >= n:
+            return
+        if skip[i]:
+            r = _copy(src, ioff[i], ilen[i], dst, ooff[i], olen[i])
+        else:
+            r = _zstd.decode(src, ioff[i], ioff[i] + ilen[i], dst, ooff[i], ooff[i] + olen[i], cd, ws)
+            if r >= 0:
+                r -= ooff[i]
+        if r < 0:
+            status[i] = r
+        else:
+            outlen[i] = r
+
+
+@njit(cache=True, nogil=True)
+def run_blosc(src, ioff, ilen, dst, ooff, olen, skip, cd, ws, counter, status, outlen):
+    n = ioff.shape[0]
+    while True:
+        i = take(counter, 0)
+        if i >= n:
+            return
+        if skip[i]:
+            r = _copy(src, ioff[i], ilen[i], dst, ooff[i], olen[i])
+        else:
+            r = _blosc.decode(src, ioff[i], ioff[i] + ilen[i], dst, ooff[i], ooff[i] + olen[i], cd, ws)
+            if r >= 0:
+                r -= ooff[i]
+        if r < 0:
+            status[i] = r
+        else:
+            outlen[i] = r
+
+
+@njit(cache=True, nogil=True)
+def run_blosc2(src, ioff, ilen, dst, ooff, olen, skip, cd, ws, counter, status, outlen):
+    n = ioff.shape[0]
+    while True:
+        i = take(counter, 0)
+        if i >= n:
+            return
+        if skip[i]:
+            r = _copy(src, ioff[i], ilen[i], dst, ooff[i], olen[i])
+        else:
+            r = _blosc2.decode(src, ioff[i], ioff[i] + ilen[i], dst, ooff[i], ooff[i] + olen[i], cd, ws)
+            if r >= 0:
+                r -= ooff[i]
+        if r < 0:
+            status[i] = r
+        else:
+            outlen[i] = r
+
+
+# filter id -> (driver, module)
 DRIVERS = {
     1: (run_inflate, _inflate),
     2: (run_shuffle, _shuffle),
@@ -152,4 +267,10 @@ DRIVERS = {
     5: (run_nbit, _nbit),
     6: (run_scaleoffset, _scaleoffset),
     307: (run_bzip2, _bzip2),
+    32000: (run_lzf, _lzf),
+    32001: (run_blosc, _blosc),
+    32004: (run_lz4, _lz4),
+    32008: (run_bitshuffle, _bitshuffle),
+    32015: (run_zstd, _zstd),
+    32026: (run_blosc2, _blosc2),
 }
