@@ -168,3 +168,14 @@ for whole reads. Byte-swapping can ride along with the copy in L2.
 - **Numba first-class function arguments** for per-codec specialisation:
   not cacheable (recompiled in every process); one small driver kernel per
   codec instead.
+- **Peak memory** (`tools/profile/peak_memory.py`, fresh process, every
+  variable read and kept, masked for fastnc / netCDF4-python, raw for
+  h5py): VIIRS 3.3 GB fastnc, 3.3 GB netCDF4-python (results 2.3 GB; h5py's
+  raw arrays 1.0 GB, peak 1.1); wrfout d01 0.40 / 0.46 GB; GOES full-disk
+  C02 4.7 / 6.2 GB. fastnc's peak counts the mapped file's pages (shared
+  with the OS file cache) and the raw arrays a masked read made, kept in
+  the arena for the next read (`fastnc.release()` returns them); its
+  committed memory stays ~100 MB because both are mappings.
+- **Concurrent readers**: eight user threads reading one open file (raw,
+  masked, windows, load) get the values one thread gets, through the zlib
+  path and the kernels (`tests/test_threads.py`).
