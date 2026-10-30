@@ -176,6 +176,39 @@ for whole reads. Byte-swapping can ride along with the copy in L2.
   with the OS file cache) and the raw arrays a masked read made, kept in
   the arena for the next read (`fastnc.release()` returns them); its
   committed memory stays ~100 MB because both are mappings.
+- **Inflate table building** (single thread, every deflate chunk of the
+  real files, `tools/profile/inflate_check.py`-style): the fixed code's
+  tables were rebuilt for every fixed block -- Ku's 13,279 of 15,133 chunks
+  are fixed-code streams of ~25 bytes, so building cost 4 us a chunk
+  against well under 1 for decoding. Kept between blocks: Ku 59.6 -> 18.7
+  ms. Dynamic tables built as libdeflate builds them (sorted by length,
+  table doubled between lengths, no clearing pass, no strided writes per
+  slot): header + tables 5.3 -> 3.8 us a block, wrfout 158 -> 151 ms,
+  VIIRS 655 -> 629, MODIS 478 -> 461, Ku 18.7 -> 13.9. Literal stores at an
+  unsigned index (numba wraps signed ones): another ~2%. Kept.
+  conda's libdeflate 1.x through ctypes on the same chunks: wrfout 114 ms,
+  VIIRS 545, MODIS 362, AVHRR 59 (fastnc now 148 / 606 / 447 / 71).
+- **Not paying off in the inflate loop** (no change beyond noise, so not
+  kept): the fast loop as a separate function (its bit buffer stops being
+  spilled to the stack, but no faster: 147.7 vs 149.7 ms wrfout); the bound
+  checks merged into two precomputed limits; libdeflate's entry layout
+  (bits to consume in the low 6 bits, so `buf >>= entry` needs no mask, and
+  length/distance code plus extra bits consumed in one shift): 145.2 vs
+  145.4 ms wrfout, 607 vs 605 VIIRS. The loop is bound by branch misses on
+  literal/match, not by the shift chain.
+- **Unshuffle a word at a time** (`_chunks._unshuffle2/4/8`): byte by byte
+  the shuffled placement ran at 3.1 GB/s (int16) / 3.6 (float32) on one
+  core, a third of a shuffled read's decoding; with shifts and masks over
+  a word of each byte plane (LLVM vectorizes it) 25 / 15-21 GB/s. Whole
+  file raw, every thread: VIIRS 67 -> 54 ms, wrfout 41 -> 38, AVHRR 8.2 ->
+  7.3; one thread VIIRS 938 -> 709.
+- **Whole-dataset plans without the per-dimension intersection** (a load):
+  wrfout raw load 38 -> 32 ms, Ku 11.7 -> 9.7.
+- **Decoded-chunk cache for small reads of shuffled chunks** (kept from a
+  chunk's second read on, 32 MB in all): repeated `T[0, 0]` of wrfout 3.8
+  ms -> 0.09, `T2[0, 10, 10]` 118 -> 45 us, a 16x16 VIIRS window 0.89 ms ->
+  0.074; a fresh open's first read unchanged (admitting on the first read
+  cost +22% there: four whole 2.4 MB chunks placed and copied).
 - **Concurrent readers**: eight user threads reading one open file (raw,
   masked, windows, load) get the values one thread gets, through the zlib
   path and the kernels (`tests/test_threads.py`).

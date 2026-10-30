@@ -85,6 +85,7 @@ def lookup3(data, initval=0):
 
 _HASH_OK = [None]               # lookup3 checked against a file's own name index
 _HASHES = {}                    # name -> lookup3 hash
+_BT1_REC = {}                   # rank -> numpy dtype of a v1 B-tree chunk record
 
 
 def _enc_size(x):
@@ -1305,8 +1306,10 @@ class H5File:
         b = self.b
         O = self.O
         ksize = 8 + 8 * (rank + 1)
-        rec = np.dtype([('size', '<u4'), ('mask', '<u4'), ('offs', '<u8', (rank + 1,)),
-                        ('child', '<u8')])
+        rec = _BT1_REC.get(rank)
+        if rec is None:
+            rec = _BT1_REC[rank] = np.dtype([('size', '<u4'), ('mask', '<u4'),
+                                             ('offs', '<u8', (rank + 1,)), ('child', '<u8')])
         parts = []
         stack = [address]
         while stack:

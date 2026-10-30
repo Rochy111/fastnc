@@ -87,6 +87,21 @@ def _plan(index, shape, sel):
     rank = len(shape)
     off = index.offsets
     C = index.chunks
+    if rank and all(s == 0 and e >= n and k == 1 for (s, e, k), n in zip(sel, shape)):
+        # the whole dataset (a load): every chunk inside the shape kept as it is
+        sh = np.array(shape, np.int64)
+        if bool((off < sh).all()) and bool((off >= 0).all()):
+            p = Plan()
+            p.addr, p.size, p.mask = index.addr, index.size, index.mask
+            p.cstart = np.zeros_like(off)
+            p.count = np.ascontiguousarray(np.minimum(C, sh - off))
+            p.ostart = np.ascontiguousarray(off)
+            cstr = np.ones(rank, np.int64)
+            for d in range(rank - 2, -1, -1):
+                cstr[d] = cstr[d + 1] * C[d + 1]
+            p.needend = ((p.count - 1) * cstr).sum(axis=1) + 1
+            p.fill_needed = not index.complete and len(off) < index.ngrid
+            return p
     keep = np.ones(len(off), bool)
     cstart = np.empty_like(off)
     count = np.empty_like(off)
@@ -976,9 +991,110 @@ def read(ds, index, src, sel, out, swap=False, threads=None, bands=None):
     array with one dimension per dataset dimension, sized to the selection
     (integer indexes as length one). swap: reverse each element's bytes as
     it is placed (big-endian numbers read as native)."""
+    if bands is None and _cached(ds, index, src, sel, out, swap, threads):
+        return out
     read_batch([Item(ds, index, sel, out, swap, 0)], src, out.reshape(-1).view(np.uint8), threads,
                bands)
     return out
+
+
+CACHE_BYTES = 32 << 20          # decoded chunks kept, all datasets together
+CACHE_CHUNKS = 16               # reads touching at most this many chunks go through it
+_CACHE = {}                     # (chunk index, address, swap) -> decoded chunk; LRU order
+_CACHE_HELD = [0]
+_SEEN = {}                      # (id of chunk index, address) of chunks read once (an id
+                                # reused after a file is gone: only a chunk kept early)
+_CACHE_LOCK = threading.Lock()
+
+
+def release_cache():
+    with _CACHE_LOCK:
+        _CACHE.clear()
+        _SEEN.clear()
+        _CACHE_HELD[0] = 0
+
+
+def _cached(ds, index, src, sel, out, swap, threads):
+    """Small parts of a few shuffled chunks, read through a cache of decoded
+    chunks: a loop reading points, or one level of a variable, decoded the
+    whole chunk again on every read (a byte shuffle allows no early stop).
+    The chunks not in the cache are decoded whole by one read_batch (the
+    same values, on as many threads) and kept (least recently used out
+    first, CACHE_BYTES in all; fastnc.release() empties it), and the
+    selection is copied out of them. False: not such a read."""
+    rank = len(ds.shape)
+    esize = ds.type.size
+    if rank == 0 or esize < 2 or out.ndim != rank or not any(f.id == F_SHUFFLE for f in ds.filters):
+        return False
+    C = index.chunks
+    cbytes = int(np.prod(C)) * esize
+    if cbytes * 2 > CACHE_BYTES:
+        return False
+    p = plan(index, ds.shape, sel)
+    n = len(p.addr)
+    if n == 0 or n > CACHE_CHUNKS or n * cbytes * 2 > CACHE_BYTES or out.nbytes * 2 > n * cbytes:
+        return False
+    if p.fill_needed:
+        _fill(out, ds)
+    start = np.array([s[0] for s in sel], np.int64)
+    step = np.array([s[2] for s in sel], np.int64)
+    origin = start + p.ostart * step - p.cstart         # each chunk's first element
+    swap = bool(swap)
+    hits = [None] * n
+    with _CACHE_LOCK:
+        for i in range(n):
+            key = (index, int(p.addr[i]), swap)
+            h = _CACHE.pop(key, None)
+            if h is not None:
+                _CACHE[key] = h                         # (now the most recent)
+                hits[i] = h
+    miss = [i for i in range(n) if hits[i] is None]
+    if miss:
+        # a chunk is kept from its second read on: a read made once (a fresh
+        # open's first window) costs what it did, not a whole-chunk decode
+        with _CACHE_LOCK:
+            new = [i for i in miss if _SEEN.setdefault((id(index), int(p.addr[i])), False)
+                   is False]
+            for i in new:
+                _SEEN[id(index), int(p.addr[i])] = True
+            if len(_SEEN) > 1 << 16:
+                _SEEN.clear()
+        if new:
+            return False
+        items, shapes, base = [], [], 0
+        for i in miss:
+            o = [int(x) for x in origin[i]]
+            box = [(o[d], min(o[d] + int(C[d]), ds.shape[d]), 1) for d in range(rank)]
+            shapes.append(tuple(e - s for s, e, _ in box))
+            items.append((box, base))
+            base += (int(np.prod(shapes[-1])) * esize + 63) // 64 * 64
+        buf = np.empty(base, np.uint8)
+        batch = []
+        for (box, b0), shape in zip(items, shapes):
+            nb = int(np.prod(shape)) * esize
+            batch.append(Item(ds, index, box, buf[b0:b0 + nb].view(out.dtype).reshape(shape),
+                              swap, b0))
+        read_batch(batch, src, buf, threads)
+        with _CACHE_LOCK:
+            for (box, b0), shape, i in zip(items, shapes, miss):
+                nb = int(np.prod(shape)) * esize
+                h = buf[b0:b0 + nb].reshape(shape + (esize,))
+                h = hits[i] = h.copy() if len(miss) > 1 else h   # (each freed on its own)
+                key = (index, int(p.addr[i]), swap)
+                old = _CACHE.pop(key, None)
+                if old is not None:
+                    _CACHE_HELD[0] -= old.nbytes
+                _CACHE[key] = h
+                _CACHE_HELD[0] += nb
+            while _CACHE_HELD[0] > CACHE_BYTES and _CACHE:
+                _CACHE_HELD[0] -= _CACHE.pop(next(iter(_CACHE))).nbytes
+    ob = out.reshape(-1).view(np.uint8).reshape(out.shape + (esize,))
+    for i in range(n):
+        cs, cn, os_ = p.cstart[i], p.count[i], p.ostart[i]
+        ob[tuple(slice(int(os_[d]), int(os_[d] + cn[d])) for d in range(rank))] = \
+            hits[i][tuple(slice(int(cs[d]), int(cs[d] + (cn[d] - 1) * step[d] + 1), int(step[d]))
+                          for d in range(rank))]
+    return True
 
 
 def _fill(out, ds):
