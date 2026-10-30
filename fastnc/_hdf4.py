@@ -837,10 +837,8 @@ class Variable:
         if src is None:
             _fill_with(sub, lay.fill)
             return
-        if lay.base is not None and (not _chunks._READY.is_set() or sub.nbytes < SMALL_READ):
-            # contiguous, kernels not loaded yet: numpy (and start loading them)
-            if sub.nbytes > _chunks.WARM_AFTER:
-                _chunks._start_warm()
+        if lay.base is not None and (sub.nbytes < SMALL_READ or not _chunks.ready()):
+            # contiguous, kernels not loaded yet: numpy
             whole = np.ndarray(lay.ds.shape, self.stored, buffer=src, offset=lay.base)
             sub[...] = whole[tuple(slice(a, b, c) for a, b, c in sbox)]
             return

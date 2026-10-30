@@ -527,6 +527,7 @@ class H5File:
         self.sb_version = v
         self._headers = {}
         self._attr_refs = {}
+        self._attr_types = {}           # (shared, datatype bytes, dataspace bytes) -> parsed
         self._bt2_cache = {}
         self._compact = {}
         self._fheaps = {}
@@ -1081,10 +1082,17 @@ class H5File:
         pad = (lambda n: (n + 7) // 8 * 8) if version == 1 else (lambda n: n)
         name = bytes(b[p:p + nlen]).split(b'\0')[0].decode('utf-8', 'replace')
         p += pad(nlen)
-        t = self.datatype_at(b, p, bool(flags & 1))
-        p += pad(tlen)
-        shape, _ = _parse_dataspace(b, p, self.L)
-        p += pad(slen)
+        # (a file's attributes mostly repeat a few datatypes and dataspaces:
+        # each distinct encoding is parsed once -- a Datatype is not changed
+        # once parsed, so attributes can share one)
+        sp = p + pad(tlen)
+        key = (flags & 1, bytes(b[p:p + tlen]), bytes(b[sp:sp + slen]))
+        ts = self._attr_types.get(key)
+        if ts is None:
+            ts = self._attr_types[key] = (self.datatype_at(b, p, bool(flags & 1)),
+                                          _parse_dataspace(b, sp, self.L)[0])
+        t, shape = ts
+        p = sp + pad(slen)
         if shape is None:
             n = 0
         else:

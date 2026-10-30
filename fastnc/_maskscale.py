@@ -33,6 +33,9 @@ result type of `data * scale_factor`, then that of adding
 roundings (no fastmath, so no fused multiply-add), and integers go to
 float by one direct conversion.
 """
+import itertools
+import threading
+import time
 import warnings
 
 import numpy
@@ -109,9 +112,22 @@ def apply(raw, attrs, dtype, mask=True, scale=True, always_mask=True,
             and raw.ndim > 0 and raw.size >= FAST_MIN_SIZE and raw.flags.c_contiguous):
         plan = make_plan(raw.dtype, attrs, dtype, kind, mask, scale, no_fill)
         if plan is not None:
-            return run_plan(plan, raw, always_mask, threads)
+            if _kernels_ready():
+                return run_plan(plan, raw, always_mask, threads)
+            from . import _chunks
+            t = time.perf_counter()
+            r = run_plan_numpy(plan, raw, always_mask, threads)
+            _chunks.slow(time.perf_counter() - t)
+            return r
     return _reference(raw, attrs, dtype, kind, mask, scale, always_mask, chartostring,
                       no_fill, var_shape, key, var_dtype)
+
+
+def _kernels_ready():
+    """Whether to use the kernels (until they are loaded -- see
+    _chunks.LOAD_AFTER -- run_plan_numpy does the work)."""
+    from . import _chunks
+    return _chunks.ready()
 
 
 def _kind(dtype, var_dtype):
@@ -659,6 +675,122 @@ def run_plan(p, raw, always_mask, threads=None):
     tot = stats.sum(axis=0)
     if p.mask and tot[3] and (stats[:, 3] == 0).any():
         _pool.share(lambda: zero_clean_blocks(m, stats, ctr, BLOCK), nthr)
+    return finish(p, data, out, msk, tot, always_mask)
+
+
+def xdt_kind_f(dt):
+    return numpy.dtype(dt).kind == 'f'
+
+
+NP_BLOCK = 1 << 18              # elements per block of the numpy path (a multiple of 64:
+                                # numpy's SIMD loops then end where they would over the
+                                # whole array -- a NaN times a NaN gives the first or the
+                                # second operand's payload depending on which loop)
+
+
+def run_plan_numpy(p, raw, always_mask, threads=None):
+    """run_plan's work in numpy ufuncs, block by block on the pool (numpy
+    lets go of the GIL inside them): for a process whose kernels have not
+    loaded (numba's import is half a second). Each value goes through the
+    same operations in the same float types as in the kernel."""
+    from . import _pool
+    data = raw.view(p.view) if p.view is not None else raw
+    x = data.reshape(-1)
+    n = x.size
+    out = _arena.empty(data.shape, p.out_dtype) if p.out_dtype is not None else None
+    msk = _arena.empty(data.shape, numpy.bool_) if p.mask else None
+    nblk = (n + NP_BLOCK - 1) // NP_BLOCK
+    stats = numpy.zeros((nblk, 4), numpy.int64)
+    mode = int(p.opts[O_MODE])
+    l1f4, l2f4 = bool(p.opts[O_L1F4]), bool(p.opts[O_L2F4])
+    nan_mv, nan_fv = bool(p.opts[O_MVNAN]), bool(p.opts[O_FVNAN])
+    lo, hi = p.lohi[0], p.lohi[1]
+    eqs = [(p.eq[e], int(p.eqcat[e])) for e in range(p.neq)]
+    f4, f8 = numpy.float32, numpy.float64
+    s32, o32, o232 = p.sc32[0], p.sc32[1], p.sc32[2]
+    s64, o64, o264 = p.sc[0], p.sc[1], p.sc[2]
+    U = 'unsafe'
+    nxt = itertools.count()
+
+    def scale(xb, ob):
+        if mode == MODE_ASTYPE:
+            numpy.copyto(ob, xb, casting=U)
+        elif mode == MODE_MUL:
+            numpy.multiply(xb, s32 if l1f4 else s64, out=ob, dtype=f4 if l1f4 else f8,
+                           casting=U)
+        elif mode == MODE_ADD:
+            numpy.add(xb, o32 if l1f4 else o64, out=ob, dtype=f4 if l1f4 else f8, casting=U)
+        elif l2f4:
+            numpy.multiply(xb, s32, out=ob, dtype=f4, casting=U)
+            numpy.add(ob, o232, out=ob)
+        elif l1f4:
+            t = numpy.multiply(xb, s32, dtype=f4, casting=U)
+            numpy.add(t, o264, out=ob, dtype=f8, casting=U)
+        else:
+            numpy.multiply(xb, s64, out=ob, dtype=f8, casting=U)
+            numpy.add(ob, o264, out=ob)
+
+    # (bounds no value can be outside of are not tested)
+    if xdt_kind_f(p.xdt):
+        test_lo, test_hi = not numpy.isneginf(lo), not numpy.isposinf(hi)
+    else:
+        ii = numpy.iinfo(p.xdt)
+        test_lo, test_hi = lo != ii.min, hi != ii.max
+    flat_out = out.reshape(-1) if out is not None else None
+    flat_msk = msk.reshape(-1) if msk is not None else None
+    tls = threading.local()
+
+    def work():
+        if p.mask:
+            s = tls.s = numpy.empty(NP_BLOCK, numpy.bool_)
+            e = numpy.empty(NP_BLOCK, numpy.bool_)
+        while True:
+            b = next(nxt)
+            if b >= nblk:
+                return
+            i0 = b * NP_BLOCK
+            i1 = min(i0 + NP_BLOCK, n)
+            xb = x[i0:i1]
+            ob = flat_out[i0:i1] if out is not None else None
+            if ob is not None:
+                scale(xb, ob)
+            if not p.mask:
+                continue
+            sb = s[:i1 - i0]
+            eb = e[:i1 - i0]
+            sb[...] = False
+            if test_lo:
+                numpy.less(xb, lo, out=sb)
+            if test_hi:
+                numpy.greater(xb, hi, out=eb)
+                sb |= eb
+            for v, c in eqs:
+                numpy.equal(xb, v, out=eb)
+                sb |= eb
+            if nan_mv or nan_fv:
+                numpy.isnan(xb, out=eb)
+                sb |= eb
+            c = int(numpy.count_nonzero(sb))
+            stats[b, 3] = c
+            if not c:
+                continue
+            flat_msk[i0:i1] = sb
+            if ob is not None:
+                if l1f4 and not l2f4:
+                    numpy.copyto(ob, xb.astype(f4), where=sb, casting=U)
+                else:
+                    numpy.copyto(ob, xb, where=sb, casting=U)
+            for k, cat in enumerate((CAT_MISSING, CAT_FILL, CAT_DEFAULT)):
+                hit = any(bool(numpy.equal(xb, v, out=eb).any()) for v, cc in eqs if cc == cat)
+                if (k == 0 and nan_mv) or (k == 1 and nan_fv):
+                    hit = hit or bool(numpy.isnan(xb, out=eb).any())
+                stats[b, k] = hit
+    _pool.share(work, min(nblk, threads or _pool.threads()))
+    tot = stats.sum(axis=0)
+    if p.mask and tot[3]:
+        m = msk.reshape(-1)
+        for b in numpy.flatnonzero(stats[:, 3] == 0):
+            m[b * NP_BLOCK:(b + 1) * NP_BLOCK] = False
     return finish(p, data, out, msk, tot, always_mask)
 
 

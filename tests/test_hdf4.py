@@ -70,7 +70,7 @@ def test_against_references(fn):
 def test_before_kernels_load(fn, monkeypatch):
     """Reads before numba is up go through zlib and numpy: same values."""
     monkeypatch.setattr(_chunks, '_READY', __import__('threading').Event())
-    monkeypatch.setattr(_chunks, '_start_warm', lambda: None)
+    monkeypatch.setattr(_chunks, 'LOAD_AFTER', float('inf'))
     e = EXPECTED['files'][fn]
     with fastnc.Dataset(os.path.join(DATA, fn)) as d:
         d.set_auto_maskandscale(False)

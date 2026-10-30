@@ -25,6 +25,7 @@ starts, every part verified against where the one before it ended), the
 other chunks run by each thread once the parts are taken.
 """
 import threading
+import time
 
 import numpy as np
 
@@ -384,8 +385,36 @@ class Item:
 
 
 _READY = threading.Event()      # numba and the kernels loaded
-WARM_AFTER = 1 << 20           # a read bigger than this starts loading them
 _LOADING = []
+
+# When the kernels load. Loading them (numba's import, then the kernels from
+# its cache) takes 0.7-0.9 s of a fresh process, holding the GIL nearly
+# throughout; loaded in the background it slowed a first read threefold (the
+# pool's threads queue for the GIL after every chunk). So reads do without
+# them -- zlib or libdeflate on every core, numpy (_read_python,
+# _maskscale.run_plan_numpy) -- until those have taken LOAD_AFTER seconds in
+# all, then load them, on the reading thread, before the next read: a
+# script reading a few files never pays for them; a session that keeps
+# reading pays once, after it has spent about as long doing without them
+# (the ski-rental rule: never more than twice the better of the two).
+LOAD_AFTER = 1.0
+_SLOW = [0.0]                   # seconds read without the kernels so far
+
+
+def slow(seconds):
+    """Count time spent reading without the kernels."""
+    _SLOW[0] += seconds
+
+
+def ready():
+    """Whether to use the kernels now: once loaded -- and loading them
+    here if reading without them has taken LOAD_AFTER seconds so far."""
+    if _READY.is_set():
+        return True
+    if _SLOW[0] >= LOAD_AFTER:
+        warm(wait=True)
+        return True
+    return False
 
 
 def _warm():
@@ -412,9 +441,10 @@ def _start_warm():
 
 
 def warm(wait=True):
-    """Load numba and fastnc's kernels now (they load on their own in the
-    background at the first read; reads until then use zlib). For worker
-    processes: ProcessPoolExecutor(initializer=fastnc.warm)."""
+    """Load numba and fastnc's kernels now (otherwise they load once reading
+    without them has taken a second in all: see LOAD_AFTER). For a session
+    that will read a lot, or worker processes:
+    ProcessPoolExecutor(initializer=fastnc.warm)."""
     _start_warm()
     if wait:
         _READY.wait()
@@ -565,14 +595,10 @@ def read_batch(items, src, buf, threads=None):
         items = [it for it in items if all(f.id in SUPPORTED for f in it.ds.filters)]
         if not items:
             return
-    if not _READY.is_set() and all(f.id in SUPPORTED for it in items for f in it.ds.filters):
-        # the kernels load in the background (~0.5-1 s, once per process),
-        # started by the first read big enough to want them (the import holds
-        # the GIL: not during the small reads of an xarray open); until then
-        # zlib, which releases the GIL, decodes on the pool
-        if sum(int(np.prod(it.out.shape)) * it.ds.type.size for it in items) > WARM_AFTER:
-            _start_warm()
+    if all(f.id in SUPPORTED for it in items for f in it.ds.filters) and not ready():
+        t = time.perf_counter()
         _read_python(items, src, threads)
+        slow(time.perf_counter() - t)
         return
     plans = []
     V = np.zeros((len(items), V_COLS), np.int64)
@@ -805,6 +831,69 @@ def swap_native(out, threads=None):
     return out.view(out.dtype.newbyteorder('='))
 
 
+_PYTLS = threading.local()
+
+
+def _pybuf(nbytes):
+    """This thread's inflate buffer for _quick, at least nbytes."""
+    b = getattr(_PYTLS, 'buf', None)
+    if b is None or b.size < nbytes:
+        b = _PYTLS.buf = np.empty(max(nbytes, 1 << 16), np.uint8)
+    return b
+
+
+def _quick(it, p, i, src, a, n, m, C, nel, esize):
+    """_read_python's common chunks done fast: deflate (then a byte
+    shuffle, a fletcher32 checksum of the stored bytes first) inflated by
+    _zlib straight into this thread's buffer -- or into the output, when
+    the chunk is a whole contiguous part of it -- and placed by numpy
+    copies, one per byte plane when shuffled. False: not such a chunk (or
+    not the expected size): the general path does it."""
+    from . import _zlib
+    filters = it.ds.filters
+    stages = [filters[k].id for k in range(len(filters) - 1, -1, -1) if not (m >> k) & 1]
+    if stages[:1] == [F_FLETCHER]:
+        n -= 4                                      # (checksum of the stored bytes)
+        stages = stages[1:]
+    if stages == [F_DEFLATE]:
+        shuffled = False
+    elif stages == [F_DEFLATE, F_SHUFFLE]:
+        shuffled = esize > 1
+    else:
+        return False
+    cbytes = nel * esize
+    rank = len(C)
+    out = it.out
+    step = [s[2] for s in it.box]
+    cs, cn, os_ = p.cstart[i], p.count[i], p.ostart[i]
+    if (not shuffled and not it.swap and rank and all(k == 1 for k in step)
+            and all(int(cs[d]) == 0 and int(cn[d]) == C[d] for d in range(rank))
+            and all(C[d] == out.shape[d] for d in range(1, rank))):
+        o = int(os_[0]) * cbytes // C[0]            # a whole contiguous part of out
+        flat = out.reshape(-1).view(np.uint8)
+        return _zlib.inflate_into(src, a, n, flat, o, cbytes) == cbytes
+    buf = _pybuf(cbytes)
+    if _zlib.inflate_into(src, a, n, buf, 0, cbytes) != cbytes:
+        return False
+    src_sl = tuple(slice(int(c0), int(c0) + (int(k) - 1) * s + 1, s)
+                   for c0, k, s in zip(cs, cn, step))
+    dst_sl = tuple(slice(int(o0), int(o0) + int(k)) for o0, k in zip(os_, cn))
+    if shuffled:
+        planes = buf[:cbytes].reshape((esize,) + C)
+        ob = out.view(np.uint8).reshape(out.shape + (esize,))
+        for k in range(esize):
+            ob[dst_sl + (esize - 1 - k if it.swap else k,)] = planes[k][src_sl]
+    elif esize in (1, 2, 4, 8):
+        u = np.dtype('u%d' % esize)
+        chunk = buf[:cbytes].view(u.newbyteorder('S') if it.swap else u).reshape(C)
+        out.view(u)[dst_sl] = chunk[src_sl]
+    else:
+        chunk = buf[:cbytes].reshape(C + (esize,))
+        sel = chunk[src_sl]
+        out.view(np.uint8).reshape(out.shape + (esize,))[dst_sl] = sel[..., ::-1] if it.swap else sel
+    return True
+
+
 def _read_python(items, src, threads=None):
     """Reads before the kernels are loaded: zlib and numpy -- the reference
     path itself, so the values are the same -- chunk by chunk on the pool."""
@@ -830,6 +919,8 @@ def _read_python(items, src, threads=None):
         nel = int(np.prod(C)) if C else 1
         filters = ds.filters
         a, n, m = int(p.addr[i]), int(p.size[i]), int(p.mask[i])
+        if _quick(it, p, i, src, a, n, m, C, nel, esize):
+            return
         data = src[a:a + n]
         for k in range(len(filters) - 1, -1, -1):  # each stage in decoding order
             if (m >> k) & 1:

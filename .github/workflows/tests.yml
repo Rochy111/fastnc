@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }} / Python ${{ matrix.python }} / ${{ matrix.numpy }}${{ matrix.extras && ' / xarray' || '' }}
+    name: ${{ matrix.os }} / Python ${{ matrix.python }} / ${{ matrix.numpy }}${{ matrix.extras && ' / xarray' || '' }}${{ matrix.kernels == 'off' && ' / no kernels' || '' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
@@ -27,6 +27,10 @@ jobs:
           - {python: '3.13', numpy: 'numpy<2'}                     # numpy 1 has no Python 3.13 wheels
         include:
           - {os: ubuntu-latest, python: '3.12', numpy: 'numpy>=2', extras: ',xarray'}   # the xarray backend
+          # every read as a fresh process does it: numba's kernels never loaded
+          - {os: ubuntu-latest, python: '3.12', numpy: 'numpy>=2', kernels: 'off'}
+          - {os: windows-latest, python: '3.12', numpy: 'numpy>=2', kernels: 'off'}
+          - {os: macos-latest, python: '3.12', numpy: 'numpy>=2', kernels: 'off'}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +61,7 @@ jobs:
           key: numba-${{ runner.os }}-py${{ matrix.python }}-${{ matrix.numpy }}-${{ hashFiles('fastnc/**/*.py', 'pyproject.toml') }}
 
       - name: Tests (tests/data only)
-        run: python -m pytest -q -ra --refs corpus
+        run: python -m pytest -q -ra --refs corpus --kernels ${{ matrix.kernels || 'on' }}
 
   references:
     # Optional: does a freshly made corpus give the committed values, and do
