@@ -52,7 +52,7 @@ from . import _pool
 from ._inflate import (CBITS, CSIZE, DBITS, DSIZE, ERR_DATA, ERR_INPUT, ERR_SPACE, K_EOB,
                        K_LEN, K_LIT, K_SUB, LBITS, LSIZE, _CLORDER, _build, _fixed, workspace)
 from ._intrin import ld64, st64, take
-from ._jit import njit
+from ._jit import intrinsic, njit
 
 W = 32768                       # deflate window
 BIG = 1 << 62
@@ -104,6 +104,20 @@ def _make_lut():
 
 
 _HLUT = _make_lut()
+
+
+@intrinsic
+def _take_n(typingctx, ctr, i, n):
+    """ctr[i]'s value, then n more there: an atomic fetch-and-add (as
+    `_intrin.take`, by n), so threads taking runs of slabs get disjoint ones."""
+    from numba import types
+    from numba.core import cgutils
+
+    def codegen(context, builder, sig, args):
+        ary = context.make_array(sig.args[0])(context, builder, args[0])
+        ptr = cgutils.get_item_pointer(context, builder, sig.args[0], ary, [args[1]])
+        return builder.atomic_rmw('add', ptr, args[2], 'acq_rel')
+    return types.int64(ctr, i, types.int64), codegen
 
 
 # ---------------------------------------------------------------- sync points
@@ -860,12 +874,13 @@ def _decode_spec(src, lo, pend, kind, sync, T, B8, W16, seg, k0, slab, sbase, ss
                 if st == ROOM:
                     if nseg == MAXSEG:
                         return END_FULL
-                    k = take(slab, 0)
-                    if k >= nslab:
+                    g = 1 << (nseg // 4)                # later regions: runs of 2, 4, 8 ... slabs
+                    k = _take_n(slab, 0, g)
+                    if k + g > nslab:
                         return END_FULL
                     _count(seg, nseg - 1, 1, m, o)
                     off = sbase + k * ssize
-                    rend = off + ssize
+                    rend = off + g * ssize
                     base = off >> 1
                     for i in range(W):
                         W16[base + i] = W16[m - W + i]
@@ -898,11 +913,12 @@ def _decode_spec(src, lo, pend, kind, sync, T, B8, W16, seg, k0, slab, sbase, ss
                 if b0 + W + 65536 + 512 > rend:
                     if nseg == MAXSEG:
                         return END_FULL
-                    k = take(slab, 0)
-                    if k >= nslab:
+                    g = 1 << (nseg // 4)
+                    k = _take_n(slab, 0, g)
+                    if k + g > nslab:
                         return END_FULL
                     b0 = sbase + k * ssize
-                    rend = b0 + ssize
+                    rend = b0 + g * ssize
                 elif nseg == MAXSEG:
                     return END_FULL
                 for i in range(W):
@@ -937,8 +953,9 @@ def _decode_spec(src, lo, pend, kind, sync, T, B8, W16, seg, k0, slab, sbase, ss
             # END_STOP: near the slab's end, between symbols
             if nseg == MAXSEG:
                 return END_FULL
-            k = take(slab, 0)
-            if k >= nslab:
+            g = 1 << (nseg // 4)
+            k = _take_n(slab, 0, g)
+            if k + g > nslab:
                 return END_FULL
             _count(seg, nseg - 1, 2, m, o)
             off = sbase + k * ssize
@@ -950,7 +967,7 @@ def _decode_spec(src, lo, pend, kind, sync, T, B8, W16, seg, k0, slab, sbase, ss
             nseg += 1
             dlo = off
             o = off + W
-            oend = off + ssize
+            oend = off + g * ssize
         if p - (bc >> 3) > pend:
             return ERR_INPUT
     if p - (bc >> 3) > pend:
@@ -1201,10 +1218,10 @@ def _step_c(dsts, B8, W16, JOBS, CUM, SI, ctr):
 MIN_PART = 1 << 18              # compressed bytes a part gets at least
 PARTS_PER_THREAD = 2            # parts per thread (load balance across P and E cores)
 FINDMAX = 1 << 22               # bits a part searches for its start at most (512 kB)
-SLABF = 1.25                    # a slab: room for this many times a part's expected output, as symbols
-SPARE = 0.75                    # extra slabs a round has, per part
+SLABF = 1.0                     # a slab: bytes for this many times a part's expected output
+SLABS = 2.0                     # slabs a round has: bytes for this many times its expected output
 BUDGET = 1 << 30                # scratch (address space) a round aims to stay under (one stream at least)
-KEEP = 512 << 20                # scratch kept between calls up to this size
+KEEP = 1 << 30                  # scratch kept between calls up to this size (only pages used count)
 SLACK = 1.15                    # partial reads: extra share of input a first round covers
 
 _TLS = threading.local()
@@ -1263,7 +1280,7 @@ def _plan(SI, act, T, ppt, min_part, budget, total):
         if ostop < oend and SI[s, SI_RND] == 0 and 2 * (ostop - o0) < oend - o0:
             bits = 8 * (ostop - O) / max(ratio, 1e-9) * SLACK + 8 * 65536
             E = min(E, sync + int(bits))
-        scratch = 2 * SLABF * (1 + SPARE) * ratio * (E - sync) / 8
+        scratch = (SLABS + 1) * ratio * (E - sync) / 8
         if chosen and need + scratch > budget:
             SI[s, SI_NP] = 0
             continue
@@ -1274,6 +1291,7 @@ def _plan(SI, act, T, ppt, min_part, budget, total):
     target = max(8 * min_part, max(mine, 8 * total) / max(1, T * ppt))
     nspec = 0
     big = 0.0
+    out = 0.0
     for s, E, ratio in chosen:
         sync = int(SI[s, SI_S])
         n = max(1, min(4 * T, int((E - sync) / target + 0.5)))
@@ -1285,8 +1303,9 @@ def _plan(SI, act, T, ppt, min_part, budget, total):
         nspec += n - 1
         if n > 1:
             big = max(big, ratio * (cuts[2] - cuts[1]) / 8)
-    ssize = (max(int(2 * SLABF * big), 2 * (65536 + 1024)) + 2 * W + 63) & ~63
-    nslab = int(nspec * (1 + SPARE) + 0.5) + (4 if nspec else 0)
+            out += ratio * (E - cuts[1]) / 8
+    ssize = (max(int(SLABF * big), 2 * (65536 + 1024)) + 2 * W + 63) & ~63
+    nslab = nspec + int(SLABS * out / ssize) + 4 if nspec else 0    # a first slab each, then room
     return np.array(rows, np.int64).reshape(-1, NPT), ssize, nslab
 
 

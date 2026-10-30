@@ -156,6 +156,33 @@ def test_distance_32768_across_cuts():
             _check(_compress(data, level), data, nthreads=8, min_part=mp, parts_per_thread=4)
 
 
+def test_false_starts():
+    """Stored blocks whose bytes are themselves deflate data: the parts find
+    real-looking dynamic headers inside them that decode fine for a while.
+    The chain must notice they are not where the stream is, and redo."""
+    inner = _compress(_data('walk', 3_000_000, seed=8), 6)
+    redone = 0
+    for level in (0, 1):
+        outer = _compress(inner, level)
+        for mp in (1 << 11, 1 << 14):
+            _check(outer, inner, nthreads=8, min_part=mp, parts_per_thread=4)
+            info = []
+            out = np.empty(len(inner), np.uint8)
+            src = np.frombuffer(outer, np.uint8)
+            _pinflate.inflate_parallel(src, 0, len(outer), out, 0, len(inner), nthreads=8,
+                                       min_part=mp, parts_per_thread=4, info=info)
+            redone += int(info[-1][0, _pinflate.SI_NREDO])
+    assert redone > 0                               # the redo path did run
+
+
+def test_fixed_only():
+    """No dynamic block anywhere (Z_FIXED): no part finds a start, the
+    stream is decoded serially by the chain."""
+    data = _data('walk', 1_000_000, seed=6)
+    comp = _compress(data, 6, zlib.Z_FIXED)
+    _check(comp, data, nthreads=8, min_part=1 << 12)
+
+
 def test_default_settings_big():
     data = _data('mixed', 8_000_000, seed=11)
     comp = _compress(data, 6)
