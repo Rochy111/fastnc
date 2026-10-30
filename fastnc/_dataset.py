@@ -333,6 +333,12 @@ class Group:
             from ._h5read import read_many
             for (k, v), a in zip(batch, read_many([v._bv._reader for _, v in batch], threads=threads)):
                 raws[k] = a
+        h4 = [(k, v) for k, v in vs if type(v._bv).__module__.endswith('_hdf4')]
+        if h4:
+            from ._hdf4 import read_many as read_many4
+            for (k, v), a in zip(h4, read_many4([v._bv for _, v in h4], threads=threads)):
+                if a is not None:
+                    raws[k] = a
         out = {}
         for k, v in vs:
             if k not in raws:

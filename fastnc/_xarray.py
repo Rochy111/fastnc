@@ -123,22 +123,11 @@ def _ensure_fill_value_valid(data, attributes):
 
 
 def _preload(group):
-    """Every variable of the group, raw, read in one pass where the backend can."""
-    out = {}
-    vs = list(group.variables.items())
-    hdf = [(k, v) for k, v in vs if hasattr(v._bv, '_reader')]
-    if hdf:
-        from ._h5read import read_many
-        vals = read_many([v._bv._reader for _, v in hdf])
-        for (k, v), a in zip(hdf, vals):
-            if a is not None and v._bv.ds.type.cls != 6 and v.dtype is not str:
-                out[k] = a
-    for k, v in vs:
-        if k not in out:
-            v.set_auto_maskandscale(False)
-            v.set_auto_chartostring(False)
-            out[k] = v[...]
-    return out
+    """Every variable of the group, raw, read in one batched pass (Group.load)."""
+    for v in group.variables.values():
+        v.set_auto_maskandscale(False)
+        v.set_auto_chartostring(False)
+    return group.load()
 
 
 class FastncBackendEntrypoint(BackendEntrypoint):
