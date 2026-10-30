@@ -153,7 +153,8 @@ def test_h5py_default_blocks(server, name):
         want = h5_tree(f)
     with fastnc.File(server + name) as f:
         got = h5_tree(f)
-        assert f._source.requests == 2           # the whole small file at open (head and tail)
+        if f._source.size <= _remote.INITIAL + _remote.TAIL:
+            assert f._source.requests == 2       # the whole small file at open (head and tail)
     compare(want, got)
 
 

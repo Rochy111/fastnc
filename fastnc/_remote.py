@@ -49,7 +49,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 BLOCK = 1 << 18             # metadata fetched in aligned blocks of this size
-INITIAL = 1 << 21           # the first request: the superblock and root metadata
+INITIAL = 1 << 20           # the first request: the superblock and root metadata
 TAIL = 1 << 18              # and, alongside it, the file's end (HDF5 writes metadata there at close)
 GAP = 1 << 20               # data ranges closer than this are fetched as one
 PART = 8 << 20              # biggest single request (bigger ranges are split)
@@ -196,16 +196,16 @@ class Source:
         self._get([(a, min(size, -(-end // B) * B + B))])
 
     def prefetch(self, addrs, n):
-        """need(a, n) for every a in addrs, in one parallel round: blocks
-        around each, merged across gaps of under a block."""
-        B = self.block
+        """need(a, n) for every a in addrs, in one parallel round: n bytes
+        from each (no whole blocks: the nodes of a chunk B-tree lie apart,
+        between chunks), merged across gaps of under a block."""
         size = self.size
         rng = []
         for a in addrs:
             if 0 <= a < size and not self.has(a, min(size, a + n)):
-                rng.append((a - a % B, min(size, -(-(a + n) // B) * B)))
+                rng.append((a, min(size, a + n)))
         if rng:
-            self._get(_merge(rng, B))
+            self._get(_merge(rng, self.block))
 
     def fetch(self, addr, size, gap=None):
         """Make every range [addr[i], addr[i] + size[i]) present (arrays of

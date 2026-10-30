@@ -510,7 +510,9 @@ class H5File:
             return h
         b = self.b
         at = self.addr(address)
-        self.need(at, 64)
+        remote = self.source is not None
+        if remote:
+            self.need(at, 64)
         msgs = []
         if bytes(b[at:at + 4]) == b'OHDR':
             version = b[at + 4]
@@ -523,14 +525,16 @@ class H5File:
             n = 1 << (flags & 3)
             size = _uint(b, p, n)
             p += n
-            self.need(p, size + 4)
+            if remote:
+                self.need(p, size + 4)
             self._v2_messages(p, p + size, flags, msgs)
         elif b[at] == 1:
             version = 1
             flags = 0
             nmsg = _u16(b, at + 2)[0]
             size = _u32(b, at + 8)[0]
-            self.need(at + 16, size)
+            if remote:
+                self.need(at + 16, size)
             self._v1_messages(at + 16, at + 16 + size, msgs, nmsg)
         else:
             raise FormatError('no object header at %d' % at)
@@ -722,7 +726,8 @@ class H5File:
             else:
                 btree, heap = self.root_cache
             out = self._symbol_table(btree, heap)
-            self.prefetch([self.addr(t) for k, t in out.values() if k == 'hard'], 1024)
+            if self.source is not None:            # remote: the next ones in one go
+                self.prefetch([self.addr(t) for k, t in out.values() if k == 'hard'], 1024)
             return dict(sorted(out.items()))
         links = []
         for m in h.all(0x06):
@@ -743,7 +748,8 @@ class H5File:
             links.sort(key=lambda l: (l[3] if l[3] is not None else 0, l[0]))
         else:
             links.sort(key=lambda l: l[0])
-        self.prefetch([self.addr(l[2]) for l in links if l[1] == 'hard'], 1024)
+        if self.source is not None:            # remote: the next ones in one go
+            self.prefetch([self.addr(l[2]) for l in links if l[1] == 'hard'], 1024)
         return {l[0]: (l[1], l[2]) for l in links}
 
     def _link(self, p):
@@ -801,7 +807,8 @@ class H5File:
             n = _u16(b, a + 6)[0]
             p = a + 8 + 2 * O + self.L                  # first child after key 0
             self.need(a, 8 + 2 * O + (n + 1) * (O + self.L))
-            self.prefetch([self.addr(self.offset(p + i * (O + self.L))) for i in range(n)], 1024)
+            if self.source is not None:            # remote: the next ones in one go
+                self.prefetch([self.addr(self.offset(p + i * (O + self.L))) for i in range(n)], 1024)
             for i in range(n):
                 child = self.offset(p)
                 p += O + self.L
@@ -1042,8 +1049,9 @@ class H5File:
                 return
             recs = [bytes(b[p + i * rsize:p + (i + 1) * rsize]) for i in range(nrec)]
             p += nrec * rsize
-            stride = self.O + max_nrec_size + (cum_size[d - 1] if d > 1 else 0)
-            self.prefetch([self.addr(self.offset(p + i * stride)) for i in range(nrec + 1)], node_size)
+            if self.source is not None:            # remote: the next ones in one go
+                stride = self.O + max_nrec_size + (cum_size[d - 1] if d > 1 else 0)
+                self.prefetch([self.addr(self.offset(p + i * stride)) for i in range(nrec + 1)], node_size)
             for i in range(nrec + 1):
                 child = self.offset(p)
                 p += self.O
@@ -1128,7 +1136,8 @@ class H5File:
                 else:
                     out.append((offs, self.addr(child), size, mask))
                 p += ksize + O
-            self.prefetch([self.addr(k) for k in kids], 8 + 2 * O + max(n, 64) * (ksize + O) + ksize)
+            if self.source is not None:            # remote: the next ones in one go
+                self.prefetch([self.addr(k) for k in kids], 8 + 2 * O + max(n, 64) * (ksize + O) + ksize)
             stack.extend(reversed(kids))
         return out
 
@@ -1260,8 +1269,9 @@ class H5File:
                 break
             nd, dn, sidx, sdblk = sb[s]
             if s < ib_nsblks:
-                self.prefetch([self.addr(x) for x in dblk_addrs[sdblk:sdblk + nd] if x != self.undef],
-                              dblock_size(dn))
+                if self.source is not None:            # remote: the next ones in one go
+                    self.prefetch([self.addr(x) for x in dblk_addrs[sdblk:sdblk + nd] if x != self.undef],
+                                  dblock_size(dn))
                 for k in range(nd):
                     da = dblk_addrs[sdblk + k]
                     all_elems.extend(dblock(da, dn) if da != self.undef else [(self.undef, None, 0)] * dn)
@@ -1277,8 +1287,9 @@ class H5File:
                 r += 6 + self.O + off_size
                 if dn > page:
                     r += (nd * (-(-dn // page)) + 7) // 8   # page init bitmap
-                self.prefetch([self.addr(self.offset(r + k * self.O)) for k in range(nd)
-                               if self.offset(r + k * self.O) != self.undef], dblock_size(dn))
+                if self.source is not None:            # remote: the next ones in one go
+                    self.prefetch([self.addr(self.offset(r + k * self.O)) for k in range(nd)
+                                   if self.offset(r + k * self.O) != self.undef], dblock_size(dn))
                 for k in range(nd):
                     da = self.offset(r + k * self.O)
                     all_elems.extend(dblock(da, dn) if da != self.undef else [(self.undef, None, 0)] * dn)
@@ -1401,7 +1412,8 @@ class FractalHeap:
         off = _uint(hid, 1, self.off_size)
         ln = _uint(hid, 1 + self.off_size, self.len_size)
         blk, boff = self._direct_block(off)
-        self.f.need(blk + (off - boff), ln)
+        if self.f.source is not None:
+            self.f.need(blk + (off - boff), ln)
         return self.f.b[blk + (off - boff):blk + (off - boff) + ln]
 
     def _direct_block(self, off):
