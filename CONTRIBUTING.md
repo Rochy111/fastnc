@@ -205,3 +205,21 @@ the machine) and how you checked the values are unchanged (`pytest`, and
 the real-file sets where you have them). Keep docstrings as prose saying
 what a thing is and why, and comments short, trailing the line they
 explain. Add a line to `CHANGELOG.md`'s Unreleased section.
+
+## Branches and commits
+
+- **Work on a branch per change** (`perf/libdeflate-in-kernel`,
+  `fix/fill-value-type`, `docs/benchmarks`) and commit as often as you
+  like there.
+- **Land it on `main` as one commit**: `git merge --squash` the branch,
+  then commit with an imperative subject of at most ~72 characters and a
+  short body saying why. Measurements and rejected alternatives go in
+  `docs/measurements.md`, not in commit messages.
+- **Before it lands**: the suite passes under numpy 2 and numpy 1
+  (`pytest`, `python tools/run_tests_numpy1.py`), with `--kernels off`, and
+  with `--gpu` where the GPU path is touched.
+- **A pull request** where it helps: a big or risky change worth reading
+  as a whole first, an outside contribution, or once CI is running again.
+- **`main` is not rewritten** once pushed, and releases are tagged on it
+  (`v0.1.0` ...) after `CHANGELOG.md`'s Unreleased section moves under the
+  version.
