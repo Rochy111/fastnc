@@ -50,6 +50,7 @@ import numpy as np
 
 BLOCK = 1 << 18             # metadata fetched in aligned blocks of this size
 INITIAL = 1 << 21           # the first request: the superblock and root metadata
+TAIL = 1 << 18              # and, alongside it, the file's end (HDF5 writes metadata there at close)
 GAP = 1 << 20               # data ranges closer than this are fetched as one
 PART = 8 << 20              # biggest single request (bigger ranges are split)
 MIN_PART = 1 << 20          # a range is split for parallelism down to this size
@@ -102,7 +103,7 @@ def nc3_open(NC3File, buf, src, source):
 
 
 def _source_opts(opts):
-    keys = ('block_size', 'initial', 'gap', 'part')
+    keys = ('block_size', 'initial', 'gap', 'part', 'tail')
     return {k: opts[k] for k in keys if k in opts}
 
 
@@ -142,22 +143,24 @@ class Source:
     `requests` and `fetched` count the requests made and the bytes they
     brought (for measuring)."""
 
-    def __init__(self, transport, name, block_size=BLOCK, initial=INITIAL, gap=GAP, part=PART):
+    def __init__(self, transport, name, block_size=BLOCK, initial=INITIAL, gap=GAP, part=PART,
+                 tail=TAIL):
         self.t = transport
         self.name = name
         self.block = int(block_size)
         self.gap = int(gap)
         self.part = int(part)
-        size, head = transport.open(int(initial))
+        size, head, t0, tail = transport.open(int(initial), int(tail))
         self.size = size
         self.buf = np.zeros(size, np.uint8)
         if _POISON is not None:
             self.buf[:] = _POISON               # tests: bytes read before fetched show up
         self.buf[:len(head)] = np.frombuffer(head, np.uint8)
-        self._iv = self._intervals([(0, len(head))] if len(head) else [])
+        self.buf[t0:t0 + len(tail)] = np.frombuffer(tail, np.uint8)
+        self._iv = self._intervals(_merge([r for r in ((0, len(head)), (t0, t0 + len(tail))) if r[1] > r[0]], 0))
         self._lock = threading.Lock()
-        self.requests = 1
-        self.fetched = len(head)
+        self.requests = 1 + bool(tail)
+        self.fetched = len(head) + len(tail)
         self.on_fetch = None                    # called with (start, end) as each part lands
 
     @staticmethod
@@ -327,13 +330,15 @@ class FileObject:
     def __init__(self, f):
         self.f = f
 
-    def open(self, initial):
+    def open(self, initial, tail):
+        """(size, first bytes, where the last bytes start, last bytes): no
+        tail here -- one request at a time, it would cost a round trip."""
         f = self.f
         size = f.seek(0, 2)
         if size is None:
             size = f.tell()
         f.seek(0)
-        return size, self._read(0, min(initial, size))
+        return size, self._read(0, min(initial, size)), size, b''
 
     def _read(self, a, n):
         f = self.f
@@ -369,15 +374,20 @@ class _Retry(Exception):
     pass
 
 
+_IDLE = {}                  # (scheme, host, port) -> kept-alive connections not in use
+_IDLE_LOCK = threading.Lock()
+
+
 class HTTP:
-    """Byte ranges of one URL over HTTP(S), a kept-alive connection per thread."""
+    """Byte ranges of one URL over HTTP(S). Connections are kept alive and
+    shared by every file on the same host (a TLS handshake costs two or
+    three round trips: opening many files of one bucket pays it once)."""
     parallel = CONNECTIONS
 
     def __init__(self, url, headers=None, timeout=TIMEOUT, retries=RETRIES):
         self.headers = dict(headers or {})
         self.timeout = timeout
         self.retries = retries
-        self._tls = threading.local()
         self._set_url(url)
 
     def _set_url(self, url):
@@ -389,55 +399,57 @@ class HTTP:
         self.host = u.hostname
         self.port = u.port or (443 if u.scheme == 'https' else 80)
         self.path = (u.path or '/') + ('?' + u.query if u.query else '')
-        self._gen = getattr(self, '_gen', 0) + 1      # connections to an old URL are dropped
+        self.proxy = None
+        if not urllib.request.proxy_bypass(self.host):
+            p = urllib.request.getproxies().get(self.scheme)
+            if p:
+                p = urllib.parse.urlsplit(p if '://' in p else 'http://' + p)
+                self.proxy = p.hostname, p.port or 8080
+        self.key = self.scheme, self.host, self.port, self.proxy
 
     def _conn(self):
-        c = getattr(self._tls, 'conn', None)
-        if c is not None and self._tls.gen == self._gen:
-            return c, True
-        if c is not None:
-            c.close()
-        proxy = None
-        if not urllib.request.proxy_bypass(self.host):
-            proxy = urllib.request.getproxies().get(self.scheme)
-        target = self.host, self.port
-        if proxy:
-            p = urllib.parse.urlsplit(proxy if '://' in proxy else 'http://' + proxy)
-            target = p.hostname, p.port or 8080
+        """(a connection, whether it was kept alive from before)."""
+        with _IDLE_LOCK:
+            idle = _IDLE.get(self.key)
+            if idle:
+                return idle.pop(), True
+        target = self.proxy or (self.host, self.port)
         if self.scheme == 'https':
             c = http.client.HTTPSConnection(*target, timeout=self.timeout,
                                             context=ssl.create_default_context())
-            if proxy:
+            if self.proxy:
                 c.set_tunnel(self.host, self.port)
         else:
             c = http.client.HTTPConnection(*target, timeout=self.timeout)
-        c._fastnc_abs = bool(proxy) and self.scheme == 'http'
-        self._tls.conn, self._tls.gen = c, self._gen
         return c, False
 
-    def _drop(self):
-        c = getattr(self._tls, 'conn', None)
-        if c is not None:
-            c.close()
-        self._tls.conn = None
+    def _release(self, c):
+        with _IDLE_LOCK:
+            idle = _IDLE.setdefault(self.key, [])
+            if len(idle) < 2 * CONNECTIONS:
+                idle.append(c)
+                return
+        c.close()
 
     def _range(self, a, b, handle):
         """GET bytes [a, b) and handle(response); b None: to the end."""
         h = dict(self.headers)
-        h['Range'] = 'bytes=%d-%s' % (a, '' if b is None else b - 1)
+        h['Range'] = 'bytes=%d-%s' % (a, '' if b is None else b - 1) if a >= 0 else 'bytes=%d' % a
         delay = 0.25
         attempt = 0
         redirects = 0
         while True:
             c, reused = self._conn()
             try:
-                c.request('GET', self.url if c._fastnc_abs else self.path, headers=h)
+                c.request('GET', self.url if self.proxy and self.scheme == 'http' else self.path,
+                          headers=h)
                 r = c.getresponse()
                 st = r.status
                 if st in (301, 302, 303, 307, 308) and redirects < 5:
                     loc = r.getheader('Location')
                     region = r.getheader('x-amz-bucket-region')
                     r.read()
+                    self._release(c)
                     redirects += 1
                     if loc:
                         self._set_url(urllib.parse.urljoin(self.url, loc))
@@ -446,23 +458,24 @@ class HTTP:
                         self._set_url(re.sub(r'\.s3(\.[a-z0-9-]+)?\.amazonaws\.com',
                                              '.s3.%s.amazonaws.com' % region, self.url, count=1))
                         continue
+                    raise RemoteError('HTTP %d %s for %s (no Location)' % (st, r.reason, self.url))
                 if st in (429, 500, 502, 503, 504):
-                    r.read()
-                    raise _Retry('HTTP %d' % st)
+                    raise _Retry('HTTP %d %s' % (st, r.reason))
                 if st not in (200, 206):
                     body = r.read(500)
-                    self._drop()
+                    c.close()
                     msg = re.sub(rb'\s+', b' ', body).decode('utf-8', 'replace')[:300]
                     raise RemoteError('HTTP %d %s for %s%s' % (st, r.reason, self.url,
                                                                 ': ' + msg if msg else ''))
-                return handle(r)
+                out = handle(r)
+                self._release(c)
+                return out
             except RemoteError:
                 raise
             except (_Retry, OSError, http.client.HTTPException) as ex:
-                self._drop()
-                if reused and attempt == 0 and not isinstance(ex, (_Retry, socket.timeout)):
-                    attempt += 1                # a kept-alive connection the server had closed
-                    continue
+                c.close()
+                if reused and not isinstance(ex, (_Retry, socket.timeout)):
+                    continue                    # a kept-alive connection the server had closed
                 attempt += 1
                 if attempt > self.retries:
                     raise RemoteError('reading %s (bytes %d-%s) failed after %d tries: %s'
@@ -470,18 +483,27 @@ class HTTP:
                 time.sleep(delay)
                 delay = min(delay * 2, 8.0)
 
-    def open(self, initial):
-        """(file size, its first bytes)."""
-        def first(r):
+    def open(self, initial, tail):
+        """(file size, its first bytes, where the last bytes start, last
+        bytes): the first `initial` and last `tail` bytes, fetched at once."""
+        def ranged(r):
             if r.status == 206:
                 cr = r.getheader('Content-Range') or ''
                 m = re.match(r'bytes\s+(\d+)-(\d+)/(\d+|\*)', cr)
                 if not m or m.group(3) == '*':
                     raise RemoteError('%s: no file size in Content-Range %r' % (self.url, cr))
-                return int(m.group(3)), r.read()
+                return int(m.group(3)), r.read(), int(m.group(1))
             data = r.read()                     # 200: the server sends the whole file
-            return len(data), data
-        return self._range(0, initial, first)
+            return len(data), data, 0
+        end = _io_pool().submit(self._range, -tail, None, ranged) if tail else None
+        size, head, _ = self._range(0, initial, ranged)
+        if end is None:
+            return size, head, size, b''
+        try:
+            _, last, t0 = end.result()
+        except OSError:
+            return size, head, size, b''       # (an empty file: 416)
+        return size, head, t0, last
 
     def read_into(self, a, out):
         n = len(out)

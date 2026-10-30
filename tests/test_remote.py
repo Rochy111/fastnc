@@ -23,8 +23,8 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 HDF5 = ['filters.h5', 'groups_new.h5', 'groups_old.h5', 'idx_implicit.h5', 'idx_latest.h5',
         'idx_v1btree.h5', 'layouts.h5', 'types.h5', 'nc4.nc', 'nc4_classic.nc']
 NETCDF4 = ['nc4.nc', 'nc4_classic.nc']
-TINY = {'block_size': 512, 'initial': 1024, 'gap': 0, 'part': 4096}
-EXACT = {'block_size': 8, 'initial': 64, 'gap': 0, 'part': 4096}     # read-ahead of 8 bytes
+TINY = {'block_size': 512, 'initial': 1024, 'gap': 0, 'part': 4096, 'tail': 512}
+EXACT = {'block_size': 8, 'initial': 64, 'gap': 0, 'part': 4096, 'tail': 0}   # read-ahead: 8 bytes
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -46,11 +46,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with open(path, 'rb') as f:
             data = f.read()
         rng = self.headers.get('Range')
-        m = re.match(r'bytes=(\d+)-(\d*)$', rng or '')
-        if not m:
+        m = re.match(r'bytes=(\d*)-(\d*)$', rng or '')
+        if not m or not (m.group(1) or m.group(2)):
             return self._send(200, data)
-        a = int(m.group(1))
-        b = min(int(m.group(2)) if m.group(2) else len(data) - 1, len(data) - 1)
+        if not m.group(1):                          # the last n bytes
+            a, b = max(0, len(data) - int(m.group(2))), len(data) - 1
+        else:
+            a = int(m.group(1))
+            b = min(int(m.group(2)) if m.group(2) else len(data) - 1, len(data) - 1)
         if a >= len(data):
             return self._send(416, b'')
         self._send(206, data[a:b + 1], {'Content-Range': 'bytes %d-%d/%d' % (a, b, len(data))})
@@ -150,7 +153,7 @@ def test_h5py_default_blocks(server, name):
         want = h5_tree(f)
     with fastnc.File(server + name) as f:
         got = h5_tree(f)
-        assert f._source.requests == 1           # the whole small file in the first request
+        assert f._source.requests == 2           # the whole small file at open (head and tail)
     compare(want, got)
 
 
@@ -319,8 +322,8 @@ def test_source_ranges():
         parallel = 1
         calls = []
 
-        def open(self, initial):
-            return len(data), data[:initial]
+        def open(self, initial, tail):
+            return len(data), data[:initial], len(data), b''
 
         def read_into(self, a, out):
             Mem.calls.append((a, a + len(out)))
