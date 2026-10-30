@@ -25,6 +25,7 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 | `_maskscale` | netCDF4-python's masking and scaling: its own rules carried over line for line, and a fused numba kernel for the common cases; `_maskscale_gpu` the same on the card |
 | `_gpu` | Reads straight to cupy arrays |
 | `_arena` | Big output arrays carved from pooled, already-mapped memory |
+| `_pio` | Big unfiltered batches read with positional reads instead of through a fresh mapping |
 | `_remote` | HTTP(S) / S3 / file-object sources: a sparse buffer filled by parallel byte-range requests |
 | `_pool` | The thread pool, `share()` and `set_threads()` |
 | `_jit`, `_intrin` | numba imported on first use, the stale-cache stamp; unaligned word loads/stores and an atomic counter |
@@ -134,6 +135,32 @@ cache, and only where something is masked the mask written and the
 unscaled value put back under it. On the GPU, `_maskscale_gpu` does the
 same in CUDA (float32 arithmetic in PTX without flush-to-zero, as numpy
 keeps subnormals).
+
+## Reading the file: mapping or positional reads
+
+Metadata and compressed chunks are read through the read-only mapping.
+A fresh mapping faults in each page on first touch (22 ms per 113 MB here,
+worse when many threads fault small pieces at once); with a decompressor at
+work those faults hide behind it. A big *unfiltered* batch (contiguous
+data, uncompressed chunks: nothing to hide behind) is instead read with
+positional reads (`_pio`, reusing `_nc3`'s overlapped / preadv readers)
+into one pooled buffer -- byte ranges merged across gaps under 256 kB --
+and the kernel decodes from that buffer as from the file. Metop-SG's
+19,432 row chunks: fresh open + read all 57 -> 41 ms. Staging compressed
+batches was measured and lost (VIIRS 79 -> 93 ms). v1 B-tree chunk
+indexes are read a node at a time with numpy (fixed-size records).
+
+## The xarray backend's decoding
+
+xarray applies its CF mask / scale decoding to each variable in a few
+numpy passes on one thread -- 2.5 s of a GOES-19 full-disk band's load.
+For numeric, non-time variables with mask/scale attributes the backend
+decodes a one-element stand-in with xarray's own `CFMaskCoder` and
+`CFScaleOffsetCoder`, takes the elementwise functions they produce, and
+applies them to the real values block by block on the pool (attributes
+and encoding as the coders leave them). The values are xarray's by
+construction, whatever xarray version is installed; tests/test_xarray.py
+checks them against xarray's `decode_cf` of the same raw values.
 
 ## Memory: the output arena
 
