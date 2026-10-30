@@ -1,0 +1,576 @@
+{
+ "machine": {
+  "python": "3.12.16",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "logical_cpus": 24,
+  "numpy": "2.5.4",
+  "numba": "0.68.0",
+  "h5py": "3.16.0",
+  "netCDF4": "1.7.4",
+  "xarray": "2026.9.0",
+  "h5netcdf": "1.8.2",
+  "cupy": "14.2.0",
+  "gpu": "NVIDIA GeForce RTX 5070 Ti"
+ },
+ "when": "2026-10-29 22:04",
+ "rows": [
+  {
+   "file": "WRF d01 netCDF4",
+   "path": "wrfout_d01_2025-10-26_06_20_00.nc",
+   "MB": 74.725204,
+   "variable": "T",
+   "all_raw": {
+    "fastnc": 46.552199999496224,
+    "netCDF4": 521.610599998894,
+    "h5py": 478.67719999885594
+   },
+   "all_masked": {
+    "fastnc": 99.65340000053402,
+    "netCDF4": 582.6741000000766
+   },
+   "all_raw_1thread": 267.6136999998562,
+   "xarray_load": {
+    "fastnc": 166.49800000050163,
+    "netcdf4": 609.6761999997398,
+    "h5netcdf": 11504.412199999933
+   },
+   "var_raw": {
+    "fastnc": 13.944300000730436,
+    "netCDF4": 46.5753999997105,
+    "h5py": 27.41020000030403
+   },
+   "var_masked": {
+    "fastnc": 14.851600000838516,
+    "netCDF4": 48.23270000088087
+   },
+   "window_raw": {
+    "fastnc": 11.717199999111472,
+    "netCDF4": 25.483100000201375,
+    "h5py": 6.283800001256168
+   },
+   "var_raw_1thread": 24.664700000357698,
+   "first_call": {
+    "fastnc": 308.2336999996187,
+    "netCDF4": 266.24680000168155,
+    "h5py": 301.79320000024745
+   },
+   "gpu_raw": {
+    "fastnc gpu": 13.304000000061933,
+    "fastnc cpu+upload": 13.714700000491575,
+    "netCDF4+upload": 45.89350000060222
+   },
+   "gpu_masked": {
+    "fastnc gpu": 14.194600000337232,
+    "fastnc cpu+upload": 14.807699999437318,
+    "netCDF4+upload": 47.657600000093225
+   }
+  },
+  {
+   "file": "WRF d02 netCDF3",
+   "path": "wrfout_d02_2024-11-06_01_30_00",
+   "MB": 801.89722,
+   "variable": "T",
+   "all_raw": {
+    "fastnc": 82.24739999968733,
+    "netCDF4": 414.09160000148404
+   },
+   "all_masked": {
+    "fastnc": 124.86809999973048,
+    "netCDF4": 527.1322000007785
+   },
+   "all_raw_1thread": 168.90029999922263,
+   "xarray_load": {
+    "fastnc": 94.98600000006263,
+    "netcdf4": 446.4832000012393,
+    "scipy": 412.2068999986368
+   },
+   "var_raw": {
+    "fastnc": 3.0910000004951144,
+    "netCDF4": 17.718499999318738
+   },
+   "var_masked": {
+    "fastnc": 3.95100000059756,
+    "netCDF4": 22.06110000042827
+   },
+   "window_raw": {
+    "fastnc": 1.7996999995375518,
+    "netCDF4": 4.470599998967373
+   },
+   "var_raw_1thread": 6.134100000053877,
+   "first_call": {
+    "fastnc": 222.71569999975327,
+    "netCDF4": 211.5116000004491
+   },
+   "gpu_raw": {
+    "fastnc gpu": 4.161200000453391,
+    "fastnc cpu+upload": 4.92850000046019,
+    "netCDF4+upload": 20.042599999214872
+   },
+   "gpu_masked": {
+    "fastnc gpu": 4.826599999432801,
+    "fastnc cpu+upload": 6.147699999928591,
+    "netCDF4+upload": 24.829399999362067
+   }
+  },
+  {
+   "file": "MODIS 1 km L1B",
+   "path": "MOD021KM.A2025301.1445.007.2025301204859.nc",
+   "MB": 169.748959,
+   "variable": "HDFEOS/SWATHS/MODIS_SWATH_Type_L1B/Data Fields/EV_1KM_Emissive",
+   "all_raw": {
+    "fastnc": 49.13479999959236,
+    "netCDF4": 967.5784000010026,
+    "h5py": 959.8977999994531
+   },
+   "all_masked": {
+    "fastnc": 117.99299999984214,
+    "netCDF4": 1232.168399999864
+   },
+   "all_raw_1thread": 565.5701999985467,
+   "xarray_load": {
+    "fastnc": 5.669799998941016,
+    "netcdf4": 9.342600000309176,
+    "h5netcdf": 26.056599999719765
+   },
+   "var_raw": {
+    "fastnc": 27.67669999957434,
+    "netCDF4": 326.6626999993605,
+    "h5py": 322.0058999995672
+   },
+   "var_masked": {
+    "fastnc": 31.716400000732392,
+    "netCDF4": 375.6615000002057
+   },
+   "window_raw": {
+    "fastnc": 13.857099998858757,
+    "netCDF4": 118.93489999965823,
+    "h5py": 118.18080000011832
+   },
+   "var_raw_1thread": 239.80670000128157,
+   "first_call": {
+    "fastnc": 390.62809999995807,
+    "netCDF4": 558.8319999988016,
+    "h5py": 609.0144000008877
+   },
+   "gpu_raw": {
+    "fastnc gpu": 31.118299999434385,
+    "fastnc cpu+upload": 33.08880000076897,
+    "netCDF4+upload": 336.71180000055756
+   },
+   "gpu_masked": {
+    "fastnc gpu": 29.87100000063947,
+    "fastnc cpu+upload": 35.45080000003509,
+    "netCDF4+upload": 374.0978999994695
+   }
+  },
+  {
+   "file": "MODIS 250 m L1B",
+   "path": "MOD02QKM.A2025301.1445.007.2025301204859.nc",
+   "MB": 168.964909,
+   "variable": "HDFEOS/SWATHS/MODIS_SWATH_Type_L1B/Data Fields/EV_250_RefSB",
+   "all_raw": {
+    "fastnc": 47.61220000000321,
+    "netCDF4": 890.7681000000593,
+    "h5py": 893.2180000010703
+   },
+   "all_masked": {
+    "fastnc": 73.1844000001729,
+    "netCDF4": 1070.1509000009537
+   },
+   "all_raw_1thread": 545.4045000005863,
+   "xarray_load": {
+    "fastnc": 4.523699999481323,
+    "netcdf4": 7.751299999654293,
+    "h5netcdf": 20.804199999474804
+   },
+   "var_raw": {
+    "fastnc": 44.24719999951776,
+    "netCDF4": 666.6432000001805,
+    "h5py": 666.3838000004034
+   },
+   "var_masked": {
+    "fastnc": 53.7094999999681,
+    "netCDF4": 766.233899999861
+   },
+   "window_raw": {
+    "fastnc": 8.131200000207173,
+    "netCDF4": 122.68159999985073,
+    "h5py": 122.49940000037896
+   },
+   "var_raw_1thread": 467.2052999994776,
+   "first_call": {
+    "fastnc": 418.5453000009147,
+    "netCDF4": 945.5775000005815,
+    "h5py": 979.4812999989517
+   },
+   "gpu_raw": {
+    "fastnc gpu": 50.61750000095344,
+    "fastnc cpu+upload": 55.888899998535635,
+    "netCDF4+upload": 684.928900000159
+   },
+   "gpu_masked": {
+    "fastnc gpu": 51.417599999695085,
+    "fastnc cpu+upload": 61.72269999842683,
+    "netCDF4+upload": 777.3933000007673
+   }
+  },
+  {
+   "file": "VIIRS I-band",
+   "path": "VJ102IMG_NRT.A2026265.2006.021.nc",
+   "MB": 281.258085,
+   "variable": "observation_data/I05",
+   "all_raw": {
+    "fastnc": 82.50910000060685,
+    "netCDF4": 1935.3265999998257,
+    "h5py": 1745.5972000007023
+   },
+   "all_masked": {
+    "fastnc": 150.93589999924006,
+    "netCDF4": 3290.015800001129
+   },
+   "all_raw_1thread": 1029.1510000006383,
+   "xarray_load": {
+    "fastnc": 2.590000000054715,
+    "netcdf4": 6.31240000075195,
+    "h5netcdf": 6.054700001186575
+   },
+   "var_raw": {
+    "fastnc": 12.783800000761403,
+    "netCDF4": 196.25389999964682,
+    "h5py": 180.8442000001378
+   },
+   "var_masked": {
+    "fastnc": 19.274000000223168,
+    "netCDF4": 373.05819999892265
+   },
+   "window_raw": {
+    "fastnc": 4.2462000001251,
+    "netCDF4": 12.413700000251993,
+    "h5py": 8.011899999473826
+   },
+   "var_raw_1thread": 127.96660000094562,
+   "first_call": {
+    "fastnc": 314.42059999972116,
+    "netCDF4": 426.9469000009849,
+    "h5py": 483.14790000040375
+   },
+   "gpu_raw": {
+    "fastnc gpu": 15.242900000885129,
+    "fastnc cpu+upload": 18.393799999103067,
+    "netCDF4+upload": 204.4173000012961
+   },
+   "gpu_masked": {
+    "fastnc gpu": 18.364499999734107,
+    "fastnc cpu+upload": 31.72209999866027,
+    "netCDF4+upload": 370.74459999894316
+   }
+  },
+  {
+   "file": "Metop-SG VII",
+   "path": "W_XX-EUMETSAT-Darmstadt,SAT,SGA1-VII-1B-RAD_C_EUMT_20260922172210_G_O_20260922163559_20260922163659_C_N_T__.nc",
+   "MB": 118.976316,
+   "variable": "data/measurement_data/vii_10690",
+   "all_raw": {
+    "fastnc": 60.39989999953832,
+    "netCDF4": 138.09110000147484,
+    "h5py": 97.28679999898304
+   },
+   "all_masked": {
+    "fastnc": 88.6041000012483,
+    "netCDF4": 314.89200000032724
+   },
+   "all_raw_1thread": 68.42350000079023,
+   "xarray_load": {
+    "fastnc": 6.685799999104347,
+    "netcdf4": 15.668800000639749,
+    "h5netcdf": 2.4585000010119984
+   },
+   "var_raw": {
+    "fastnc": 9.85450000007404,
+    "netCDF4": 18.895499999416643,
+    "h5py": 4.186300000583287
+   },
+   "var_masked": {
+    "fastnc": 10.022599999501836,
+    "netCDF4": 26.22239999982412
+   },
+   "window_raw": {
+    "fastnc": 8.092400001260103,
+    "netCDF4": 15.146399999139248,
+    "h5py": 1.5848000002733897
+   },
+   "var_raw_1thread": 9.8571999988053,
+   "first_call": {
+    "fastnc": 278.364199999487,
+    "netCDF4": 248.53189999885217,
+    "h5py": 293.40830000001006
+   },
+   "gpu_raw": {
+    "fastnc gpu": 9.771799999725772,
+    "fastnc cpu+upload": 10.303800001565833,
+    "netCDF4+upload": 19.054399999731686
+   },
+   "gpu_masked": {
+    "fastnc gpu": 10.499300000446965,
+    "fastnc cpu+upload": 10.929799998848466,
+    "netCDF4+upload": 27.538000000276952
+   }
+  },
+  {
+   "file": "AVHRR HRPT",
+   "path": "NSS.HRPT.ND.D92236.S1231.E1243.B171717.nc",
+   "MB": 29.958217,
+   "variable": "avhrr_ch4",
+   "all_raw": {
+    "fastnc": 11.747999998988234,
+    "netCDF4": 197.9882000014186,
+    "h5py": 201.5709000006609
+   },
+   "all_masked": {
+    "fastnc": 20.832899999732035,
+    "netCDF4": 230.74319999977888
+   },
+   "all_raw_1thread": 106.80739999952493,
+   "xarray_load": {
+    "fastnc": 76.14599999942584,
+    "netcdf4": 252.04690000100527,
+    "h5netcdf": 271.7093000010209
+   },
+   "var_raw": {
+    "fastnc": 2.7953999997407664,
+    "netCDF4": 18.734900000708876,
+    "h5py": 15.961000000970671
+   },
+   "var_masked": {
+    "fastnc": 3.8645999993605074,
+    "netCDF4": 24.343400000361726
+   },
+   "window_raw": {
+    "fastnc": 2.1268000000418397,
+    "netCDF4": 6.313300000329036,
+    "h5py": 3.6748000002262415
+   },
+   "var_raw_1thread": 10.530699999435456,
+   "first_call": {
+    "fastnc": 260.8892000007472,
+    "netCDF4": 273.6881999990146,
+    "h5py": 283.7701000007655
+   },
+   "gpu_raw": {
+    "fastnc gpu": 3.325300000142306,
+    "fastnc cpu+upload": 2.9834999986633193,
+    "netCDF4+upload": 18.541600000389735
+   },
+   "gpu_masked": {
+    "fastnc gpu": 3.843599999527214,
+    "fastnc cpu+upload": 5.648100001053535,
+    "netCDF4+upload": 25.754299998880015
+   }
+  },
+  {
+   "file": "RCM SAR winds",
+   "path": "rcm2-sclna-owi-cm-20261014t010230-20261014t010349-00003-xxxxx_ll_gd.nc",
+   "MB": 1.9623,
+   "variable": "wind_speed",
+   "all_raw": {
+    "fastnc": 7.015900000624242,
+    "netCDF4": 45.36039999948116,
+    "h5py": 43.072700000266195
+   },
+   "all_masked": {
+    "fastnc": 14.41049999993993,
+    "netCDF4": 50.94149999968067
+   },
+   "all_raw_1thread": 18.682299998545204,
+   "xarray_load": {
+    "fastnc": 32.18910000032338,
+    "netcdf4": 60.5106999992131,
+    "h5netcdf": 127.56079999962822
+   },
+   "var_raw": {
+    "fastnc": 2.480499999364838,
+    "netCDF4": 6.130300000222633,
+    "h5py": 2.5277999993704725
+   },
+   "var_masked": {
+    "fastnc": 3.051699999559787,
+    "netCDF4": 6.644199998845579
+   },
+   "window_raw": {
+    "fastnc": 2.424500000415719,
+    "netCDF4": 5.809300000692019,
+    "h5py": 2.4128999993990874
+   },
+   "var_raw_1thread": 2.422800000204006,
+   "first_call": {
+    "fastnc": 259.47219999943627,
+    "netCDF4": 245.31069999829924,
+    "h5py": 272.5066999992123
+   },
+   "gpu_raw": {
+    "fastnc gpu": 2.6533000000199536,
+    "fastnc cpu+upload": 2.6859999998123385,
+    "netCDF4+upload": 6.631000000197673
+   },
+   "gpu_masked": {
+    "fastnc gpu": 3.45490000108839,
+    "fastnc cpu+upload": 3.614400000515161,
+    "netCDF4+upload": 6.65599999956612
+   }
+  },
+  {
+   "file": "Ku scatterometer",
+   "path": "20260904I1_ku_outer_lfm_VV_L2_pass13_combined.nc",
+   "MB": 5.221732,
+   "variable": "Ze",
+   "all_raw": {
+    "fastnc": 31.010999999125488,
+    "netCDF4": 77.54139999997278,
+    "h5py": 66.32539999918663
+   },
+   "all_masked": {
+    "fastnc": 34.6637999991799,
+    "netCDF4": 83.1785000009404
+   },
+   "all_raw_1thread": 90.99800000149116,
+   "xarray_load": {
+    "fastnc": 96.63940000064031,
+    "netcdf4": 99.99930000049062,
+    "h5netcdf": 1319.1372000001138
+   },
+   "var_raw": {
+    "fastnc": 5.513500000233762,
+    "netCDF4": 19.107699999949546,
+    "h5py": 12.245899999470566
+   },
+   "var_masked": {
+    "fastnc": 6.200499999977183,
+    "netCDF4": 19.761600000492763
+   },
+   "window_raw": {
+    "fastnc": 4.803699999683886,
+    "netCDF4": 10.69160000042757,
+    "h5py": 4.116100000828737
+   },
+   "var_raw_1thread": 14.269000001149834,
+   "first_call": {
+    "fastnc": 304.12129999967874,
+    "netCDF4": 272.7413000011438,
+    "h5py": 291.60290000072564
+   },
+   "gpu_raw": {
+    "fastnc gpu": 6.564900000739726,
+    "fastnc cpu+upload": 5.869299999176292,
+    "netCDF4+upload": 19.096199999694363
+   },
+   "gpu_masked": {
+    "fastnc gpu": 5.923900000198046,
+    "fastnc cpu+upload": 6.226100000276347,
+    "netCDF4+upload": 19.60000000144646
+   }
+  },
+  {
+   "file": "GOES-19 ABI RadF C02",
+   "path": "extra/OR_ABI-L1b-RadF-M6C02_G19_s20263021200207_e20263021209516_c20263021209551.nc",
+   "MB": 367.808618,
+   "variable": "Rad",
+   "all_raw": {
+    "fastnc": 119.77800000022398,
+    "netCDF4": 2639.718200000061,
+    "h5py": 2521.6630999984773
+   },
+   "all_masked": {
+    "fastnc": 205.01789999980247,
+    "netCDF4": 5468.06370000013
+   },
+   "all_raw_1thread": 1518.646999998964,
+   "xarray_load": {
+    "fastnc": 2656.4101000003575,
+    "netcdf4": 5193.724900000234,
+    "h5netcdf": 5150.576899999578
+   },
+   "var_raw": {
+    "fastnc": 108.89920000045095,
+    "netCDF4": 2220.773300001383,
+    "h5py": 2168.5717000000295
+   },
+   "var_masked": {
+    "fastnc": 167.08359999938693,
+    "netCDF4": 4282.5252000002365
+   },
+   "window_raw": {
+    "fastnc": 10.333399999581161,
+    "netCDF4": 57.20860000110406,
+    "h5py": 53.62820000118518
+   },
+   "var_raw_1thread": 1475.627899999381,
+   "first_call": {
+    "fastnc": 803.5590999988926,
+    "netCDF4": 2441.897799999424,
+    "h5py": 2446.784599998864
+   },
+   "gpu_raw": {
+    "fastnc gpu": 155.43570000045293,
+    "fastnc cpu+upload": 178.64510000072187,
+    "netCDF4+upload": 2301.555800000642
+   },
+   "gpu_masked": {
+    "fastnc gpu": 153.13919999971404,
+    "fastnc cpu+upload": 350.3915999990568,
+    "netCDF4+upload": 4485.918800000945
+   }
+  },
+  {
+   "file": "GOES-19 ABI RadF C13",
+   "path": "extra/OR_ABI-L1b-RadF-M6C13_G19_s20263021200207_e20263021209527_c20263021209579.nc",
+   "MB": 25.903598,
+   "variable": "Rad",
+   "all_raw": {
+    "fastnc": 11.51200000094832,
+    "netCDF4": 169.80309999962628,
+    "h5py": 163.71729999991658
+   },
+   "all_masked": {
+    "fastnc": 21.834000001035747,
+    "netCDF4": 332.15479999853414
+   },
+   "all_raw_1thread": 100.85830000025453,
+   "xarray_load": {
+    "fastnc": 175.44009999983246,
+    "netcdf4": 325.95729999957257,
+    "h5netcdf": 374.5490000001155
+   },
+   "var_raw": {
+    "fastnc": 9.352400000352645,
+    "netCDF4": 130.64000000122178,
+    "h5py": 125.47900000026857
+   },
+   "var_masked": {
+    "fastnc": 14.302700001280755,
+    "netCDF4": 252.62490000022808
+   },
+   "window_raw": {
+    "fastnc": 4.104499999812106,
+    "netCDF4": 12.66360000045097,
+    "h5py": 7.359299999734503
+   },
+   "var_raw_1thread": 92.19739999934973,
+   "first_call": {
+    "fastnc": 301.97039999984554,
+    "netCDF4": 340.74539999892295,
+    "h5py": 412.09669999989273
+   },
+   "gpu_raw": {
+    "fastnc gpu": 10.701999999582767,
+    "fastnc cpu+upload": 13.465500000165775,
+    "netCDF4+upload": 135.33339999958116
+   },
+   "gpu_masked": {
+    "fastnc gpu": 12.319299999944633,
+    "fastnc cpu+upload": 22.296799999821815,
+    "netCDF4+upload": 265.7483000002685
+   }
+  }
+ ]
+}
