@@ -241,7 +241,7 @@ V_COLS = V_STAGE0 + MAXSTAGE
 
 @njit(cache=True, nogil=True)
 def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
-          counter, status, scratch, tab, iws):
+          counter, status, scratch, tab, iws, band, progress):
     """Take chunks off counter[0] until none is left: decode each into
     scratch (or straight into out) and place its selected elements.
 
@@ -250,91 +250,106 @@ def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count
     elements and bytes, byte swap, the filter ids in decoding order, the
     byte offset of its output in out) and VD[var[i]] (chunk shape, chunk
     and output strides in elements, selection steps). status[i]: 0 ok,
-    < 0 a decoder's error, 1 a filter this kernel does not run."""
+    < 0 a decoder's error, 1 a filter this kernel does not run.
+    band (if not empty): chunk i's band of the output, progress[band[i]]
+    counted up once it is placed (the GPU path uploads each band when all
+    its chunks are in).
+    """
     n = addr.shape[0]
+    track = band.shape[0] > 0
     while True:
         i = take(counter, 0)
         if i >= n:
             return
-        v = var[i]
-        esize = V[v, V_ESIZE]
-        rank = V[v, V_RANK]
-        nel = V[v, V_NEL]
-        cbytes = V[v, V_CBYTES]
-        swap = V[v, V_SWAP] == 1
-        nst = V[v, V_NST]
-        obase = V[v, V_OUT]
-        p = addr[i]
-        pend = p + size[i]
-        m = mask[i]
-        # a byte shuffle (applied before compression when written) spreads
-        # every byte plane over the chunk: no early stop; placement unshuffles
-        shuffled = False
-        for k in range(nst):
-            if V[v, V_STAGE0 + k] == F_SHUFFLE and not (m >> (nst - 1 - k)) & 1:
-                shuffled = esize > 1
-        in_scratch = False
-        ok = 0
-        placed = False
-        # fletcher32 listed after deflate in decoding order was applied first
-        # when writing: its checksum trails the decompressed bytes
-        # (and if it came before the shuffle too, the byte planes include it)
-        tail = 0
-        planes = nel
-        seen_deflate = False
-        seen_shuffle = False
-        for k in range(nst):
-            if (m >> (nst - 1 - k)) & 1:
-                continue
-            fk = V[v, V_STAGE0 + k]
-            if fk == F_DEFLATE:
-                seen_deflate = True
-            elif fk == F_SHUFFLE:
-                seen_shuffle = True
-            elif fk == F_FLETCHER and seen_deflate:
-                tail = 4
-                if seen_shuffle:
-                    planes = (cbytes + 4) // esize
-        for k in range(nst):
-            f = V[v, V_STAGE0 + k]
-            if (m >> (nst - 1 - k)) & 1:
-                continue                            # filter skipped for this chunk
-            if f == F_FLETCHER:
-                if not in_scratch:
-                    pend -= 4                       # checksum of the stored bytes
-            elif f == F_SHUFFLE:
-                pass
-            elif f == F_DEFLATE:
-                if in_scratch:
-                    ok = 1                          # two compressors: not here
-                    break
-                if direct[i] >= 0 and tail == 0:
-                    o = obase + direct[i]
-                    r = _inflate.zlib_inflate(src, p, pend, out, o, o + cbytes, o + cbytes, tab, iws)
-                    ok = r if r < 0 else 0
-                    placed = True
-                    break
-                stop = cbytes + tail
-                need = needend[i] * esize
-                if not shuffled and need < cbytes:
-                    stop = need                     # the rest of the chunk is not wanted
-                r = _inflate.zlib_inflate(src, p, pend, scratch, 0, cbytes + tail, stop, tab, iws)
-                if r < 0:
-                    ok = r
-                    break
-                in_scratch = True
-            else:
-                ok = 1
-                break
-        status[i] = ok
-        if ok != 0 or placed:
+        _work_one(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count,
+                  ostart, status, scratch, tab, iws, i)
+        if track:
+            take(progress, band[i])
+
+
+@njit(cache=True, nogil=True)
+def _work_one(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
+              status, scratch, tab, iws, i):
+    """Chunk i of _work's batch."""
+    v = var[i]
+    esize = V[v, V_ESIZE]
+    rank = V[v, V_RANK]
+    nel = V[v, V_NEL]
+    cbytes = V[v, V_CBYTES]
+    swap = V[v, V_SWAP] == 1
+    nst = V[v, V_NST]
+    obase = V[v, V_OUT]
+    p = addr[i]
+    pend = p + size[i]
+    m = mask[i]
+    # a byte shuffle (applied before compression when written) spreads
+    # every byte plane over the chunk: no early stop; placement unshuffles
+    shuffled = False
+    for k in range(nst):
+        if V[v, V_STAGE0 + k] == F_SHUFFLE and not (m >> (nst - 1 - k)) & 1:
+            shuffled = esize > 1
+    in_scratch = False
+    ok = 0
+    placed = False
+    # fletcher32 listed after deflate in decoding order was applied first
+    # when writing: its checksum trails the decompressed bytes
+    # (and if it came before the shuffle too, the byte planes include it)
+    tail = 0
+    planes = nel
+    seen_deflate = False
+    seen_shuffle = False
+    for k in range(nst):
+        if (m >> (nst - 1 - k)) & 1:
             continue
-        if in_scratch:
-            _place(scratch, 0, planes, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
-                   VD[v, 2], VD[v, 3], rank, esize, shuffled, swap)
+        fk = V[v, V_STAGE0 + k]
+        if fk == F_DEFLATE:
+            seen_deflate = True
+        elif fk == F_SHUFFLE:
+            seen_shuffle = True
+        elif fk == F_FLETCHER and seen_deflate:
+            tail = 4
+            if seen_shuffle:
+                planes = (cbytes + 4) // esize
+    for k in range(nst):
+        f = V[v, V_STAGE0 + k]
+        if (m >> (nst - 1 - k)) & 1:
+            continue                            # filter skipped for this chunk
+        if f == F_FLETCHER:
+            if not in_scratch:
+                pend -= 4                       # checksum of the stored bytes
+        elif f == F_SHUFFLE:
+            pass
+        elif f == F_DEFLATE:
+            if in_scratch:
+                ok = 1                          # two compressors: not here
+                break
+            if direct[i] >= 0 and tail == 0:
+                o = obase + direct[i]
+                r = _inflate.zlib_inflate(src, p, pend, out, o, o + cbytes, o + cbytes, tab, iws)
+                ok = r if r < 0 else 0
+                placed = True
+                break
+            stop = cbytes + tail
+            need = needend[i] * esize
+            if not shuffled and need < cbytes:
+                stop = need                     # the rest of the chunk is not wanted
+            r = _inflate.zlib_inflate(src, p, pend, scratch, 0, cbytes + tail, stop, tab, iws)
+            if r < 0:
+                ok = r
+                break
+            in_scratch = True
         else:
-            _place(src, p, nel, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
-                   VD[v, 2], VD[v, 3], rank, esize, shuffled, swap)
+            ok = 1
+            break
+    status[i] = ok
+    if ok != 0 or placed:
+        return
+    if in_scratch:
+        _place(scratch, 0, planes, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
+               VD[v, 2], VD[v, 3], rank, esize, shuffled, swap)
+    else:
+        _place(src, p, nel, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
+               VD[v, 2], VD[v, 3], rank, esize, shuffled, swap)
 
 
 @njit(cache=True, nogil=True)
@@ -372,6 +387,8 @@ def _scratch(nbytes):
 
 
 SUPPORTED = (F_DEFLATE, F_SHUFFLE, F_FLETCHER)
+_EMPTY = np.zeros(0, np.int64)
+_EMPTY1 = np.zeros(1, np.int64)
 
 
 class Item:
@@ -428,7 +445,7 @@ def _warm():
         tab, iws = _inflate.workspace()
         _work(ro, u8, np.zeros((1, V_COLS), np.int64), np.zeros((1, 4, 1), np.int64),
               i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i2[:0], i2[:0], i2[:0],
-              np.zeros(1, np.int64), i64[:0], u8, tab, iws)
+              np.zeros(1, np.int64), i64[:0], u8, tab, iws, i64[:0], i64[:1])
         _pinflate.warm()
     finally:
         _READY.set()
@@ -579,9 +596,12 @@ def _bigtmp_keep(t):
                 _BIGTMP[0] = t
 
 
-def read_batch(items, src, buf, threads=None):
+def read_batch(items, src, buf, threads=None, bands=None):
     """Decode the chunks of every item in one pass of the pool, biggest
-    chunks first, into buf (uint8; each item's output starts at its base)."""
+    chunks first, into buf (uint8; each item's output starts at its base).
+    bands (one item): (band of each of its plan's chunks, progress counts)
+    -- chunks then go in band order, and progress[b] counts band b's
+    chunks as they are placed (_gpu uploads each band once complete)."""
     staged = [it for it in items if not all(f.id in SUPPORTED for f in it.ds.filters)]
     if staged:
         # other filters (szip, scale-offset, n-bit, bzip2, ...): stage by stage
@@ -665,8 +685,14 @@ def read_batch(items, src, buf, threads=None):
     count = np.concatenate([pad(p.count) for p, _ in plans])
     ostart = np.concatenate([pad(p.ostart) for p, _ in plans])
     fetch_chunks(items, [p for p, _ in plans])
+    band = _EMPTY if bands is None else np.asarray(bands[0], np.int64)
+    progress = _EMPTY1 if bands is None else bands[1]
     if n > 1:
-        order = np.argsort(-size, kind='stable')     # biggest first: no straggler at the end
+        if bands is None:
+            order = np.argsort(-size, kind='stable')     # biggest first: no straggler at the end
+        else:
+            order = np.lexsort((-size, band))            # bands in order, biggest first in each
+            band = band[order]
         addr, size, mask, needend, direct, var = (addr[order], size[order], mask[order],
                                                   needend[order], direct[order], var[order])
         cstart, count, ostart = cstart[order], count[order], ostart[order]
@@ -692,6 +718,9 @@ def read_batch(items, src, buf, threads=None):
             keep = ~big
             addr, size, mask, needend, direct, var = (addr[keep], size[keep], mask[keep],
                                                       needend[keep], direct[keep], var[keep])
+            if band.size:
+                band = band[keep]                   # (big chunks: no progress; the caller
+                                                    # sees them when read_batch returns)
             cstart, count, ostart = cstart[keep], count[keep], ostart[keep]
             n = len(addr)
         else:
@@ -703,7 +732,7 @@ def read_batch(items, src, buf, threads=None):
     def work():
         sc, tab, iws = _scratch(cmax + 8)
         _work(src, buf, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
-              counter, status, sc, tab, iws)
+              counter, status, sc, tab, iws, band, progress)
     if big is not None:                             # the other chunks once a thread's parts are done
         _read_big(src, buf, V, VD, bigs, allthreads, items, work if n else None, total)
     else:
@@ -752,7 +781,7 @@ def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
     def work():
         sc, tab, iws = _scratch(8)
         _work(src, buf, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
-              counter, status, sc, tab, iws)
+              counter, status, sc, tab, iws, _EMPTY, _EMPTY1)
     nbytes = int(np.prod(it.out.shape)) * esize
     _pool.share(work, max(1, min(threads or _pool.threads(), n, nbytes >> 15)))
     if status.any():
@@ -802,12 +831,13 @@ def fetch_chunks(items, plans=None):
     source.fetch(np.concatenate(addr), np.concatenate(size))
 
 
-def read(ds, index, src, sel, out, swap=False, threads=None):
+def read(ds, index, src, sel, out, swap=False, threads=None, bands=None):
     """Decode the chunks of dataset ds touched by sel into out: a C-contiguous
     array with one dimension per dataset dimension, sized to the selection
     (integer indexes as length one). swap: reverse each element's bytes as
     it is placed (big-endian numbers read as native)."""
-    read_batch([Item(ds, index, sel, out, swap, 0)], src, out.reshape(-1).view(np.uint8), threads)
+    read_batch([Item(ds, index, sel, out, swap, 0)], src, out.reshape(-1).view(np.uint8), threads,
+               bands)
     return out
 
 

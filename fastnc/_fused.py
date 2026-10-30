@@ -78,7 +78,7 @@ def read(var, key, threads=None):
     # (last: the plan warns about odd attributes, once per read)
     pl = _maskscale.make_plan(nat, bv.attrs, bv.dtype, kind, var._mask, var._scale,
                               getattr(bv, 'no_fill', False))
-    if pl is None or pl.out_dtype is None:
+    if pl is None or pl.out_dtype is None or pl.nan_const:
         return None                                 # (mask only: the read goes straight into
                                                     # the result, then a parallel pass: faster)
     if r.f.source is not None:
