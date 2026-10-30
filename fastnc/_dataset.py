@@ -256,6 +256,40 @@ class Group:
         for sub in self.groups.values():
             yield from sub._walk()
 
+    def load(self, names=None, recursive=False, threads=None):
+        """{name: values} for the named variables (default: all of this group,
+        and of its subgroups too if recursive, keyed by path), each as
+        var[...] would give it. Decoded together: every chunk of every
+        variable in one pass of the cores, biggest first -- a file of many
+        small variables no longer waits on each variable in turn."""
+        if names is None:
+            groups = list(self._walk()) if recursive else [self]
+            vs = [(('%s/%s' % (g.path.rstrip('/'), k)).lstrip('/') if recursive else k, v)
+                  for g in groups for k, v in g.variables.items()]
+        else:
+            vs = [(n, self[n]) for n in names]
+        raws = {}
+        batch = [(k, v) for k, v in vs if getattr(v._bv, '_reader', None) is not None
+                 and v._bv.ds.type.cls in (0, 1, 4, 8) and v._bv.ds.shape]
+        if batch:
+            from ._h5read import read_many
+            for (k, v), a in zip(batch, read_many([v._bv._reader for _, v in batch], threads=threads)):
+                raws[k] = a
+        out = {}
+        for k, v in vs:
+            if k not in raws:
+                out[k] = v.read(Ellipsis, threads=threads)
+                continue
+            raw = raws[k]
+            chars = v._chartostring and v._bv.dtype == np.dtype('S1') and '_Encoding' in v._bv.attrs
+            if not (v._mask or v._scale or chars):
+                out[k] = raw
+                continue
+            from . import _maskscale
+            out[k] = _maskscale.apply(raw, v._bv.attrs, v._bv.dtype, mask=v._mask, scale=v._scale,
+                                      always_mask=v._always_mask, chartostring=v._chartostring)
+        return out
+
     def set_auto_maskandscale(self, flag):
         for g in self._walk():
             for v in g.variables.values():
