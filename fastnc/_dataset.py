@@ -452,7 +452,10 @@ class Dataset(Group):
         if fmt == 'HDF5':
             from ._nc4 import NC4File
             self._fh, self._mm = _open_bytes(self._filepath) if src is None else (None, _remote.readonly(src))
-            self._backend = NC4File(_hdf5.H5File(self._mm, source=src), np.frombuffer(self._mm, np.uint8))
+            h5 = _hdf5.H5File(self._mm, source=src)
+            if src is None:
+                h5.path = self._filepath                # positional reads for big batches
+            self._backend = NC4File(h5, np.frombuffer(self._mm, np.uint8))
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF5'
         elif fmt == 'HDF4':

@@ -235,7 +235,7 @@ class NC4File:
         self._fix_unlimited(self.root)
 
     def close(self):
-        pass
+        self.f.close()
 
     # -- reading the structure
     def _group(self, h5g, name, parent):

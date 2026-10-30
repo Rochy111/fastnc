@@ -490,6 +490,8 @@ class File(Group):
             self.filename, self._fh, self._mm = self._source.name, None, _remote.readonly(self._source)
         self._src = np.frombuffer(self._mm, np.uint8)
         self._f = _hdf5.H5File(self._mm, source=self._source)
+        if self._source is None:
+            self._f.path = self.filename                # positional reads for big batches
         self._objects = {}
         self.mode = 'r'
         Group.__init__(self, self, self._f.root_address, '/')
@@ -525,6 +527,8 @@ class File(Group):
         return ('earliest', 'latest') if self._f.sb_version < 2 else ('v108', 'latest')
 
     def close(self):
+        if getattr(self, '_f', None) is not None:
+            self._f.close()
         self._objects = {}
         self._src = None
         mm, self._mm = self._mm, None

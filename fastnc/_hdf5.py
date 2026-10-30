@@ -462,6 +462,10 @@ class Dataset:
         size, filter mask), in file index order."""
         return self.file.chunk_table(self)
 
+    def chunk_arrays(self):
+        """The chunk table as arrays where the index allows (else None)."""
+        return self.file.chunk_arrays(self)
+
 
 # ---------------------------------------------------------------- the file
 
@@ -529,6 +533,14 @@ class H5File:
         self.undef = (1 << (8 * self.O)) - 1
         self.root_address = root
         self.root = Group(self, root, '/')
+        self.path = None                            # set by the opener for local files
+        self._pio = None
+
+    def close(self):
+        """Close the positional reader, if one was made."""
+        r, self._pio = self._pio, None
+        if r is not None:
+            r.close()
 
     # -- remote files: bytes asked for before they are read (local: no-ops)
     def need(self, at, n):
@@ -1214,6 +1226,54 @@ class H5File:
         if lay.index == 'earray':
             return self._earray_chunks(ds, nper, chunks, csize)
         raise FormatError('chunk index %r' % lay.index)
+
+    def chunk_arrays(self, ds):
+        """The chunk table as arrays (offsets (n, rank) int64, absolute
+        addresses, stored sizes, filter masks), or None where only the
+        tuple form exists. v1 B-tree leaves are fixed-size records, read a
+        node at a time with numpy: Metop-SG's 39 datasets of 840 row chunks
+        took 37 ms to index tuple by tuple on every open."""
+        lay = ds.layout
+        if lay.address == self.undef:
+            z = np.zeros(0, np.int64)
+            return np.zeros((0, len(ds.shape)), np.int64), z, z, z
+        if lay.index == 'btree1' and self.O == 8:
+            return self._btree1_arrays(lay.address, len(ds.shape))
+        return None
+
+    def _btree1_arrays(self, address, rank):
+        b = self.b
+        O = self.O
+        ksize = 8 + 8 * (rank + 1)
+        rec = np.dtype([('size', '<u4'), ('mask', '<u4'), ('offs', '<u8', (rank + 1,)),
+                        ('child', '<u8')])
+        parts = []
+        stack = [address]
+        while stack:
+            a = self.addr(stack.pop())
+            self.need(a, 8 + 2 * O)
+            if bytes(b[a:a + 4]) != b'TREE':
+                raise FormatError('bad chunk B-tree node')
+            level = b[a + 5]
+            n = _u16(b, a + 6)[0]
+            p = a + 8 + 2 * O
+            self.need(a, 8 + 2 * O + n * (ksize + O) + ksize)
+            r = np.frombuffer(b, rec, count=n, offset=p)
+            if level:
+                kids = r['child'].tolist()
+                if self.source is not None:        # remote: the next ones in one go
+                    self.prefetch([self.addr(k) for k in kids],
+                                  8 + 2 * O + max(n, 64) * (ksize + O) + ksize)
+                stack.extend(reversed(kids))
+            else:
+                parts.append(r)
+        if not parts:
+            z = np.zeros(0, np.int64)
+            return np.zeros((0, rank), np.int64), z, z, z
+        r = np.concatenate(parts)
+        offs = r['offs'][:, :rank].astype(np.int64)
+        addr = r['child'].astype(np.int64) + self.base
+        return offs, addr, r['size'].astype(np.int64), r['mask'].astype(np.int64)
 
     def _btree1_chunks(self, address, rank):
         b = self.b

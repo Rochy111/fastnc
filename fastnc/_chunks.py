@@ -28,7 +28,7 @@ import threading
 
 import numpy as np
 
-from . import _inflate, _pinflate, _pool
+from . import _inflate, _pinflate, _pio, _pool
 from ._intrin import ld64, st64, take
 from ._jit import njit
 
@@ -50,13 +50,17 @@ class ChunkIndex:
     absolute addresses, stored sizes, filter masks; and a lookup from the
     chunk's grid position to its row."""
 
-    def __init__(self, table, chunks, shape):
-        n = len(table)
+    def __init__(self, table, chunks, shape, arrays=None):
         rank = len(chunks)
-        self.offsets = np.array([t[0] for t in table], np.int64).reshape(n, rank)
-        self.addr = np.array([t[1] for t in table], np.int64)
-        self.size = np.array([t[2] for t in table], np.int64)
-        self.mask = np.array([t[3] for t in table], np.int64)
+        if arrays is not None:                      # (offsets, addr, size, mask) already
+            self.offsets, self.addr, self.size, self.mask = arrays
+            n = len(self.addr)
+        else:
+            n = len(table)
+            self.offsets = np.array([t[0] for t in table], np.int64).reshape(n, rank)
+            self.addr = np.array([t[1] for t in table], np.int64)
+            self.size = np.array([t[2] for t in table], np.int64)
+            self.mask = np.array([t[3] for t in table], np.int64)
         self.chunks = np.array(chunks, np.int64)
         self.grid = np.array([-(-s // c) for s, c in zip(shape, chunks)], np.int64)
         self.ngrid = int(np.prod(self.grid)) if rank else 1
@@ -640,6 +644,12 @@ def read_batch(items, src, buf, threads=None):
         addr, size, mask, needend, direct, var = (addr[order], size[order], mask[order],
                                                   needend[order], direct[order], var[order])
         cstart, count, ostart = cstart[order], count[order], ostart[order]
+    io = _stage_reader(items) if not any(it.ds.filters for it in items) else None
+    if io is not None and int(size.sum()) >= _pio.STAGE_MIN:
+        # a big unfiltered batch from a local file: positional reads into warm
+        # memory beat faulting in the freshly mapped file's pages (with a
+        # decompressor at work the faults hide behind it: staging lost there)
+        src, addr = io.stage(addr, size, threads)
     # a thread for each ~32 kB of output at most: handing tiny reads to the
     # pool costs more than it saves
     outbytes = int(sum(int(np.prod(it.out.shape)) * it.ds.type.size for it in items))
@@ -721,6 +731,22 @@ def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
     _pool.share(work, max(1, min(threads or _pool.threads(), n, nbytes >> 15)))
     if status.any():
         raise IOError('a staged chunk of %s could not be placed' % ds.name)
+
+
+def _stage_reader(items):
+    """The local file's positional reader (made on first use), or None for
+    remote sources and files opened without a path."""
+    f = getattr(items[0].ds, 'file', None)          # (HDF4's datasets have none)
+    if f is None or getattr(f, 'source', None) is not None or getattr(f, 'path', None) is None:
+        return None
+    r = getattr(f, '_pio', None)
+    if r is None:
+        try:
+            r = f._pio = _pio.Reader(f.path)
+        except OSError:
+            f.path = None
+            return None
+    return r
 
 
 def fetch_chunks(items, plans=None):
