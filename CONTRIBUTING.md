@@ -205,3 +205,25 @@ the machine) and how you checked the values are unchanged (`pytest`, and
 the real-file sets where you have them). Keep docstrings as prose saying
 what a thing is and why, and comments short, trailing the line they
 explain. Add a line to `CHANGELOG.md`'s Unreleased section.
+
+## Branches, commits and merging
+
+- **`main` is never committed to directly, and never rewritten.** Every
+  change goes through a pull request; nothing is force-pushed to `main`.
+- **One branch per coherent change**, named by kind and topic:
+  `perf/libdeflate-in-kernel`, `fix/fill-value-type`, `docs/benchmarks`.
+  Keep a branch to one idea; an unrelated fix found on the way gets its own
+  branch.
+- **Commit as often as you like on the branch** -- checkpoints are fine
+  there. Pull requests are **squash-merged**, so each lands on `main` as one
+  commit that says what the change is.
+- **Subjects** are imperative and at most ~72 characters ("Decode whole
+  chunks through libdeflate where installed"), with a short body saying
+  why. Measurements and rejected alternatives go in the pull request and in
+  `docs/measurements.md`, not in commit messages.
+- **Before merging**: the suite passes under numpy 2 and numpy 1
+  (`pytest`, `python tools/run_tests_numpy1.py`), with `--kernels off`, and
+  with `--gpu` where the change touches the GPU path; CI is green, or the
+  pull request says which of these were run locally instead.
+- **Releases** are tagged on `main` (`v0.1.0` ...) after `CHANGELOG.md`'s
+  Unreleased section is moved under the version.
