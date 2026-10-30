@@ -229,55 +229,69 @@ def _se_block(src, pos, pend, tmp, t, J):
     pairs; after a reference sample the first pair's first value is left
     out). The bit position after, -1 if the stream ends, -2 for a code
     libaec rejects."""
-    while t < J:
+    if t:                                       # after a reference sample: half a pair
         mm, used = _fs(src, pos, pend)
         if mm < 0:
             return -1
         if mm > SE_TABLE_SIZE:
             return -2
         pos += used
-        s = _SE[mm, 0]
-        d1 = _SE[mm, 1]
-        if t % 2 == 0:
-            tmp[t] = s - d1
-            t += 1
-        tmp[t] = d1                             # (J even: t < J here)
+        tmp[t] = _SE[mm, 1]
         t += 1
+    while t < J:                                # whole pairs, codes from one load while they fit
+        w = window(src, pos, pend)
+        used = 0
+        while t < J:
+            lz = clz64(w)
+            if lz + 1 + used > 57 or lz > SE_TABLE_SIZE:
+                break
+            tmp[t] = _SE[lz, 0] - _SE[lz, 1]
+            tmp[t + 1] = _SE[lz, 1]
+            t += 2
+            used += lz + 1
+            w <<= np.uint64(lz + 1)
+        if used == 0:                           # a code of 57 zeros or more
+            mm, used = _fs(src, pos, pend)
+            if mm < 0:
+                return -1
+            if mm > SE_TABLE_SIZE:
+                return -2
+            tmp[t] = _SE[mm, 0] - _SE[mm, 1]
+            tmp[t + 1] = _SE[mm, 1]
+            t += 2
+        pos += used
     return pos
 
 
 @njit(cache=True, nogil=True)
 def _store(out, at, tmp, m, pixel, msb):
-    """tmp[0:m] as samples of `pixel` bytes at out[at:]."""
+    """tmp[0:m] as samples of `pixel` bytes at out[at:] (big-endian if msb).
+    (Unsigned indices: no negative-index fix-ups, loops LLVM can vectorize;
+    the common 1- and 2-byte little-endian cases are inlined by the caller.)"""
+    u = np.uint64
+    A = u(at)
     if pixel == 1:
-        for t in range(m):
-            out[at + t] = tmp[t]
+        for t in range(u(m)):
+            out[A + t] = tmp[t]
     elif pixel == 2:
-        if msb:
-            for t in range(m):
-                v = tmp[t]
-                out[at + 2 * t] = v >> 8
-                out[at + 2 * t + 1] = v
-        else:
-            for t in range(m):
-                v = tmp[t]
-                out[at + 2 * t] = v
-                out[at + 2 * t + 1] = v >> 8
+        h = u(0) if msb else u(1)
+        for t in range(u(m)):
+            v = tmp[t]
+            out[A + u(2) * t + h] = v >> 8
+            out[A + u(2) * t + (u(1) - h)] = v
     else:
-        if msb:
-            for t in range(m):
-                v = tmp[t]
-                out[at + 4 * t] = v >> 24
-                out[at + 4 * t + 1] = v >> 16
-                out[at + 4 * t + 2] = v >> 8
-                out[at + 4 * t + 3] = v
-        else:
-            for t in range(m):
-                v = tmp[t]
-                out[at + 4 * t] = v
-                out[at + 4 * t + 1] = v >> 8
-                out[at + 4 * t + 2] = v >> 16
-                out[at + 4 * t + 3] = v >> 24
+        for t in range(u(m)):
+            v = tmp[t]
+            if msb:
+                out[A + u(4) * t] = v >> 24
+                out[A + u(4) * t + u(1)] = v >> 16
+                out[A + u(4) * t + u(2)] = v >> 8
+                out[A + u(4) * t + u(3)] = v
+            else:
+                out[A + u(4) * t] = v
+                out[A + u(4) * t + u(1)] = v >> 8
+                out[A + u(4) * t + u(2)] = v >> 16
+                out[A + u(4) * t + u(3)] = v >> 24
 
 
 @njit(cache=True, nogil=True)
@@ -400,7 +414,19 @@ def aec_decode(src, p, pend, out, o, nout, bps, pixel, msb, pp, J, rsi, pps, tmp
                         xh = d if xh <= xmax - xh else xmax - d
                     tmp[t] = xh
             if r < keep:
-                _store(out, at + r * pixel, tmp, min(J, keep - r), pixel, msb)
+                mm = min(J, keep - r)
+                if pixel == 1:                  # (inline: a call each block costs 15%)
+                    A = np.uint64(at + r)
+                    for t in range(np.uint64(mm)):
+                        out[A + t] = tmp[t]
+                elif pixel == 2 and not msb:
+                    A = np.uint64(at + 2 * r)
+                    for t in range(np.uint64(mm)):
+                        v = tmp[t]
+                        out[A + np.uint64(2) * t] = v
+                        out[A + np.uint64(2) * t + np.uint64(1)] = v >> 8
+                else:
+                    _store(out, at + r * pixel, tmp, mm, pixel, msb)
             r += J
             b += 1
         k += keep

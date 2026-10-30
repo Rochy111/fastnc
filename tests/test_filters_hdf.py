@@ -146,6 +146,31 @@ def test_szip_size_header():
         assert _szip.decode(src, 0, src.size, np.zeros(n, np.uint8), 0, n, bad, ws) == _szip.ERR_DATA
 
 
+def _bits_to_bytes(bits):
+    bits = bits + '0' * (-len(bits) % 8)
+    return np.array([int(bits[i:i + 8], 2) for i in range(0, len(bits), 8)], np.uint8)
+
+
+def test_szip_second_extension_long_codes():
+    """Second-extension codes of 57-90 zeros (longer than one 64-bit load
+    holds), and 91 (libaec's table ends at 90: an error)."""
+    se = []
+    for s in range(14):
+        for d1 in range(s + 1):
+            se.append((s - d1, d1))
+    for codes, ok in (([60, 0, 3, 90], True), ([0, 1, 2, 57], True), ([91, 0, 0, 0], False)):
+        bits = '000' + '1' + ''.join('0' * m + '1' for m in codes)     # id 0, selector 1: SE
+        src = np.concatenate([np.frombuffer((8).to_bytes(4, 'little'), np.uint8), _bits_to_bytes(bits)])
+        dst = np.zeros(8, np.uint8)
+        cd = szip_cd(128 | 4 | 8, 8, 8, 8, 8)                          # EC, 8 bits, J 8, 8 a line
+        end = _szip.decode(src, 0, src.size, dst, 0, 8, cd, np.zeros(8, np.uint8))
+        if ok:
+            assert end == 8
+            assert dst.tolist() == [v for m in codes for v in se[m]]
+        else:
+            assert end == _szip.ERR_DATA
+
+
 # ------------------------------------------------------------------ fletcher32
 
 def fletcher_ref(b):
