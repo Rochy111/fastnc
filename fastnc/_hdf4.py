@@ -701,7 +701,7 @@ def _attrs(f, vg):
 class Variable:
     """An SD variable (backend contract, docs/contracts.md section 2)."""
 
-    def __init__(self, nc, name, hdftype, dimnames, sdshape, data_ref, attrs):
+    def __init__(self, nc, name, hdftype, dimnames, sdshape, data_ref, attrs, data_tag=T_SD, data_offset=0):
         self.nc = nc
         self.name = name
         self.hdftype = hdftype
@@ -711,6 +711,8 @@ class Variable:
         self.sdshape = tuple(sdshape)               # the SD interface's shape (its own records)
         self.shape = self.sdshape
         self.data_ref = data_ref
+        self.data_tag = data_tag                    # (old SDG files: scales live in tag 703)
+        self.data_offset = data_offset              # bytes into that element
         self.attrs = attrs
         self._elem = None
         self._layout = None
@@ -724,7 +726,7 @@ class Variable:
     @property
     def elem(self):
         if self._elem is None:
-            self._elem = self.nc.f.element(T_SD, self.data_ref) if self.data_ref else Elem('none', -1)
+            self._elem = self.nc.f.element(self.data_tag, self.data_ref) if self.data_ref else Elem('none', -1)
         return self._elem
 
     @property
@@ -970,18 +972,19 @@ def _layout(v):
         lay.index = _chunks.ChunkIndex([((0,) * rank, 0, 0, 0)], cshape, cshape)
         return lay
     # contiguous: plain (one piece), linked blocks or external
-    length = min(e.length, nel * esize)
+    skip = v.data_offset
+    length = min(e.length - skip, nel * esize)
     rows_avail = min(length // rowbytes, shape[0])
     if rows_avail <= 0:
         lay.kind = 'fill'
         return lay
     if e.kind == 'plain':
-        base = e.pieces[0][0]
+        base = e.pieces[0][0] + skip
         src = f.src
     else:
-        raw = f.read_elem(e, rows_avail * rowbytes)
+        raw = f.read_elem(e, skip + rows_avail * rowbytes)
         src = np.frombuffer(raw, np.uint8)
-        base = 0
+        base = skip
     cshape = (rows_avail,) + tuple(shape[1:])
     k = max(1, PSEUDO_CHUNK // max(rowbytes, 1))
     k = min(k, rows_avail)
@@ -1038,12 +1041,17 @@ class HDF4File:
             if vg.cls == 'CDF0.0':
                 cdf = vg
                 break
-        if cdf is None:
-            raise NotImplementedError('HDF4 file without an SD (CDF0.0) Vgroup: old-style '
-                                      'SDG/NDG data sets are not supported yet')
-        sddims = self._dims(cdf)
-        sdvars = self._vars(cdf, sddims)
-        self.root.attrs = _attrs(f, cdf)
+        sdvars = None
+        if cdf is not None:
+            try:
+                sddims = self._dims(cdf)
+                sdvars = self._vars(cdf, sddims)
+                self.root.attrs = _attrs(f, cdf)
+            except _NoDim:
+                sdvars = None                       # (mfhdf then reads the file as below)
+        if sdvars is None:
+            # no SD Vgroup: the data sets of the older DFSD interface (NDGs, SDGs)
+            sddims, sdvars = _read_ndgs(self)
         # netCDF-c: dimensions by name, as variables first use them
         dims = self.root.dimensions
         sizes = {}
@@ -1116,7 +1124,7 @@ class HDF4File:
                         if sub.cls == 'UDim0.0':
                             is_rec = True
                         if sub.name not in byname:
-                            raise FormatError('variable %s: dimension %s not found' % (vg.name, sub.name))
+                            raise _NoDim(sub.name)
                         dimidx.append(byname[sub.name])
                 elif st == T_SD:
                     data_ref = sr
@@ -1151,6 +1159,156 @@ class HDF4File:
             v = Variable(self, vg.name, hdftype, [dims[di].name for di in dimidx], shape, data_ref, attrs)
             out.append((v, dimidx))
         return out
+
+
+class _NoDim(Exception):
+    pass
+
+
+def _cstr(b, k):
+    """The k-th NUL-terminated string of b ('' past the end)."""
+    parts = b.split(b'\0')
+    return parts[k].decode('utf-8', 'replace') if k < len(parts) else ''
+
+
+def _num_attr(raw, nt, n=1):
+    dt = nt_dtype(nt)
+    a = np.frombuffer(raw, dt, n).astype(dt.newbyteorder('='))
+    return a[0] if n == 1 else a
+
+
+def _annotations(f, tag, ref, atag):
+    """Texts of the annotations (DIL 104 / DIA 105) of object (tag, ref), in
+    annotation ref order."""
+    out = []
+    for (t, r) in sorted(k for k in f.dd if k[0] == atag):
+        raw = f.read(t, r)
+        if len(raw) >= 4 and _u16(raw, 0)[0] == tag and _u16(raw, 2)[0] == ref:
+            out.append(raw[4:].split(b'\0', 1)[0].decode('utf-8', 'replace'))
+    return out
+
+
+def _nt_flags(nt):
+    """hdf_check_nt: the number type (with DFNT_LITEND) of an NT record, or None."""
+    if len(nt) < 4:
+        return None
+    t = nt[1]
+    if nt[0] != 1 or nt[3] not in (0, 1):
+        if nt[3] == 4:
+            return t | DFNT_LITEND
+        return None
+    return t
+
+
+def _read_ndgs(nc):
+    """hdf_read_ndgs (mfhdf hdfsds.c): every NDG, then every SDG not linked
+    from an NDG, as a variable "Data-Set-<ref>" on new dimensions
+    fakeDim<n>, each preceded by a coordinate variable "fakeDim<n>" (its
+    scale values, if any)."""
+    f = nc.f
+    dims = []
+    out = []
+    seen_sdg = set()
+    dimcount = 0
+    for gtag in (T_NDG, 700):
+        for (t, ndg_ref) in list(f.dd):
+            if t != gtag or (gtag == 700 and ndg_ref in seen_sdg):
+                continue
+            raw = f.read(t, ndg_ref)
+            members = [struct.unpack_from('>HH', raw, 4 * i) for i in range(len(raw) // 4)]
+            hdftype = 5                             # float32 until an SDD says otherwise
+            rank = 0
+            dimsizes, scaletypes = [], []
+            lref = uref = fref = sref = sdref = 0
+            attrs = {}
+            for mt, mr in members:
+                if mt == T_SDD:
+                    sdd = f.read(mt, mr)
+                    rank = _i16(sdd, 0)[0]
+                    if rank <= 0 or len(sdd) < 2 + 4 * rank + 4 * (rank + 1):
+                        raise FormatError('Data-Set-%d: bad dimension record' % ndg_ref)
+                    dimsizes = list(struct.unpack_from('>%di' % rank, sdd, 2))
+                    q = 2 + 4 * rank
+                    nts = []
+                    for i in range(rank + 1):
+                        nt_tag, nt_ref = struct.unpack_from('>HH', sdd, q + 4 * i)
+                        nts.append(_nt_flags(f.read(nt_tag, nt_ref)))
+                    if any(x is None for x in nts):
+                        raise FormatError('Data-Set-%d: number type of another machine' % ndg_ref)
+                    hdftype = nts[0]
+                    scaletypes = nts[1:]
+                elif mt == 704:
+                    lref = mr
+                elif mt == 705:
+                    uref = mr
+                elif mt == 706:
+                    fref = mr
+                elif mt == 708:                     # coordsys
+                    c = f.read(mt, mr).split(b'\0', 1)[0]
+                    if c:
+                        attrs['coordsys'] = c.decode('utf-8', 'replace')
+                elif mt == 703:
+                    sref = mr
+                elif mt == T_SD:
+                    sdref = mr
+                elif mt == 731:                     # calibration
+                    cal = f.read(mt, mr)
+                    ct, it, w = (6, 24, 8) if len(cal) == 36 else (5, 22, 4)
+                    for k, name in enumerate(('scale_factor', 'scale_factor_err', 'add_offset',
+                                              'add_offset_err')):
+                        attrs[name] = _num_attr(cal[k * w:(k + 1) * w], ct)
+                    attrs['calibrated_nt'] = _num_attr(cal[4 * w:4 * w + (4 if it == 24 else 2)], it)
+                elif mt == 707:                     # valid range: max, min
+                    rng = f.read(mt, mr)
+                    w = nt_dtype(hdftype).itemsize
+                    attrs['valid_max'] = _num_attr(rng[:w], hdftype)
+                    attrs['valid_min'] = _num_attr(rng[w:2 * w], hdftype)
+                elif mt == 710 and gtag == T_NDG:   # link to the SDG of this NDG
+                    lnk = f.read(mt, mr)
+                    if len(lnk) >= 8:
+                        seen_sdg.add(_u16(lnk, 6)[0])
+            labels = f.read(704, lref) + b'\0\0\0' if lref else b''
+            units = f.read(705, uref) + b'\0\0\0' if uref else b''
+            formats = f.read(706, fref) + b'\0\0\0' if fref else b''
+            scales = f.read(703, sref) if sref else b''
+            scale_offset = rank
+            dimidx = []
+            for d in range(rank):
+                lv, uv, fv = _cstr(labels, d + 1), _cstr(units, d + 1), _cstr(formats, d + 1)
+                name = 'fakeDim%d' % dimcount
+                dimcount += 1
+                dims.append(Dim(name, dimsizes[d]))
+                dimidx.append(len(dims) - 1)
+                has_scale = len(scales) > d and scales[d] != 0
+                if True:                            # (mfhdf tests `new_dim`, which is FAIL, -1:
+                                                    # every dimension gets its variable)
+                    st = scaletypes[d]
+                    if (st & 0xff) not in _NT:
+                        raise FormatError('Data-Set-%d: scale type %d' % (ndg_ref, st))
+                    dattrs = {}
+                    for k, val in (('long_name', lv), ('units', uv), ('format', fv)):
+                        if val:
+                            dattrs[k] = val
+                    off = 0                         # no scale: read from the element's start, as mfhdf
+                    if has_scale:
+                        off = scale_offset
+                        scale_offset += dimsizes[d] * nt_dtype(st).itemsize
+                    v = Variable(nc, name, st, [name], [dimsizes[d]], sref, dattrs, 703, off)
+                    out.append((v, [len(dims) - 1]))
+            for k, txt in enumerate(_annotations(f, gtag, ndg_ref, 105)):
+                attrs['remarks-%d' % (k + 1)] = txt
+            for k, txt in enumerate(_annotations(f, gtag, ndg_ref, 104)):
+                attrs['anno_label-%d' % (k + 1)] = txt
+            for k, val in (('long_name', _cstr(labels, 0)), ('units', _cstr(units, 0)),
+                           ('format', _cstr(formats, 0))):
+                if val:
+                    attrs[k] = val
+            if (hdftype & 0xff) not in _NT:
+                raise FormatError('Data-Set-%d: number type %d' % (ndg_ref, hdftype))
+            v = Variable(nc, 'Data-Set-%d' % ndg_ref, hdftype, [dims[i].name for i in dimidx],
+                         dimsizes, sdref, attrs)
+            out.append((v, dimidx))
+    return dims, out
 
 
 def open_file(buf, src=None, path=None):
