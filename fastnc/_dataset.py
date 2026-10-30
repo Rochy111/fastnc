@@ -11,7 +11,7 @@ import os
 
 import numpy as np
 
-from . import _hdf5
+from . import _hdf5, _select
 
 
 def _open_bytes(path):
@@ -59,6 +59,38 @@ class Dimension:
         return "<class 'fastnc.Dimension'>: name = '%s', size = %d" % (self.name, self._size)
 
 
+class CompoundType:
+    """A netCDF compound type (netCDF4.CompoundType)."""
+
+    def __init__(self, name, dtype):
+        self.name, self.dtype = name, dtype
+        self.dtype_view = dtype
+
+    def __repr__(self):
+        return "<class 'fastnc.CompoundType'>: name = '%s', numpy dtype = %s" % (self.name, self.dtype)
+
+
+class EnumType:
+    """A netCDF enum type (netCDF4.EnumType)."""
+
+    def __init__(self, name, dtype, enum_dict):
+        self.name, self.dtype, self.enum_dict = name, dtype, enum_dict
+
+    def __repr__(self):
+        return "<class 'fastnc.EnumType'>: name = '%s', numpy dtype = %s, fields/values =%s" % (
+            self.name, self.dtype, self.enum_dict)
+
+
+class VLType:
+    """A netCDF variable-length type (netCDF4.VLType)."""
+
+    def __init__(self, name, dtype):
+        self.name, self.dtype = name, dtype
+
+    def __repr__(self):
+        return "<class 'fastnc.VLType'>: name = '%s', numpy dtype = %s" % (self.name, self.dtype)
+
+
 class Variable:
     """A netCDF variable (netCDF4.Variable), read-only. Indexing returns
     values with netCDF4-python's automatic masking and scaling unless
@@ -89,7 +121,11 @@ class Variable:
 
     @property
     def datatype(self):
-        return self._bv.dtype
+        """The dtype, or for user-defined types a CompoundType / EnumType /
+        VLType carrying its name (as netCDF4-python)."""
+        ut = getattr(self._bv, 'user_type', None)
+        t = ut() if ut is not None else None
+        return t if t is not None else self._bv.dtype
 
     @property
     def ndim(self):
@@ -141,7 +177,10 @@ class Variable:
 
     def chunking(self):
         c = self._bv.chunks
-        return 'contiguous' if c is None else list(c)
+        if c is None:
+            # netCDF-4 contiguous storage says so; netCDF-3 has no storage choice (None)
+            return 'contiguous' if self._group._dataset.disk_format == 'HDF5' else None
+        return list(c)
 
     def endian(self):
         return self._bv.endian
@@ -179,7 +218,16 @@ class Variable:
         if device == 'gpu':
             from . import _gpu
             return _gpu.read(self, key, threads=threads)
-        raw = self._bv.read(key if isinstance(key, tuple) else (key,), out=None, threads=threads)
+        k = key if isinstance(key, tuple) else (key,)
+        bv = self._bv
+        if hasattr(bv, '_reader'):                  # the HDF5 reader takes any index
+            raw = bv.read(k) if threads is None else bv.read(k, threads=threads)
+        else:
+            # other backends read boxes (contract section 2): reduce the index
+            # here, and apply the rest (dropped, reversed, picked) afterwards
+            box, post, drop = _select.normalize(k, bv.shape)
+            raw = bv.read(tuple(slice(s, e, st) for s, e, st in box))
+            raw = _select.finish(raw, post, drop)
         chars = self._chartostring and self._bv.dtype == np.dtype('S1') and '_Encoding' in self._bv.attrs
         if not (self._mask or self._scale or chars):
             return raw
@@ -352,21 +400,21 @@ class Dataset(Group):
         self._chartostring = True
         self._device = device
         self._filepath = os.fspath(filename)
-        self._fh, self._mm = _open_bytes(self._filepath)
-        head = bytes(self._mm[:4096]) if len(self._mm) else b''
+        self._fh = self._mm = None
+        with open(self._filepath, 'rb') as fh:
+            head = fh.read(4096)
         fmt = _format(head)
         if fmt is None:
-            self.close()
             raise OSError('[Errno -51] NetCDF: Unknown file format: %r' % self._filepath)
-        src = np.frombuffer(self._mm, np.uint8)
         if fmt == 'HDF5':
             from ._nc4 import NC4File
-            self._backend = NC4File(_hdf5.H5File(self._mm), src)
+            self._fh, self._mm = _open_bytes(self._filepath)
+            self._backend = NC4File(_hdf5.H5File(self._mm), np.frombuffer(self._mm, np.uint8))
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF5'
         else:
-            from ._nc3 import NC3File
-            self._backend = NC3File(self._mm, src)
+            from ._nc3 import NC3File                 # positional reads of its own
+            self._backend = NC3File(self._filepath)
             self.file_format = fmt
             self.disk_format = {'NETCDF3_CLASSIC': 'NETCDF3', 'NETCDF3_64BIT_OFFSET': 'NETCDF3',
                                 'NETCDF3_64BIT_DATA': 'CDF5'}[fmt]
@@ -379,7 +427,7 @@ class Dataset(Group):
 
     @property
     def isopen(self):
-        return self._mm is not None
+        return getattr(self, '_backend', None) is not None
 
     def close(self):
         b = getattr(self, '_backend', None)

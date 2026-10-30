@@ -96,6 +96,26 @@ class Variable:
             return nc_dtype(t)
         return _h5read.native(t.dtype)
 
+    def user_type(self):
+        """A CompoundType / EnumType / VLType for user-defined types (named by
+        the committed datatype, as netCDF-c), else None."""
+        from ._dataset import CompoundType, EnumType, VLType
+        t = self.ds.type
+        if t.cls not in (_hdf5.Datatype.COMPOUND, _hdf5.Datatype.ENUM, _hdf5.Datatype.VLEN):
+            return None
+        if t.cls == _hdf5.Datatype.VLEN and t.vlen_string:
+            return VLType(None, str)                # NC_STRING (netCDF4-python's VLType of str)
+        names = self.group.nc.type_names
+        name = names.get(t.committed) if t.committed is not None else None
+        if name is None:
+            m = self.ds.header.first(3)
+            name = names.get(bytes(self.ds.file.b[m[2]:m[2] + m[3]]))
+        if t.cls == _hdf5.Datatype.COMPOUND:
+            return CompoundType(name, nc_dtype(t))
+        if t.cls == _hdf5.Datatype.ENUM:
+            return EnumType(name, _h5read.native(t.base.dtype), dict(t.enum))
+        return VLType(name, _h5read.native(t.base.dtype) if t.base.dtype is not None else str)
+
     @property
     def attrs(self):
         if self._attrs is None:
@@ -149,6 +169,8 @@ class Variable:
             res = np.zeros(raw.shape, dt)
             for name in dt.names:
                 res[name] = raw[name]               # strings cut to their first byte, as netCDF-c
+            if res.ndim == 0:
+                res = res[()]
             if out is not None:
                 out[...] = res
                 return out
@@ -187,6 +209,7 @@ class NC4File:
         self.src = src
         self.next_dimid = 0
         self.by_scale = {}                          # dimension scale object address -> Dim
+        self.type_names = {}                        # committed datatype address -> name
         attrs = f.root.attributes()
         self.data_model = 'NETCDF4_CLASSIC' if '_nc3_strict' in attrs else 'NETCDF4'
         # as netCDF-c: read every group's scales and variables first, then
@@ -216,6 +239,9 @@ class NC4File:
             if h.first(8) is None:
                 if h.first(3) is not None:
                     g.types[lname] = f.message_datatype(h.first(3))
+                    self.type_names[target] = lname
+                    m = h.first(3)                    # and by encoding: datasets carry a copy
+                    self.type_names.setdefault(bytes(f.b[m[2]:m[2] + m[3]]), lname)
                 else:
                     children.append((lname, target, h))
                 continue

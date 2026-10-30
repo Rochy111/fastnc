@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastnc"
+dynamic = ["version"]             # fastnc/__init__.py's __version__
+description = "Fast netCDF / HDF5 reading on the CPU and GPU, values bit-identical to netCDF4-python and h5py"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+dependencies = ["numpy>=1.22", "numba>=0.57"]
+keywords = ["netcdf", "netcdf4", "hdf5", "h5py", "xarray", "weather", "climate", "gpu", "numba"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+]
+
+[project.urls]
+Homepage = "https://github.com/Rochy111/fastnc"
+Changelog = "https://github.com/Rochy111/fastnc/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Rochy111/fastnc/issues"
+
+[project.optional-dependencies]
+gpu = ["cupy-cuda12x"]
+xarray = ["xarray"]
+test = ["pytest"]
+# what tools/make_corpus.py and tools/make_references.py need (not the tests)
+references = ["h5py", "netCDF4", "hdf5plugin"]
+all = ["cupy-cuda12x", "xarray"]
+
+[project.entry-points."xarray.backends"]
+fastnc = "fastnc._xarray:FastncBackendEntrypoint"
+
+[tool.setuptools]
+packages = ["fastnc"]
+license-files = ["LICENSE"]
+
+[tool.setuptools.dynamic]
+version = {attr = "fastnc.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

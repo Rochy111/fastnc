@@ -41,7 +41,9 @@ class Reader:
             self._index = _chunks.ChunkIndex(ds.chunk_table(), ds.chunks, ds.shape)
         return self._index
 
-    def read(self, key=(), out=None, threads=None):
+    def read(self, key=(), out=None, threads=None, scalars=True):
+        """Raw values for key. scalars=False keeps a fully indexed result as
+        a 0-d array (for callers that convert types before unwrapping)."""
         ds = self.ds
         t = ds.type
         if ds.null:
@@ -51,7 +53,7 @@ class Reader:
         if t.dtype is None or t.cls in (_hdf5.Datatype.VLEN, _hdf5.Datatype.REFERENCE):
             raw = self._raw_box(box, shape, np.dtype('V%d' % t.size), threads)
             vals = self.f.decode_values(t, shape, raw.tobytes()) if t.cls == _hdf5.Datatype.VLEN else raw
-            return _select.finish(vals, post, drop)
+            return _select.finish(vals, post, drop, scalars)
         stored = t.dtype
         nat = native(stored)
         swap = _simple_swap(stored)
@@ -62,7 +64,7 @@ class Reader:
             self._read_into(box, res, swap, threads)
             if stored.byteorder == '>' and not swap:
                 res[...] = res.view(stored).astype(nat)     # compound / array types
-        res = _select.finish(res, post, drop)
+        res = _select.finish(res, post, drop, scalars)
         if out is not None and not direct_out:
             out[...] = res
             return out
