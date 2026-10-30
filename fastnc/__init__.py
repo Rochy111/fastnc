@@ -5,3 +5,4 @@ __version__ = '0.1.0.dev0'
 from ._dataset import Dataset, Dimension, Group, Variable  # noqa: E402,F401
 from ._h5py import File  # noqa: E402,F401
 from ._pool import set_threads, threads  # noqa: E402,F401
+from ._chunks import warm  # noqa: E402,F401
