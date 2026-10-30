@@ -115,8 +115,20 @@ class Reader:
     def index(self):
         if self._index is None:
             ds = self.ds
-            self._index = _chunks.ChunkIndex(ds.chunk_table(), ds.chunks, ds.shape)
+            if ds.layout.cls == 1:
+                self._index = _virtual_index(ds)
+            else:
+                self._index = _chunks.ChunkIndex(ds.chunk_table(), ds.chunks, ds.shape)
         return self._index
+
+    @property
+    def virtual(self):
+        """True for a big contiguous dataset read as virtual chunks through
+        the chunk engine (parallel, byte swap and selection fused)."""
+        ds = self.ds
+        return (ds.layout.cls == 1 and ds.layout.address != self.f.undef and len(ds.shape) >= 1
+                and ds.type.dtype is not None and not ds.null
+                and int(np.prod(ds.shape)) * ds.type.size >= VIRTUAL_MIN)
 
     def read(self, key=(), out=None, threads=None, scalars=True):
         """Raw values for key. scalars=False keeps a fully indexed result as
@@ -174,7 +186,7 @@ class Reader:
         lay = ds.layout
         f = self.f
         esize = ds.type.size
-        if lay.cls == 2:
+        if lay.cls == 2 or (lay.cls == 1 and self.virtual):
             _chunks.read(ds, self.index, self.src, box, res, swap=swap, threads=threads)
             return
         if lay.cls == 1:
@@ -197,6 +209,38 @@ class Reader:
             _swap(res)
 
 
+VIRTUAL_MIN = 256 << 10         # contiguous datasets this big go through the engine
+VIRTUAL_CHUNK = 1 << 20
+
+
+def _virtual_index(ds):
+    """A contiguous dataset as chunks of about a megabyte, each one run of
+    the file: whole trailing dimensions, and a count along the first
+    dimension whose trailing part fits (dimensions before it taken one at
+    a time). Their addresses follow from the shape."""
+    shape = tuple(ds.shape)
+    esize = ds.type.size
+    rank = len(shape)
+    k = 0
+    inner = esize * int(np.prod(shape[1:]))
+    while k < rank - 1 and inner > VIRTUAL_CHUNK:
+        k += 1
+        inner = esize * int(np.prod(shape[k + 1:]))
+    chunks = [1] * k + [max(1, VIRTUAL_CHUNK // max(inner, 1))] + list(shape[k + 1:])
+    chunks[k] = min(chunks[k], shape[k]) or 1
+    grid = [-(-s // c) for s, c in zip(shape, chunks)]
+    n = int(np.prod(grid))
+    idx = np.indices(grid).reshape(rank, n).T * np.array(chunks)       # chunk origins
+    strides = np.ones(rank, np.int64)
+    for d in range(rank - 2, -1, -1):
+        strides[d] = strides[d + 1] * shape[d + 1]
+    base = ds.file.addr(ds.layout.address)
+    addr = base + (idx * strides).sum(axis=1) * esize
+    csize = int(np.prod(chunks)) * esize
+    table = [(tuple(o), int(a), csize, 0) for o, a in zip(idx.tolist(), addr.tolist())]
+    return _chunks.ChunkIndex(table, tuple(chunks), shape)
+
+
 def _swap(res):
     b = res.reshape(-1).view(np.uint8).reshape(-1, res.dtype.itemsize)
     b[:] = b[:, ::-1]
@@ -212,7 +256,7 @@ def read_many(readers, threads=None):
     for i, r in enumerate(readers):
         ds = r.ds
         t = ds.type
-        if (ds.layout.cls != 2 or ds.null or t.dtype is None or not ds.shape
+        if ((ds.layout.cls != 2 and not r.virtual) or ds.null or t.dtype is None or not ds.shape
                 or t.cls in (_hdf5.Datatype.VLEN, _hdf5.Datatype.REFERENCE)
                 or (t.dtype.byteorder == '>' and not _simple_swap(t.dtype))):
             continue
