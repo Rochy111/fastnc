@@ -1,23 +1,33 @@
 """netCDF3, read from the file's bytes: classic (CDF-1), 64-bit offset
 (CDF-2) and 64-bit data (CDF-5), as the netCDF File Format Specification
-describes them. Metadata is parsed in pure Python from the header (one
-read, no numba), attribute values only when first asked for; values are
-read straight into the output array.
+describes them. The header is parsed in pure Python (one read, no numba:
+0.5 ms for wrfout d02's 140 variables), attribute values decoded only when
+first asked for; values go straight into the output array.
 
-Two ways to read values, chosen per request:
+Three ways to read values, chosen per request:
 
-- runs: when what is asked is long contiguous runs of the file (a whole
-  variable, whole levels, a record variable's records), positional reads
-  of 1 MiB pieces straight into the output, on the shared thread pool, each
-  piece byte-swapped in place right after it lands, while it is still in
-  the core's cache. Cached file data reaches the user buffer at 6 GB/s a
-  thread, and many threads overlap the page faults on the fresh output.
-- gather: short or strided runs (a column, every other point, many small
-  records) are copied out of a read-only mapping of the file by numpy's
-  strided copy, which swaps the bytes as it goes.
+- runs: long contiguous runs of the file (a whole variable, whole levels,
+  a record variable's records) are positional reads of 1 MiB pieces,
+  straight into the output, on the shared thread pool (`_pool.share`),
+  each piece byte-swapped in place by a numba kernel right after it lands,
+  while it is in the core's cache. Cached file data reaches a user buffer
+  at 6 GB/s a thread; many threads overlap that copy and the page faults on
+  the fresh output, which are what limits a whole read (~10 GB/s here).
+- gather: short or strided runs (a column, every other point, small
+  records) are copied out of a read-only mapping of the file, swapped on
+  the way: by numpy's strided copy, or, for big requests, by a numba kernel
+  on the pool taking 1 MiB blocks of rows off a counter.
+- small: anything up to 64 kB is copied out of the mapping by numpy.
 
-Bytes past the end of a truncated file read as zeros, as netCDF-C's
-posixio does (its short reads are zero-filled).
+numba is never imported here: the kernels are used once something else
+has loaded it (KERNELS = None), numpy does the swapping until then (~30%
+slower on whole reads, and no second's wait for numba on a first read).
+
+Positional reads are one overlapped handle shared by all threads on
+Windows (a handle opened the usual way serializes its readers), preadv(2)
+elsewhere. Bytes past the end of a truncated file read as zeros, as
+netCDF-C's posixio means to (its zero-fill stops at its buffer's page:
+beyond that, netCDF4-python returns whatever the buffer held before).
 """
 import os
 import struct
@@ -235,7 +245,7 @@ def _parse(b, size):
 
 def _read_header(fh, size):
     """The header's bytes and its parse, read in one go when it fits in the
-    first 64 KiB (else read again, twice as much each time)."""
+    first 64 KiB (else read again, four times as much each time)."""
     n = min(size, _HEAD)
     while True:
         fh.seek(0)
@@ -258,7 +268,7 @@ class NC3File:
         fh = open(self.path, 'rb', buffering=0)
         try:
             self._size = size = os.fstat(fh.fileno()).st_size
-            b, (ver, numrecs, dims, gfirst, gn, vars_, hend) = _read_header(fh, size)
+            b, (ver, numrecs, dims, gfirst, gn, vars_, _) = _read_header(fh, size)
         except BaseException:
             fh.close()
             raise

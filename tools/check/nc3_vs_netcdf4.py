@@ -95,8 +95,6 @@ def compare(path, nkeys, ref_path=None, stats=None):
                     errs.append('%s %s: %r != %r' % (name, what, a, b))
             if rv.chunking() is not None or v.chunks is not None:
                 errs.append('%s chunking %r / chunks %r' % (name, rv.chunking(), v.chunks))
-            if v.dimensions and rv.dimensions:
-                pass
             va = v.attrs
             rva = {k: rv.getncattr(k) for k in rv.ncattrs()}
             if list(va) != list(rva):
