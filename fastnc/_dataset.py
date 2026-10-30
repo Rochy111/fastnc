@@ -176,10 +176,10 @@ class Variable:
         """Values for key (any netCDF4-python index), masked and scaled as
         set. device 'gpu' returns a cupy array (identical values)."""
         device = device or self._device
-        raw = self._bv.read(key if isinstance(key, tuple) else (key,), out=None, threads=threads)
         if device == 'gpu':
             from . import _gpu
-            return _gpu.finish(self, raw)
+            return _gpu.read(self, key, threads=threads)
+        raw = self._bv.read(key if isinstance(key, tuple) else (key,), out=None, threads=threads)
         chars = self._chartostring and self._bv.dtype == np.dtype('S1') and '_Encoding' in self._bv.attrs
         if not (self._mask or self._scale or chars):
             return raw
