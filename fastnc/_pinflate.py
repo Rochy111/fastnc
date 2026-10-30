@@ -1,8 +1,9 @@
 """Inflate of one big zlib stream on several threads, byte-identical to zlib.
 
 Why: MODIS L1B keeps each band in a few chunks of up to 33 MB, each one
-deflate stream; one core inflates ~0.9-1.5 GB/s, so a read of such a band
-is as slow as its biggest chunk however many cores there are. Deflate
+deflate stream; one core inflates 0.45 GB/s of those (radiances barely
+compress: almost all literals), so a read of such a band is as slow as its
+biggest chunk however many cores there are. Deflate
 cannot be split where one likes -- blocks are not byte aligned and matches
 reach 32 kB back -- but it can be split speculatively, as pugz (Kerbiriou &
 Chikhi) and rapidgzip (Knespel & Brunst 2023) do:
@@ -26,18 +27,25 @@ Chikhi) and rapidgzip (Knespel & Brunst 2023) do:
   at exactly the sync point (kind and bit) where the verified decode before
   it stopped; its output then goes at its true offset, its markers resolved
   against the true 32 kB before it. A part that guessed wrong (a false
-  positive, a part with no sync point, one that ran out of buffer) is
+  positive, a part with no sync point, one that ran out of scratch) is
   redone serially from the verified point with the true window. Correctness
   never rests on the guesses: a speculative result is used only after it is
   proven to start where the true decode is.
 
+Speculative output goes to slabs of a shared scratch, taken as a part
+needs them (its later regions take runs of 2, 4, 8 ... slabs), so a part
+of a skewed stream -- a stretch of fill giving 50 times the average --
+never has to stop early; a region continuing another starts with a copy of
+its last 32 kB. Touched scratch is about the output plus its 16-bit share.
+
 Three steps on the shared pool (`_pool.share`): (A) the parts of every
-stream decode as tasks off one counter; the thread finishing a stream's last
-part walks its chain (B), writing each part's last 32 kB and any serial
-redo straight into place; (C) the bulk copies of the parts' bytes and the
-marker resolution of their first stretch, as tasks again. Partial reads
-(`ostop` before the end) cover only the compressed share expected to give
-that much output, plus a margin, and continue in further rounds if short.
+stream decode as tasks off one counter (then, if given, other work: the
+engine's smaller chunks); the thread finishing a stream's last part walks
+its chain (B), writing each part's last 32 kB and any serial redo straight
+into place; (C) the bulk copies of the parts' bytes and the marker
+resolution of their first stretch, as tasks again. A partial read (`ostop`
+under half the output) first covers the compressed share expected to give
+that much output plus a margin, then the rest if short.
 
 Same errors as `_inflate.zlib_inflate` (-1 bad data, -2 output would not
 fit, -3 input ends early); nothing is written outside dst[o0:oend] or the
@@ -55,7 +63,6 @@ from ._intrin import ld64, st64, take
 from ._jit import intrinsic, njit
 
 W = 32768                       # deflate window
-BIG = 1 << 62
 
 # how a decode ended (>= 0) -- errors are < 0
 END_BLOCK = 0                   # at a sync point at or after the target (res R_EK, R_ES)
@@ -1243,7 +1250,7 @@ def _arena(n):
         a = _ARENA[0]
         _ARENA[0] = None
     if a is None or a.size < n:
-        a = None
+        a = None                                    # (the old one freed first)
         a = np.empty((max(n, 8) + 7) // 8, np.uint64).view(np.uint8)
     return a
 
