@@ -14,7 +14,10 @@ the machine that wrote the file (little-endian), from cd[8] on.
 Decoding, element by element:
 
 - minbits equal to the type's bits: the elements stored as they are, in
-  little-endian order (HDF5 converts to its native order before encoding);
+  little-endian order (HDF5 converts to its native order before encoding).
+  HDF5 1.14 refuses to read such chunks (its check is `minbits >= bits`,
+  one off: h5py raises "filter returned failure"); HDF5 2.0 reads them, and
+  so does this;
 - minbits 0: every element's bits are 0 (all equal; no data follows);
 - integers: x + minval, in the type's width (wrapping); with a fill value
   defined the all-ones code (2^minbits - 1) is the fill value instead;

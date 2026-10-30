@@ -26,7 +26,13 @@ The CCSDS decoder is fastgrib's (fastgrib/_images.py, `_aec`, same author),
 taken from GRIB floats to raw samples: each block's coded values into a
 block-sized buffer, the inverse preprocessing in place while they are in
 L1, then a store loop for the sample width and byte order; a run of zero
-blocks is one value repeated.
+blocks is one value repeated. Here it also reads several second-extension
+codes from one load, and takes the inverse preprocessing as a select for
+noisy blocks. One thread: 1.2x libaec on 8-bit samples, 1.8-2.3x on 16-bit
+and on the bytes of 32-bit floats (tools/check/filters_hdf_bench.py).
+
+The bit-level helpers here (bswap64, clz64, be64, window, getbits, st16,
+st32, put_word) serve _scaleoffset, _nbit and _bzip2 too.
 """
 import numpy as np
 
