@@ -499,8 +499,8 @@ class H4File:
         return v
 
     def vdata_field(self, v, k=0, nrec=None):
-        """Field k of Vdata v: (type, order, raw bytes of nrec records, stored
-        order, field after field in record order)."""
+        """Field k of Vdata v: (number type, order, the field's stored bytes
+        in its first nrec records, one record after the other)."""
         name, t, isize, off, order = v.fields[k]
         nrec = v.nrec if nrec is None else min(nrec, v.nrec)
         if nrec <= 0 or isize == 0:
@@ -755,7 +755,8 @@ class Variable:
     @_guard
     def elem(self):
         if self._elem is None:
-            self._elem = self.nc.f.element(self.data_tag, self.data_ref) if self.data_ref else Elem('none', -1)
+            self._elem = (self.nc.f.element(self.data_tag, self.data_ref) if self.data_ref
+                          else Elem('none', -1))
         return self._elem
 
     @property
@@ -1188,7 +1189,7 @@ class HDF4File:
             if data_ref:
                 numrecs = 1
                 if is_rec:
-                    rec = int(np.prod([dims[di].size for di in dimidx[1:]])) * esize if len(dimidx) > 1 else esize
+                    rec = int(np.prod([dims[di].size for di in dimidx[1:]])) * esize
                     ln = f.length(T_SD, data_ref)
                     numrecs = ln // rec if ln > 0 and rec > 0 else 0
             if shape and shape[0] == 0:
@@ -1346,10 +1347,6 @@ def _read_ndgs(nc):
                          dimsizes, sdref, attrs)
             out.append((v, dimidx))
     return dims, out
-
-
-def open_file(buf, src=None, path=None):
-    return HDF4File(buf, src, path)
 
 
 def read_many(variables, threads=None):
