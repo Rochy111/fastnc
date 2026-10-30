@@ -64,7 +64,8 @@ _FILL = {3: b'\0', 4: b'\0', 20: b'\x81', 21: b'\x81', 22: b'\x80\x01', 23: b'\x
          5: struct.pack('>f', 9.9692099683868690e+36),
          6: struct.pack('>d', 9.9692099683868690e+36)}
 
-PSEUDO_CHUNK = 1 << 20          # contiguous data is read in pieces this big, on the pool
+PSEUDO_CHUNK = 1 << 17          # contiguous data is read in pieces this big, on the pool
+SMALL_READ = 1 << 16            # reads smaller than this skip the pool (numpy, or one thread)
 
 
 class FormatError(ValueError):
@@ -652,12 +653,17 @@ class _Type:
 
 
 class _DS:
-    """What `_chunks` needs of a dataset."""
-    __slots__ = ('name', 'shape', 'filters', 'fill', 'type')
+    """What `_chunks` needs of a dataset (the fill value asked of the layout
+    only when needed: it can mean reading the attributes)."""
+    __slots__ = ('name', 'shape', 'filters', 'lay', 'type')
 
-    def __init__(self, name, shape, filters, fill, esize):
-        self.name, self.shape, self.filters, self.fill = name, tuple(shape), filters, fill
+    def __init__(self, name, shape, filters, lay, esize):
+        self.name, self.shape, self.filters, self.lay = name, tuple(shape), filters, lay
         self.type = _Type(esize)
+
+    @property
+    def fill(self):
+        return self.lay.fill
 
 
 def _attr_value(f, vd, name):
@@ -713,11 +719,18 @@ class Variable:
         self.data_ref = data_ref
         self.data_tag = data_tag                    # (old SDG files: scales live in tag 703)
         self.data_offset = data_offset              # bytes into that element
-        self.attrs = attrs
+        self._attrs = attrs                         # dict, or the Vgroup to read them from
         self._elem = None
         self._layout = None
         self.filters = {'zlib': False, 'szip': False, 'zstd': False, 'bzip2': False,
                         'blosc': False, 'shuffle': False, 'complevel': 0, 'fletcher32': False}
+
+    @property
+    def attrs(self):
+        a = self._attrs
+        if not isinstance(a, dict):
+            a = self._attrs = _attrs(self.nc.f, a)
+        return a
 
     @property
     def endian(self):
@@ -786,16 +799,15 @@ class Variable:
 
     def _read_into(self, box, res, threads=None):
         lay = self.layout()
-        fill = lay.fill
         if lay.kind == 'fill':
-            _fill_with(res, fill)
+            _fill_with(res, lay.fill)
             return
         # the part of the box inside the stored extent along the first dimension
         avail = lay.ds.shape[0] if lay.ds.shape else 0
         s, e, k = box[0]
         m = 0 if e <= s or s >= avail else (min(e, avail) - s + k - 1) // k
         if m < res.shape[0]:
-            _fill_with(res[m:], fill)
+            _fill_with(res[m:], lay.fill)
         if m == 0:
             return
         sub = res[:m] if m < res.shape[0] else res
@@ -805,9 +817,9 @@ class Variable:
         else:
             src, index = lay.src, lay.index
         if src is None:
-            _fill_with(sub, fill)
+            _fill_with(sub, lay.fill)
             return
-        if lay.base is not None and not _chunks._READY.is_set():
+        if lay.base is not None and (not _chunks._READY.is_set() or sub.nbytes < SMALL_READ):
             # contiguous, kernels not loaded yet: numpy (and start loading them)
             if sub.nbytes > _chunks.WARM_AFTER:
                 _chunks._start_warm()
@@ -878,7 +890,13 @@ def _fill_with(a, fill):
 class Layout:
     """How to read a variable: kind 'fill' (no data), 'file' (the chunk
     engine over `src` with `index`) or 'decode' (chunks decoded first)."""
-    __slots__ = ('kind', 'ds', 'index', 'src', 'swap', 'fill', 'esize', 'elems', 'raw_fill', 'base')
+    __slots__ = ('kind', 'ds', 'index', 'src', 'swap', '_fill', 'var', 'esize', 'elems', 'raw_fill', 'base')
+
+    @property
+    def fill(self):
+        if self._fill is None:
+            self._fill = self.var.fill_bytes()
+        return self._fill
 
 
 def _layout(v):
@@ -887,7 +905,8 @@ def _layout(v):
     lay = Layout()
     lay.esize = esize = v.dtype.itemsize
     lay.swap = v.stored.byteorder == '>' and esize > 1
-    lay.fill = v.fill_bytes()
+    lay.var = v
+    lay._fill = None
     lay.src = f.src
     lay.elems = None
     lay.raw_fill = None
@@ -903,7 +922,7 @@ def _layout(v):
         c = e.chunked
         if len(c.chunks) != rank or c.nt_size != esize:
             raise FormatError('%s: chunk header does not match the variable' % v.name)
-        lay.fill = v._chunk_fill(c)
+        lay._fill = v._chunk_fill(c)
         lay.raw_fill = c.fill[:esize] if len(c.fill) >= esize else None
         cbytes = int(np.prod(c.chunks)) * esize
         grid = [-(-s // cl) for s, cl in zip(shape, c.chunks)]
@@ -945,7 +964,7 @@ def _layout(v):
             filters = []
             lay.kind = 'decode'
             lay.elems = elems
-        lay.ds = _DS(v.name, shape, filters, lay.fill, esize)
+        lay.ds = _DS(v.name, shape, filters, lay, esize)
         lay.index = _chunks.ChunkIndex(table, c.chunks, shape) if n else _empty_index(c.chunks, shape)
         if n == 0:
             lay.kind = 'fill'
@@ -963,12 +982,12 @@ def _layout(v):
         if e.coder == C_DEFLATE and dk.kind == 'plain' and dk.pieces:
             off, ln = dk.pieces[0]
             lay.kind = 'file'
-            lay.ds = _DS(v.name, cshape, [_Filter(_chunks.F_DEFLATE)], lay.fill, esize)
+            lay.ds = _DS(v.name, cshape, [_Filter(_chunks.F_DEFLATE)], lay, esize)
             lay.index = _chunks.ChunkIndex([((0,) * rank, off, ln, 0)], cshape, cshape)
             return lay
         lay.kind = 'decode'
         lay.elems = [e]
-        lay.ds = _DS(v.name, cshape, [], lay.fill, esize)
+        lay.ds = _DS(v.name, cshape, [], lay, esize)
         lay.index = _chunks.ChunkIndex([((0,) * rank, 0, 0, 0)], cshape, cshape)
         return lay
     # contiguous: plain (one piece), linked blocks or external
@@ -993,7 +1012,7 @@ def _layout(v):
     lay.kind = 'file'
     lay.src = src
     lay.base = base
-    lay.ds = _DS(v.name, cshape, [], lay.fill, esize)
+    lay.ds = _DS(v.name, cshape, [], lay, esize)
     lay.index = _chunks.ChunkIndex(table, (k,) + tuple(shape[1:]), cshape)
     return lay
 
@@ -1069,6 +1088,7 @@ class HDF4File:
         """hdf_read_dims: the file's SD dimensions (size 0: unlimited)."""
         f = self.f
         dims = []
+        have = set()
         for t, r in zip(cdf.tags, cdf.refs):
             if t != T_VG:
                 continue
@@ -1087,8 +1107,9 @@ class HDF4File:
                     size = vd.nrec
                 if vd.cls == 'DimVal0.1' or unlim:
                     size = 0 if unlim else self._first_int(vd)
-                if any(d.name == vg.name and d.size == size for d in dims):
+                if (vg.name, size) in have:
                     continue
+                have.add((vg.name, size))
                 dims.append(Dim(vg.name, size))
         return dims
 
@@ -1155,8 +1176,7 @@ class HDF4File:
                     numrecs = ln // rec if ln > 0 and rec > 0 else 0
             if shape and shape[0] == 0:
                 shape[0] = numrecs
-            attrs = _attrs(f, vg)
-            v = Variable(self, vg.name, hdftype, [dims[di].name for di in dimidx], shape, data_ref, attrs)
+            v = Variable(self, vg.name, hdftype, [dims[di].name for di in dimidx], shape, data_ref, vg)
             out.append((v, dimidx))
         return out
 
@@ -1313,3 +1333,39 @@ def _read_ndgs(nc):
 
 def open_file(buf, src=None, path=None):
     return HDF4File(buf, src, path)
+
+
+def read_many(variables, threads=None):
+    """Every variable of `variables` (backend Variables of one file) whole,
+    raw: those the chunk engine reads straight from the file decoded
+    together in one pass of the pool (one shared buffer, biggest chunks
+    first), so that files of many deflated arrays -- one stream each, which
+    no reader can split -- inflate on every core at once."""
+    out = [None] * len(variables)
+    if variables and _chunks._READY.is_set():
+        batch = []
+        total = 0
+        for i, v in enumerate(variables):
+            lay = v.layout()
+            if lay.kind != 'file' or lay.src is not v.nc.f.src or tuple(lay.ds.shape) != tuple(v.shape) \
+                    or not v.shape:
+                continue
+            n = int(np.prod(v.shape)) * v.dtype.itemsize
+            if n < SMALL_READ:
+                continue                            # (quicker on its own than planned in a batch)
+            batch.append((i, v, total, n))
+            total += (n + 63) // 64 * 64
+        if len(batch) > 1:
+            buf = np.empty(total, np.uint8)
+            items = []
+            for i, v, base, n in batch:
+                lay = v.layout()
+                a = buf[base:base + n].view(v.dtype).reshape(v.shape)
+                out[i] = a
+                items.append(_chunks.Item(lay.ds, lay.index, [(0, s, 1) for s in v.shape], a,
+                                          lay.swap, base))
+            _chunks.read_batch(items, variables[0].nc.f.src, buf, threads)
+    for i, v in enumerate(variables):
+        if out[i] is None:
+            out[i] = v.read((), threads=threads)
+    return out
