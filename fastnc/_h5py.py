@@ -36,34 +36,63 @@ def h5py_dtype(t):
         return np.dtype('O', metadata={'ref': Reference})
     if t.cls == _hdf5.Datatype.ENUM and t.h5py_dtype.kind != 'b':
         return np.dtype(t.base.dtype, metadata={'enum': dict(t.enum)})
+    if t.cls == _hdf5.Datatype.STRING:
+        return np.dtype(t.dtype.str, metadata={'h5py_encoding': 'utf-8' if t.charset == 1 else 'ascii'})
     return t.h5py_dtype
 
 
-def _to_h5py(values, t, strings=bytes):
-    """Values decoded by the parser in h5py's form (variable-length strings
-    as bytes, as h5py reads datasets; attributes give str)."""
-    if t.cls == _hdf5.Datatype.VLEN and t.vlen_string and strings is str:
-        return values
+def _objects(shape, dt, items):
+    out = np.empty(shape, dt)
+    flat = out.reshape(-1)
+    for i, x in enumerate(items):
+        flat[i] = x
+    return out
+
+
+def _to_h5py(values, t, strings=bytes, top=True):
+    """Values decoded by the parser in h5py's form: variable-length strings
+    as bytes from datasets and str from attributes, object arrays carrying
+    h5py's dtype metadata (vlen, h5py_encoding), references as Reference
+    objects (also inside compounds), bool and complex as h5py maps them."""
+    arr = isinstance(values, np.ndarray)
     if t.cls == _hdf5.Datatype.VLEN and t.vlen_string:
-        if isinstance(values, np.ndarray):
-            out = np.empty(values.shape, object)
-            flat = out.reshape(-1)
-            for i, x in enumerate(values.reshape(-1)):
-                flat[i] = x.encode('utf-8') if isinstance(x, str) else x
-            return out
-        return values.encode('utf-8') if isinstance(values, str) else values
-    if t.cls == _hdf5.Datatype.REFERENCE and t.ref_kind == 0 and isinstance(values, np.ndarray):
-        out = np.empty(values.shape, object)
-        flat = out.reshape(-1)
-        for i, x in enumerate(values.reshape(-1)):
-            flat[i] = Reference(int.from_bytes(bytes(x)[:8], 'little'))
+        conv = (lambda x: x) if strings is str else             (lambda x: x.encode('utf-8') if isinstance(x, str) else x)
+        if not arr:
+            return conv(values)
+        return _objects(values.shape, np.dtype('O', metadata={'vlen': str}),
+                        (conv(x) for x in values.reshape(-1)))
+    if t.cls == _hdf5.Datatype.VLEN:
+        if not arr:
+            return values
+        inner = (_to_h5py(x, t.base, strings, False) for x in values.reshape(-1))
+        return _objects(values.shape, h5py_dtype(t) if top else np.dtype('O'), inner)
+    if t.cls == _hdf5.Datatype.REFERENCE and t.ref_kind == 0:
+        if not arr:
+            return values
+        refs = (Reference(int.from_bytes(bytes(x)[:8], 'little')) for x in values.reshape(-1))
+        return _objects(values.shape, h5py_dtype(t) if top else np.dtype('O'), refs)
+    if t.cls == _hdf5.Datatype.COMPOUND and arr and any(
+            m[2].cls in (_hdf5.Datatype.REFERENCE, _hdf5.Datatype.VLEN) for m in t.members):
+        names = [m[0] for m in t.members]
+        fields = [_to_h5py(values[name], mt, strings, False) for name, off, mt in t.members]
+        dt = np.dtype({'names': names,
+                       'formats': [f.dtype if f.dtype.kind != 'O' else np.dtype('O') for f in fields],
+                       'offsets': [m[1] for m in t.members], 'itemsize': max(16, t.size)})
+        out = np.zeros(values.shape, dt)
+        for n, f in zip(names, fields):
+            out[n] = f
         return out
+    if t.cls == _hdf5.Datatype.ENUM and arr and top and t.h5py_dtype.kind != 'b':
+        return values.view(h5py_dtype(t))
+    if t.cls == _hdf5.Datatype.STRING and arr and top:
+        enc = 'utf-8' if t.charset == 1 else 'ascii'
+        return values.view(np.dtype(values.dtype.str, metadata={'h5py_encoding': enc}))
     hd = t.h5py_dtype
     if hd is not None and hd.subdtype is not None:
         return values
-    if isinstance(values, np.ndarray) and hd is not None and hd != values.dtype and values.dtype.fields is None:
+    if arr and hd is not None and hd != values.dtype and values.dtype.fields is None:
         return values.view(_h5read.native(hd))
-    if isinstance(values, np.ndarray) and hd is not None and hd.kind == 'c':
+    if arr and hd is not None and hd.kind == 'c':
         return values.view(_h5read.native(hd))
     return values
 
@@ -395,10 +424,13 @@ class Dataset(HLObject):
             rest = tuple(k for k in (key if isinstance(key, tuple) else (key,)) if not isinstance(k, str))
             v = self[rest if rest else ()]
             return v[names[0]] if len(names) == 1 else v[names]
-        v = self._reader.read(key if isinstance(key, tuple) else (key,))
+        k = key if isinstance(key, tuple) else (key,)
+        v = self._reader.read(k, scalars=False)
         v = _to_h5py(v, self._ds.type)
-        if isinstance(v, np.ndarray) and v.shape == () and not self._ds.shape and key in ((), Ellipsis):
-            return v[()] if key == () else v
+        if isinstance(v, np.ndarray) and v.ndim == 0:
+            if not self._ds.shape and key is Ellipsis:
+                return v                            # dset[...] of a scalar dataset: 0-d array
+            return v[()]
         return v
 
     def read_direct(self, dest, source_sel=None, dest_sel=None):

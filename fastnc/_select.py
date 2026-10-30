@@ -92,7 +92,7 @@ def box_shape(box):
     return tuple(0 if e <= s else (e - s + k - 1) // k for s, e, k in box)
 
 
-def finish(values, post, drop):
+def finish(values, post, drop, scalars=True):
     """The box's values after the post-indexing and integer dimensions dropped."""
     if post is not None:
         arrays = [p for p in post if isinstance(p, np.ndarray)]
@@ -107,4 +107,6 @@ def finish(values, post, drop):
                     values = values[tuple(idx)]
     if drop:
         values = values.reshape([n for d, n in enumerate(values.shape) if d not in drop])
+        if values.ndim == 0 and scalars:
+            return values[()]                       # every dimension indexed: a numpy scalar
     return values

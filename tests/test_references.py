@@ -113,7 +113,8 @@ def test_corpus_references_cover_tests_data():
     refs = references('corpus')
     assert refs, 'tests/data/references_corpus.json.gz is missing: run tools/make_references.py --set corpus'
     files = sorted(f for f in os.listdir(helpers.DATA)
-                   if not f.startswith('references_') and os.path.isfile(os.path.join(helpers.DATA, f)))
+                   if not f.startswith('references_') and f.endswith(('.nc', '.h5'))
+                   and os.path.isfile(os.path.join(helpers.DATA, f)))
     assert sorted(refs['files']) == files
     for f in files:
         assert os.path.getsize(os.path.join(helpers.DATA, f)) == refs['files'][f]['size'], f
