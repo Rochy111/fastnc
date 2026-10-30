@@ -243,8 +243,95 @@ def test_gpu_equals_cpu(case):
         m, s, am = flags
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            cpu = M.apply(x, attrs, x.dtype, mask=bool(m), scale=bool(s), always_mask=bool(am))
-            gpu = M.apply(cupy.asarray(x), attrs, x.dtype, mask=bool(m), scale=bool(s),
-                          always_mask=bool(am), xp=cupy)
-        back = gpu.get() if hasattr(gpu, 'get') else gpu
-        assert codec.diff(codec.result_enc(back), codec.result_enc(cpu)) == '', flags
+            cpu = codec.outcome(lambda: M.apply(x, attrs, x.dtype, mask=bool(m), scale=bool(s),
+                                                always_mask=bool(am)))
+
+            def gpu():
+                r = M.apply(cupy.asarray(x), attrs, x.dtype, mask=bool(m), scale=bool(s),
+                            always_mask=bool(am), xp=cupy)
+                return r.get() if hasattr(r, 'get') else r
+            back = codec.outcome(gpu)
+        assert codec.diff(back, cpu) == '', flags
+
+
+def _nan_cases():
+    """float data with NaN payloads (quiet, signalling, negative),
+    subnormals, infinities; attributes that make NaNs (inf * 0, inf - inf)
+    or round into the subnormal range."""
+    rng = numpy.random.default_rng(7)
+    f4 = numpy.concatenate([
+        (rng.integers(0x7f800001, 0x7fffffff, 3000, dtype='u4')
+         | (rng.integers(0, 2, 3000, dtype='u4') << numpy.uint32(31))).view('f4'),
+        (rng.integers(1, 0x007fffff, 3000, dtype='u4')
+         | (rng.integers(0, 2, 3000, dtype='u4') << numpy.uint32(31))).view('f4'),
+        numpy.array([numpy.inf, -numpy.inf, 0.0, -0.0, 1e-38, 3e38], 'f4'),
+        (rng.standard_normal(30000) * 1e-36).astype('f4')])
+    f8 = numpy.concatenate([
+        (rng.integers(0x7ff0000000000001, 0x7fffffffffffffff, 3000, dtype='u8')
+         | (rng.integers(0, 2, 3000, dtype='u8') << numpy.uint64(63))).view('f8'),
+        f4.astype('f8'), rng.standard_normal(3000) * 1e-40])
+    attrs = [{'scale_factor': numpy.float32(0.5)}, {'scale_factor': numpy.float32(0)},
+             {'add_offset': numpy.float32(-numpy.inf)},
+             {'scale_factor': numpy.float32(3e-5), 'add_offset': numpy.float32(1e-39)},
+             {'scale_factor': numpy.float64(0.1), 'add_offset': numpy.float32(2)},
+             {'scale_factor': numpy.float32(1), 'add_offset': numpy.float32(0)},
+             {'scale_factor': numpy.float32(numpy.nan)},
+             {'_FillValue': numpy.float32(numpy.nan), 'scale_factor': numpy.float32(2)},
+             {'missing_value': numpy.float32(1e-40), 'scale_factor': numpy.float64(2)}]
+    return [(x, a) for x in (f4, f8) for a in attrs]
+
+
+NAN_CASES = _nan_cases()
+
+
+@pytest.mark.parametrize('case', range(len(NAN_CASES)))
+def test_nan_payloads_subnormals(case):
+    """CPU kernel == numpy (the reference path), and GPU == numpy, on NaN
+    payloads, subnormals and invalid operations."""
+    x, attrs = NAN_CASES[case]
+    cupy = _cupy()
+    for flags in [(1, 1, 1), (0, 1, 1)]:
+        m, s, am = flags
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            ref = codec.outcome(lambda: M._reference(x.copy(), attrs, x.dtype, 'primitive', bool(m),
+                                                     bool(s), bool(am), True, False, None, None,
+                                                     None))
+            plan = M.make_plan(x.dtype, attrs, x.dtype, 'primitive', bool(m), bool(s), False)
+            assert plan is not None
+            got = codec.outcome(lambda: M.run_plan(plan, x, bool(am), threads=4))
+            assert codec.diff(got, ref) == '', ('cpu', flags, codec.diff(got, ref))
+            if cupy is not None:
+                def gpu():
+                    r = M.apply(cupy.asarray(x), attrs, x.dtype, mask=bool(m), scale=bool(s),
+                                always_mask=bool(am), xp=cupy)
+                    return r.get() if hasattr(r, 'get') else r
+                back = codec.outcome(gpu)
+                assert codec.diff(back, ref) == '', ('gpu', flags, codec.diff(back, ref))
+
+
+@pytest.mark.skipif(_cupy() is None, reason='no cupy / GPU')
+def test_gpu_matches_netcdf4():
+    """Every recorded numeric case through the GPU path (the kernel, or the
+    CPU where the kernel does not go)."""
+    cupy = _cupy()
+    bad = []
+    for i, flags, j in EXPECTED['results']:
+        rec = INPUTS[i]
+        raw, attrs, dtype, key = _decode(rec)
+        if raw.dtype.kind not in 'iuf' or raw.ndim == 0:
+            continue
+        m, s, am, c = flags
+
+        def gpu():
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                r = M.apply(cupy.asarray(raw), attrs, dtype, mask=bool(m), scale=bool(s),
+                            always_mask=bool(am), chartostring=bool(c), var_dtype=rec['kind'],
+                            no_fill=rec['no_fill'], var_shape=tuple(rec['shape']), key=key,
+                            xp=cupy)
+            return r.get() if hasattr(r, 'get') else r
+        d = codec.diff(codec.outcome(gpu), EXPECTED['table'][j])
+        if d:
+            bad.append('%s %s key=%s flags=%s: %s' % (rec['file'], rec['var'], rec['key'], flags, d))
+    assert not bad, '%d mismatches, e.g.\n%s' % (len(bad), '\n'.join(bad[:10]))
