@@ -17,18 +17,21 @@ compounds, vlens, scalars, odd attributes.
 
 The fast path covers the common case -- a numeric array, primitive or
 enum, with float scaling or none -- in one pass over memory: a numba
-kernel run on fastnc's threads reads each raw value once, tests it
-against missing values, fill value and valid range, and writes the
-scaled value and (only where something is masked) the mask. What the
-kernel cannot know cheaply -- the result dtype, the fill value the masked
-array ends up with, the masked array's bookkeeping -- comes from running
-the reference path on a one-element stand-in with the same attributes, so
-numpy decides those exactly as it would for the whole array. The values
-are numpy's to the bit: each float operation is done in float64 and
-rounded to float32 where numpy works in float32, which for one multiply
-or one add gives the float32 result exactly (53 >= 2 * 24 + 2 bits, so
-double rounding is innocuous), and integers go to float32 by one direct
-conversion.
+kernel run on fastnc's threads takes 64k values at a time and, while
+they are in cache, writes the scaled values, flags the masked ones
+(missing values, fill value, default fill, valid range, NaN) and, only
+in blocks where something is masked, writes the mask and puts the
+unscaled value back under it as numpy's masked arithmetic does. A mask
+nothing is in is never paged in. What the kernel cannot know cheaply --
+the result dtype, the fill value the masked array ends up with, the
+masked array's bookkeeping -- comes from running the reference path on a
+one-element stand-in with the same attributes, so numpy decides those
+exactly as it would for the whole array. The values are numpy's to the
+bit: each operation is done in the float type numpy does it in (the
+result type of `data * scale_factor`, then that of adding
+`add_offset`), with the constants cast to it as numpy casts them, as two
+roundings (no fastmath, so no fused multiply-add), and integers go to
+float by one direct conversion.
 """
 import warnings
 
@@ -56,7 +59,7 @@ DEFAULT_FILLVALS = {
     'c16': 9.969209968386869e+36,
 }
 
-FAST_MIN_SIZE = 1 << 14         # below this the reference path costs no more
+FAST_MIN_SIZE = 1 << 15         # below this the reference path is faster (the fast one: ~70 us fixed)
 BLOCK = 1 << 16                 # elements a thread takes at a time
 
 
@@ -83,8 +86,11 @@ def apply(raw, attrs, dtype, mask=True, scale=True, always_mask=True,
     masked at the default fill value (it is when filling is on).
     `var_shape`, `key`: the variable's shape and the normalised key read
     (one int or slice per dimension); they decide only whether a char
-    variable's last dimension was read whole, as chartostring requires.
-    Missing, they mean the whole variable was read.
+    variable's last dimension was read whole, as chartostring requires;
+    and a 0-d raw of an array variable (every index an int) becomes
+    numpy's scalar first, as netCDF4-python's indexing makes it. Missing,
+    they mean the whole variable was read.
+    `threads`: at most this many threads (default: fastnc's pool).
     `xp=cupy`: raw is a cupy array; see _maskscale_gpu.apply.
     """
     if xp is not numpy:

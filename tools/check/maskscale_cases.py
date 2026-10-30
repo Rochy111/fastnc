@@ -26,7 +26,6 @@ scalar variables, char (with and without _Encoding), strings, enums,
 compounds and vlens.
 """
 import gzip
-import itertools
 import json
 import os
 import sys
