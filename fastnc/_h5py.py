@@ -11,7 +11,28 @@ import posixpath
 
 import numpy as np
 
-from . import _h5read, _hdf5, _remote, _select
+from . import _h5read, _hdf5, _select
+
+
+class _LazyRemote:
+    """fastnc._remote, imported when a URL or file object is opened: its
+    HTTP machinery (http.client, ssl, urllib) costs ~40 ms to import, a
+    fifth of a fresh process's first local read."""
+
+    def __getattr__(self, name):
+        from . import _remote
+        return getattr(_remote, name)
+
+    @staticmethod
+    def open_source(name, storage_options=None):
+        import os
+        if isinstance(name, os.PathLike) or (isinstance(name, str) and '://' not in name):
+            return None
+        from . import _remote
+        return _remote.open_source(name, storage_options)
+
+
+_remote = _LazyRemote()
 
 
 class Reference:
@@ -469,6 +490,8 @@ class File(Group):
             self.filename, self._fh, self._mm = self._source.name, None, _remote.readonly(self._source)
         self._src = np.frombuffer(self._mm, np.uint8)
         self._f = _hdf5.H5File(self._mm, source=self._source)
+        if self._source is None:
+            self._f.path = self.filename                # positional reads for big batches
         self._objects = {}
         self.mode = 'r'
         Group.__init__(self, self, self._f.root_address, '/')
@@ -504,6 +527,8 @@ class File(Group):
         return ('earliest', 'latest') if self._f.sb_version < 2 else ('v108', 'latest')
 
     def close(self):
+        if getattr(self, '_f', None) is not None:
+            self._f.close()
         self._objects = {}
         self._src = None
         mm, self._mm = self._mm, None

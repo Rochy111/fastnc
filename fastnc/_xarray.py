@@ -57,11 +57,100 @@ class FastncArray(BackendArray):
                              '.load().') from err
 
 
+class DecodedArray(BackendArray):
+    """A variable's values with xarray's own mask and scale functions
+    applied block by block on fastnc's threads (each block a few hundred
+    kB, in cache): xarray applies them to the whole array on one thread,
+    in several passes -- 2.5 s of a GOES-19 full-disk band's 2.7 s load.
+    The functions are the very ones xarray's coders make (taken from
+    decoding a one-element stand-in with the same attributes), and they
+    are elementwise, so the values are xarray's by construction."""
+
+    BLOCK = 1 << 18
+
+    def __init__(self, raw, funcs, dtype):
+        self.raw, self.funcs = raw, funcs
+        self.shape = raw.shape
+        self.dtype = np.dtype(dtype)
+
+    def __getitem__(self, key):
+        return indexing.explicit_indexing_adapter(key, self.shape, indexing.IndexingSupport.OUTER,
+                                                  self._getitem)
+
+    def _getitem(self, key):
+        raw = np.asarray(self.raw._getitem(key))   # (ascontiguousarray makes 0-d 1-d)
+        if not raw.flags.c_contiguous:
+            raw = raw.copy()
+        funcs = self.funcs
+        if raw.size <= self.BLOCK:
+            x = raw
+            for f in funcs:
+                x = f(x)
+            return np.asarray(x, self.dtype)
+        from . import _arena, _pool
+        out = _arena.empty(raw.shape, self.dtype)
+        src, dst = raw.reshape(-1), out.reshape(-1)
+        n = src.size
+        blk = self.BLOCK
+
+        def one(i):
+            x = src[i * blk:(i + 1) * blk]
+            for f in funcs:
+                x = f(x)
+            dst[i * blk:(i + 1) * blk] = x
+        _pool.map_items(one, range(-(-n // blk)))
+        return out
+
+
+_MASK_SCALE = ('_FillValue', 'missing_value', 'scale_factor', 'add_offset', '_Unsigned')
+
+
+def _decoded(name, dims, data, attrs, encoding):
+    """The variable with xarray's mask / scale decoding applied by fastnc
+    (DecodedArray), attributes and encoding as xarray's coders leave them;
+    None to leave it to xarray (non-numeric, time-like, or anything the
+    stand-in decoding does not explain)."""
+    dt = data.dtype
+    if dt.kind not in 'iuf' or not any(k in attrs for k in _MASK_SCALE):
+        return None
+    units = attrs.get('units')
+    if isinstance(units, str) and ' since ' in units:
+        return None                                 # time-like: xarray's time coders handle it
+    try:
+        from xarray.coding import common as xcommon
+        from xarray.coding import variables as xvars
+        probe = Variable(dims, np.zeros((1,) * len(dims), dt), dict(attrs), dict(encoding))
+        dec = probe
+        for coder in (xvars.CFMaskCoder(decode_times=False, decode_timedelta=False),
+                      xvars.CFScaleOffsetCoder(decode_times=False, decode_timedelta=False)):
+            dec = coder.decode(dec, name=name)
+        funcs = []
+        a = dec._data
+        while isinstance(a, indexing.LazilyIndexedArray):
+            a = a.array
+        while isinstance(a, xcommon._ElementwiseFunctionArray):
+            funcs.append(a.func)
+            a = a.array
+            while isinstance(a, indexing.LazilyIndexedArray):
+                a = a.array
+        if not isinstance(a, (np.ndarray, indexing.NumpyIndexingAdapter)):
+            return None
+        funcs.reverse()
+    except Exception:
+        return None
+    if not funcs:
+        return None
+    raw = data.array if isinstance(data, indexing.LazilyIndexedArray) else data
+    return Variable(dims, indexing.LazilyIndexedArray(DecodedArray(raw, funcs, dec.dtype)),
+                    dec.attrs, dec.encoding)
+
+
 class FastncDataStore(AbstractDataStore):
     """An open fastnc.Dataset (or one of its groups) as an xarray data store."""
 
-    def __init__(self, ds, group=None, preload=False):
+    def __init__(self, ds, group=None, preload=False, decode_mask_scale=False):
         self.ds = ds
+        self.decode_mask_scale = decode_mask_scale
         g = ds
         if group not in (None, '', '/'):
             g = ds[group]
@@ -71,9 +160,10 @@ class FastncDataStore(AbstractDataStore):
         self._preloaded = _preload(g) if preload else {}
 
     @classmethod
-    def open(cls, filename, group=None, preload=False, storage_options=None):
+    def open(cls, filename, group=None, preload=False, storage_options=None,
+             decode_mask_scale=False):
         return cls(_dataset.Dataset(filename, storage_options=storage_options), group=group,
-                   preload=preload)
+                   preload=preload, decode_mask_scale=decode_mask_scale)
 
     def get_variables(self):
         return FrozenDict((k, self.open_store_variable(k, v)) for k, v in self.group.variables.items())
@@ -111,6 +201,10 @@ class FastncDataStore(AbstractDataStore):
             encoding['least_significant_digit'] = attributes.pop('least_significant_digit')
         encoding['source'] = self.ds.filepath()
         encoding['original_shape'] = data.shape
+        if self.decode_mask_scale:
+            v = _decoded(name, var.dimensions, data, attributes, encoding)
+            if v is not None:
+                return v
         return Variable(var.dimensions, data, attributes, encoding)
 
     def close(self, **kwargs):
@@ -158,7 +252,8 @@ class FastncBackendEntrypoint(BackendEntrypoint):
                      use_cftime=None, decode_timedelta=None, group=None, preload=False,
                      storage_options=None, **kwargs):
         store = FastncDataStore.open(_name(filename_or_obj), group=group, preload=preload,
-                                     storage_options=storage_options)
+                                     storage_options=storage_options,
+                                     decode_mask_scale=bool(mask_and_scale))
         store_entrypoint = StoreBackendEntrypoint()
         with _close_on_error(store):
             return store_entrypoint.open_dataset(

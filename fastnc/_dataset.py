@@ -11,7 +11,28 @@ import os
 
 import numpy as np
 
-from . import _hdf5, _remote, _select
+from . import _hdf5, _select
+
+
+class _LazyRemote:
+    """fastnc._remote, imported when a URL or file object is opened: its
+    HTTP machinery (http.client, ssl, urllib) costs ~40 ms to import, a
+    fifth of a fresh process's first local read."""
+
+    def __getattr__(self, name):
+        from . import _remote
+        return getattr(_remote, name)
+
+    @staticmethod
+    def open_source(name, storage_options=None):
+        import os
+        if isinstance(name, os.PathLike) or (isinstance(name, str) and '://' not in name):
+            return None
+        from . import _remote
+        return _remote.open_source(name, storage_options)
+
+
+_remote = _LazyRemote()
 
 
 def _open_bytes(path):
@@ -340,11 +361,24 @@ class Group:
                 if a is not None:
                     raws[k] = a
         out = {}
+        rest = [(k, v) for k, v in vs if k not in raws]
+        if len(rest) > 1:
+            # the others (netCDF-3, special types) read concurrently on the pool:
+            # each read stays parallel inside, and many small variables no
+            # longer go one after another
+            from . import _pool
+            got = {}
+
+            def one(kv):
+                got[kv[0]] = kv[1].read(Ellipsis, threads=threads)
+            _pool.map_items(one, rest)
+        else:
+            got = {k: v.read(Ellipsis, threads=threads) for k, v in rest}
         for k, v in vs:
-            if k not in raws:
-                out[k] = v.read(Ellipsis, threads=threads)
-                continue
-            out[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads)
+            if k in got:
+                out[k] = got[k]
+            else:
+                out[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads)
         return out
 
     def set_auto_maskandscale(self, flag):
@@ -431,7 +465,10 @@ class Dataset(Group):
         if fmt == 'HDF5':
             from ._nc4 import NC4File
             self._fh, self._mm = _open_bytes(self._filepath) if src is None else (None, _remote.readonly(src))
-            self._backend = NC4File(_hdf5.H5File(self._mm, source=src), np.frombuffer(self._mm, np.uint8))
+            h5 = _hdf5.H5File(self._mm, source=src)
+            if src is None:
+                h5.path = self._filepath                # positional reads for big batches
+            self._backend = NC4File(h5, np.frombuffer(self._mm, np.uint8))
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF5'
         elif fmt == 'HDF4':

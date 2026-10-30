@@ -86,7 +86,8 @@ def file_sets(data_dir=None):
     real = sorted(p for p in glob.glob(os.path.join(REAL_DIR, '*.nc')) if '(1)' not in p)
     real += sorted(glob.glob(os.path.join(REAL_DIR, 'wrfout_d02_2024-11-06_01_30_00')))
     corpus = sorted(p for p in glob.glob(os.path.join(data_dir or helpers.DATA, '*'))
-                    if not os.path.basename(p).startswith('references_') and os.path.isfile(p))
+                    if not os.path.basename(p).startswith('references_') and os.path.isfile(p)
+                    and p.endswith(('.nc', '.h5')))      # (other parts keep .npz / .json here)
     synth = sorted(glob.glob(os.path.join(REAL_DIR, 'corpus', 'synthetic', '*')))
     return {'corpus': corpus, 'synthetic': synth, 'real': real}
 
@@ -383,6 +384,47 @@ def run_worker(alt_python, mode, path):
     return got
 
 
+def _alt_errors(main, alt):
+    """Variables whose reads the numpy 1 env's netCDF4-python failed on
+    while this env's did not (a filter plugin it lacks)."""
+    out = []
+    for vp, v in main.get('variables', {}).items():
+        a = alt.get('variables', {}).get(vp)
+        if a is None:
+            continue
+        if any('error' in a[m] and 'error' not in v[m] for m in ('raw', 'masked')):
+            out.append(vp)
+    return out
+
+
+def plain_twin(path):
+    """The file rewritten by h5py without filters (same paths, dtypes,
+    shapes, values, attributes): what netCDF4-python makes of a variable's
+    values does not depend on how they were compressed, so the numpy 1
+    env, which lacks some filter plugins, can read the twin instead."""
+    import tempfile
+    import h5py
+    import hdf5plugin  # noqa: F401  (registers the filters for reading)
+    fd, twin = tempfile.mkstemp(suffix='.h5')
+    os.close(fd)
+    with h5py.File(path, 'r') as src, h5py.File(twin, 'w') as dst:
+        def copy(name, obj):
+            if isinstance(obj, h5py.Group):
+                g = dst.require_group(name)
+            elif isinstance(obj, h5py.Dataset):
+                try:
+                    values = obj[()]
+                except Exception:                     # unreadable here too: left out
+                    return
+                g = dst.create_dataset(name, data=values, dtype=obj.dtype)
+            else:
+                return
+            for k, v in obj.attrs.items():
+                g.attrs[k] = v
+        src.visititems(copy)
+    return twin
+
+
 def merge_numpy1(main, alt):
     """netCDF4-python's answers can depend on numpy's major version (with
     numpy 1 the masked array of a packed int16 variable keeps an int16
@@ -431,6 +473,20 @@ def reference_file(path, alt_python):
     if have_alt and 'variables' in rec['netcdf4']:
         got = run_worker(alt_python, 'nc', path)
         if 'netcdf4' in got:
+            failed = _alt_errors(rec['netcdf4'], got['netcdf4'])
+            if failed:
+                # the numpy 1 env could not decode these (missing plugins):
+                # its answers taken from an unfiltered twin of the file
+                twin = plain_twin(path)
+                try:
+                    tw = run_worker(alt_python, 'nc', twin)
+                finally:
+                    os.remove(twin)
+                for vp in failed:
+                    tv = tw.get('netcdf4', {}).get('variables', {}).get(vp)
+                    if tv is not None:
+                        got['netcdf4']['variables'][vp] = tv
+                rec['netcdf4']['numpy1_twin'] = sorted(failed)
             rec['netcdf4']['numpy1_differs'] = merge_numpy1(rec['netcdf4'], got['netcdf4'])
         else:
             rec['netcdf4']['numpy1_error'] = got.get('worker_error')

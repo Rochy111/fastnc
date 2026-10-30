@@ -235,7 +235,7 @@ class NC4File:
         self._fix_unlimited(self.root)
 
     def close(self):
-        pass
+        self.f.close()
 
     # -- reading the structure
     def _group(self, h5g, name, parent):
@@ -372,20 +372,19 @@ class NC4File:
 
 
 class _Lazy:
-    """A dataset's attributes decoded one by one, as asked for."""
-    __slots__ = ('f', 'h', 'refs')
+    """A dataset's attributes found and decoded one by one, as asked for
+    (by name: dense storage is looked up by hash, not read through)."""
+    __slots__ = ('f', 'h')
 
     def __init__(self, f, h):
         self.f, self.h = f, h
-        self.refs = f.attribute_refs(h)
 
     def get(self, name):
-        if name not in self.refs:
-            return None
-        return self.f.attribute(self.h, name)
+        r = self.f.find_attribute(self.h, name)
+        return None if r is None else self.f._attribute(r[0], r[1], r[2])
 
     def __contains__(self, name):
-        return name in self.refs
+        return self.f.find_attribute(self.h, name) is not None
 
 
 def _bytes(a):

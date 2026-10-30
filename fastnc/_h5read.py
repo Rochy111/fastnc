@@ -118,7 +118,11 @@ class Reader:
             if ds.layout.cls == 1:
                 self._index = _virtual_index(ds)
             else:
-                self._index = _chunks.ChunkIndex(ds.chunk_table(), ds.chunks, ds.shape)
+                arrays = ds.chunk_arrays()
+                if arrays is not None:
+                    self._index = _chunks.ChunkIndex(None, ds.chunks, ds.shape, arrays)
+                else:
+                    self._index = _chunks.ChunkIndex(ds.chunk_table(), ds.chunks, ds.shape)
         return self._index
 
     @property

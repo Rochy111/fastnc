@@ -114,6 +114,10 @@ def one(lib, p, v, key, masked):
             x = d[v]
             x.set_auto_maskandscale(masked)
             return x[key]
+    if lib == 'fastnc.File':
+        import fastnc
+        with fastnc.File(p) as f:
+            return f[v][key]
     import h5py
     with h5py.File(p, 'r') as f:
         return f[v][key]
@@ -129,6 +133,9 @@ if lib == 'fastnc':
 elif lib == 'netCDF4':
     import netCDF4
     d = netCDF4.Dataset(p); x = d[v]; x.set_auto_maskandscale(False); x[...]
+elif lib == 'fastnc.File':
+    import fastnc
+    f = fastnc.File(p); f[v][()]
 else:
     import h5py
     f = h5py.File(p, 'r'); f[v][()]
@@ -208,7 +215,7 @@ def main():
         except Exception as e:
             r['xarray_load'] = {'error': repr(e)[:100]}
         # one variable, raw and masked; a window
-        libs = ['fastnc', 'netCDF4'] + (['h5py'] if hdf5 else [])
+        libs = ['fastnc', 'netCDF4'] + (['fastnc.File', 'h5py'] if hdf5 else [])
         r['var_raw'] = dict(zip(libs, best([lambda l=l: one(l, p, v, Ellipsis, False) for l in libs], n)))
         try:
             r['var_masked'] = dict(zip(libs[:2], best([lambda l=l: one(l, p, v, Ellipsis, True) for l in libs[:2]], n)))

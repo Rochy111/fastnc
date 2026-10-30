@@ -145,3 +145,37 @@ for whole reads. Byte-swapping can ride along with the copy in L2.
   would make later windows cheap.
 - Mask+scale doubles VIIRS (198 -> 364 ms): several numpy passes over the
   array.
+
+## Later experiments (after the design)
+
+- **Double-literal inflate tables** (one lookup writing two literals when
+  both codes fit in the 11-bit table): byte-identical, but slower on the
+  quiet machine -- MODIS 824 -> 768 MB/s, VIIRS 1454 -> 1354, wrfout 1200
+  -> 1133. In data that barely compresses, literal codes are 8-10 bits, so
+  pairs rarely fit; the pairing pass and the extra branch cost more than
+  they save. Not kept.
+- **Output arena** (big outputs reuse already-mapped memory): kept.
+  Repeated whole-file reads 1.3-2.5x faster (VIIRS masked 348 -> 139 ms).
+- **Parallel single-stream inflate** for chunks bigger than a thread's
+  share: kept. MODIS 250 m band 109 -> 23 ms.
+- **Contiguous data as virtual chunks**: kept. GOES-19 full-disk C02 read
+  per dataset 102 ms (h5py 2445).
+- **Dense-attribute lookups by name hash** (lookup3, self-tested against the
+  file's own index once per process): kept, but `Dataset` open is still
+  5-8 ms on files of 150-210 variables (netCDF4-python 11-20 ms): the rest
+  is header parsing and the DIMENSION_LIST attributes that do exist.
+  `fastnc.File` opens in 0.2 ms (h5py 0.17).
+- **Numba first-class function arguments** for per-codec specialisation:
+  not cacheable (recompiled in every process); one small driver kernel per
+  codec instead.
+- **Peak memory** (`tools/profile/peak_memory.py`, fresh process, every
+  variable read and kept, masked for fastnc / netCDF4-python, raw for
+  h5py): VIIRS 3.3 GB fastnc, 3.3 GB netCDF4-python (results 2.3 GB; h5py's
+  raw arrays 1.0 GB, peak 1.1); wrfout d01 0.40 / 0.46 GB; GOES full-disk
+  C02 4.7 / 6.2 GB. fastnc's peak counts the mapped file's pages (shared
+  with the OS file cache) and the raw arrays a masked read made, kept in
+  the arena for the next read (`fastnc.release()` returns them); its
+  committed memory stays ~100 MB because both are mappings.
+- **Concurrent readers**: eight user threads reading one open file (raw,
+  masked, windows, load) get the values one thread gets, through the zlib
+  path and the kernels (`tests/test_threads.py`).

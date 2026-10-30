@@ -22,6 +22,8 @@ class FormatError(ValueError):
 
 
 _u8 = struct.Struct('<B').unpack_from
+_MSG4 = struct.Struct('<BHB').unpack_from           # v2 header message: type, size, flags
+_MSG6 = struct.Struct('<BHBH').unpack_from          # ... and creation order
 _u16 = struct.Struct('<H').unpack_from
 _u32 = struct.Struct('<I').unpack_from
 _u64 = struct.Struct('<Q').unpack_from
@@ -38,6 +40,51 @@ def _uint(b, at, n):
     if n == 1:
         return b[at]
     return int.from_bytes(b[at:at + n], 'little')
+
+
+_M32 = 0xFFFFFFFF
+
+
+def _rot(x, k):
+    return ((x << k) | (x >> (32 - k))) & _M32
+
+
+def lookup3(data, initval=0):
+    """Bob Jenkins' lookup3 hashlittle, as H5_checksum_lookup3: the hash
+    HDF5 indexes dense attribute and link names by."""
+    n = len(data)
+    a = b = c = (0xDEADBEEF + n + initval) & _M32
+    i = 0
+    while n > 12:
+        a = (a + data[i] + (data[i + 1] << 8) + (data[i + 2] << 16) + (data[i + 3] << 24)) & _M32
+        b = (b + data[i + 4] + (data[i + 5] << 8) + (data[i + 6] << 16) + (data[i + 7] << 24)) & _M32
+        c = (c + data[i + 8] + (data[i + 9] << 8) + (data[i + 10] << 16) + (data[i + 11] << 24)) & _M32
+        a = (a - c) & _M32; a ^= _rot(c, 4); c = (c + b) & _M32       # noqa: E702
+        b = (b - a) & _M32; b ^= _rot(a, 6); a = (a + c) & _M32       # noqa: E702
+        c = (c - b) & _M32; c ^= _rot(b, 8); b = (b + a) & _M32       # noqa: E702
+        a = (a - c) & _M32; a ^= _rot(c, 16); c = (c + b) & _M32      # noqa: E702
+        b = (b - a) & _M32; b ^= _rot(a, 19); a = (a + c) & _M32      # noqa: E702
+        c = (c - b) & _M32; c ^= _rot(b, 4); b = (b + a) & _M32       # noqa: E702
+        n -= 12
+        i += 12
+    if n == 0:
+        return c
+    t = list(data[i:i + n]) + [0] * (12 - n)
+    a = (a + t[0] + (t[1] << 8) + (t[2] << 16) + (t[3] << 24)) & _M32
+    b = (b + t[4] + (t[5] << 8) + (t[6] << 16) + (t[7] << 24)) & _M32
+    c = (c + t[8] + (t[9] << 8) + (t[10] << 16) + (t[11] << 24)) & _M32
+    c ^= b; c = (c - _rot(b, 14)) & _M32                            # noqa: E702
+    a ^= c; a = (a - _rot(c, 11)) & _M32                            # noqa: E702
+    b ^= a; b = (b - _rot(a, 25)) & _M32                            # noqa: E702
+    c ^= b; c = (c - _rot(b, 16)) & _M32                            # noqa: E702
+    a ^= c; a = (a - _rot(c, 4)) & _M32                             # noqa: E702
+    b ^= a; b = (b - _rot(a, 14)) & _M32                            # noqa: E702
+    c ^= b; c = (c - _rot(b, 24)) & _M32                            # noqa: E702
+    return c
+
+
+_HASH_OK = [None]               # lookup3 checked against a file's own name index
+_HASHES = {}                    # name -> lookup3 hash
 
 
 def _enc_size(x):
@@ -417,6 +464,10 @@ class Dataset:
         size, filter mask), in file index order."""
         return self.file.chunk_table(self)
 
+    def chunk_arrays(self):
+        """The chunk table as arrays where the index allows (else None)."""
+        return self.file.chunk_arrays(self)
+
 
 # ---------------------------------------------------------------- the file
 
@@ -456,6 +507,8 @@ class H5File:
         self.sb_version = v
         self._headers = {}
         self._attr_refs = {}
+        self._bt2_cache = {}
+        self._compact = {}
         self._fheaps = {}
         self._gheaps = {}
         if v in (0, 1):
@@ -482,6 +535,14 @@ class H5File:
         self.undef = (1 << (8 * self.O)) - 1
         self.root_address = root
         self.root = Group(self, root, '/')
+        self.path = None                            # set by the opener for local files
+        self._pio = None
+
+    def close(self):
+        """Close the positional reader, if one was made."""
+        r, self._pio = self._pio, None
+        if r is not None:
+            r.close()
 
     # -- remote files: bytes asked for before they are read (local: no-ops)
     def need(self, at, n):
@@ -562,12 +623,16 @@ class H5File:
         b = self.b
         corder = bool(hflags & 4)
         hdr = 6 if corder else 4
+        unpack = _MSG6 if corder else _MSG4             # one call per message header
         todo = [(p, end)]
         while todo:
             p, end = todo.pop(0)
             while p + hdr <= end:
-                mtype, size, mflags = b[p], _u16(b, p + 1)[0], b[p + 3]
-                co = _u16(b, p + 4)[0] if corder else None
+                if corder:
+                    mtype, size, mflags, co = unpack(b, p)
+                else:
+                    mtype, size, mflags = unpack(b, p)
+                    co = None
                 data = p + hdr
                 if mtype == 0x10:
                     a = self.addr(self.offset(data))
@@ -870,6 +935,64 @@ class H5File:
         q = p + 8 + (1 if version == 3 else 0)
         return bytes(b[q:q + nlen]).split(b'\0')[0].decode('utf-8', 'replace')
 
+    def find_attribute(self, h, name):
+        """(buffer, position, creation order) of attribute `name`, or None --
+        without reading every attribute's name: compact attributes are
+        scanned in the header; dense ones are looked up in the name index
+        by their lookup3 hash, decoding only the heap objects whose hash
+        matches (the check netCDF does on every dataset at open --
+        CLASS, NAME, DIMENSION_LIST ... -- read 770 heap objects of
+        Metop-SG's 149 datasets before)."""
+        refs = self._attr_refs.get(h.address)
+        if refs is not None:
+            return refs.get(name)
+        b = self.b
+        compact = self._compact.get(h.address)
+        if compact is None:
+            compact = self._compact[h.address] = {
+                self._attr_name(b, m[2]): (b, m[2], m[4] if m[4] is not None else i)
+                for i, m in enumerate(h.all(0x0C))}
+        r = compact.get(name)
+        if r is not None:
+            return r
+        ai = h.first(0x15)
+        if ai is None:
+            return None
+        p = ai[2]
+        flags = b[p + 1]
+        p += 2 + (2 if flags & 1 else 0)
+        fheap = self.offset(p)
+        name_bt = self.offset(p + self.O)
+        if fheap == self.undef:
+            return None
+        recs = self._bt2_cache.get(name_bt)
+        if recs is None:
+            recs = self._bt2_cache[name_bt] = self.btree2_records(name_bt)
+        if not recs:
+            return None
+        if _HASH_OK[0] is None:
+            # once per process: lookup3 must give the hash the file stores
+            heap = self.fractal_heap(fheap)
+            obj = heap.object(recs[0][:8])
+            nm = self._attr_name(obj, 0).encode('utf-8')
+            _HASH_OK[0] = lookup3(nm) == _u32(recs[0], 13)[0]
+        if not _HASH_OK[0]:
+            return self.attribute_refs(h).get(name)
+        want = _HASHES.get(name)
+        if want is None:
+            want = _HASHES[name] = lookup3(name.encode('utf-8'))
+        heap = None
+        base = len(h.all(0x0C))
+        for k, rec in enumerate(recs):
+            if _u32(rec, 13)[0] != want:
+                continue
+            if heap is None:
+                heap = self.fractal_heap(fheap)
+            obj = heap.object(rec[:8])
+            if self._attr_name(obj, 0) == name:
+                return (obj, 0, _u32(rec, 9)[0] if flags & 1 else base + k)
+        return None
+
     def attribute(self, h, name):
         """One attribute (decoded), or None."""
         r = self.attribute_refs(h).get(name)
@@ -1109,6 +1232,54 @@ class H5File:
         if lay.index == 'earray':
             return self._earray_chunks(ds, nper, chunks, csize)
         raise FormatError('chunk index %r' % lay.index)
+
+    def chunk_arrays(self, ds):
+        """The chunk table as arrays (offsets (n, rank) int64, absolute
+        addresses, stored sizes, filter masks), or None where only the
+        tuple form exists. v1 B-tree leaves are fixed-size records, read a
+        node at a time with numpy: Metop-SG's 39 datasets of 840 row chunks
+        took 37 ms to index tuple by tuple on every open."""
+        lay = ds.layout
+        if lay.address == self.undef:
+            z = np.zeros(0, np.int64)
+            return np.zeros((0, len(ds.shape)), np.int64), z, z, z
+        if lay.index == 'btree1' and self.O == 8:
+            return self._btree1_arrays(lay.address, len(ds.shape))
+        return None
+
+    def _btree1_arrays(self, address, rank):
+        b = self.b
+        O = self.O
+        ksize = 8 + 8 * (rank + 1)
+        rec = np.dtype([('size', '<u4'), ('mask', '<u4'), ('offs', '<u8', (rank + 1,)),
+                        ('child', '<u8')])
+        parts = []
+        stack = [address]
+        while stack:
+            a = self.addr(stack.pop())
+            self.need(a, 8 + 2 * O)
+            if bytes(b[a:a + 4]) != b'TREE':
+                raise FormatError('bad chunk B-tree node')
+            level = b[a + 5]
+            n = _u16(b, a + 6)[0]
+            p = a + 8 + 2 * O
+            self.need(a, 8 + 2 * O + n * (ksize + O) + ksize)
+            r = np.frombuffer(b, rec, count=n, offset=p)
+            if level:
+                kids = r['child'].tolist()
+                if self.source is not None:        # remote: the next ones in one go
+                    self.prefetch([self.addr(k) for k in kids],
+                                  8 + 2 * O + max(n, 64) * (ksize + O) + ksize)
+                stack.extend(reversed(kids))
+            else:
+                parts.append(r)
+        if not parts:
+            z = np.zeros(0, np.int64)
+            return np.zeros((0, rank), np.int64), z, z, z
+        r = np.concatenate(parts)
+        offs = r['offs'][:, :rank].astype(np.int64)
+        addr = r['child'].astype(np.int64) + self.base
+        return offs, addr, r['size'].astype(np.int64), r['mask'].astype(np.int64)
 
     def _btree1_chunks(self, address, rank):
         b = self.b
