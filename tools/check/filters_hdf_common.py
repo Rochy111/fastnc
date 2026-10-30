@@ -95,9 +95,34 @@ def load(path):
 # -- HDF5's own decoding, through h5py
 
 _RELAX = None
+_LIB = None
 
 
-def relaxed_fapl(core=False):
+def _hdf5_lib():
+    """The HDF5 library h5py uses, through ctypes."""
+    import h5py
+    global _LIB
+    if _LIB is None:
+        for c in (os.path.join(os.path.dirname(h5py.__file__), 'hdf5.dll'),
+                  os.path.join(sys.prefix, 'Library', 'bin', 'hdf5.dll')):
+            if os.path.exists(c):
+                _LIB = ctypes.CDLL(c)
+                break
+    return _LIB
+
+
+def set_fill_undefined(dcpl):
+    """H5Pset_fill_value(dcpl, type, NULL): no fill value at all (h5py
+    cannot say so)."""
+    import h5py
+    fn = _hdf5_lib().H5Pset_fill_value
+    fn.argtypes = [ctypes.c_int64, ctypes.c_int64, ctypes.c_void_p]
+    fn.restype = ctypes.c_int
+    if fn(dcpl.id, h5py.h5t.NATIVE_INT32.id, None) < 0:
+        raise OSError('H5Pset_fill_value failed')
+
+
+def relaxed_fapl(core=False, latest=False):
     """A file access property list letting HDF5 >= 1.14.4 create and open
     datatypes with unused bits (n-bit types): H5Pset_relax_file_integrity_
     checks, which h5py does not wrap, called through ctypes on the HDF5
@@ -105,20 +130,16 @@ def relaxed_fapl(core=False):
     import h5py
     global _RELAX
     if _RELAX is None:
-        cands = [os.path.join(os.path.dirname(h5py.__file__), 'hdf5.dll'),
-                 os.path.join(sys.prefix, 'Library', 'bin', 'hdf5.dll')]
-        for c in cands:
-            if os.path.exists(c):
-                lib = ctypes.CDLL(c)
-                fn = getattr(lib, 'H5Pset_relax_file_integrity_checks', None)
-                if fn is not None:
-                    fn.argtypes = [ctypes.c_int64, ctypes.c_uint64]
-                    fn.restype = ctypes.c_int
-                    _RELAX = fn
-                    break
+        fn = getattr(_hdf5_lib(), 'H5Pset_relax_file_integrity_checks', None)
+        if fn is not None:
+            fn.argtypes = [ctypes.c_int64, ctypes.c_uint64]
+            fn.restype = ctypes.c_int
+            _RELAX = fn
     fapl = h5py.h5p.create(h5py.h5p.FILE_ACCESS)
     if core:
         fapl.set_fapl_core(backing_store=False)
+    if latest:
+        fapl.set_libver_bounds(h5py.h5f.LIBVER_LATEST, h5py.h5f.LIBVER_LATEST)
     if _RELAX is not None:
         _RELAX(fapl.id, 1)
     return fapl

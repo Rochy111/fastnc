@@ -42,82 +42,129 @@ NOPS = 6                        # an operation: byte offset, kind, size, order, 
 
 
 @njit(cache=True, nogil=True)
-def _flatten(cd, i, base, ops, nops, depth):
-    """The type whose parameters start at cd[i] (its class code), placed at
-    byte `base` of the element, appended to ops as operations from row
-    nops. (index after its parameters, rows used), or (-1, 0) for bad
-    parameters."""
+def _emit(ops, nops, base, kind, size, order, prec, off):
+    """One operation in row nops of ops; the rows used after, -1 if full."""
+    if nops >= ops.shape[0]:
+        return -1
+    ops[nops, 0] = base
+    ops[nops, 1] = kind
+    ops[nops, 2] = size
+    ops[nops, 3] = order
+    ops[nops, 4] = prec
+    ops[nops, 5] = off
+    return nops + 1
+
+
+@njit(cache=True, nogil=True)
+def _flatten(cd, ops):
+    """The type tree cd[0:] (from its class code) as operations in ops, an
+    element's fields in stream order: the rows used, or -1 for bad
+    parameters. A walk with a stack of its own (numba's recursion proved
+    unreliable): an array frame repeats its base type, a compound frame
+    steps through its members; a finished child hands its parameters' end
+    to its parent in `ret`."""
     n = cd.size
-    if depth > 64 or i + 1 >= n:
-        return -1, 0
-    cls = cd[i]
-    size = cd[i + 1]
-    if cls == NBIT_ATOMIC:
-        if i + 4 >= n or nops >= ops.shape[0]:
-            return -1, 0
-        order, prec, off = cd[i + 2], cd[i + 3], cd[i + 4]
-        if prec > size * 8 or prec + off > size * 8 or size <= 0:
-            return -1, 0
-        ops[nops, 0] = base
-        ops[nops, 1] = NBIT_ATOMIC
-        ops[nops, 2] = size
-        ops[nops, 3] = order
-        ops[nops, 4] = prec
-        ops[nops, 5] = off
-        return i + 5, nops + 1
-    if cls == NBIT_NOOPTYPE:
-        if nops >= ops.shape[0] or size < 0:
-            return -1, 0
-        ops[nops, 0] = base
-        ops[nops, 1] = NBIT_NOOPTYPE
-        ops[nops, 2] = size
-        ops[nops, 3] = 0
-        ops[nops, 4] = 8 * size
-        ops[nops, 5] = 0
-        return i + 2, nops + 1
-    if cls == NBIT_ARRAY:
-        if i + 3 >= n:
-            return -1, 0
-        bcls = cd[i + 2]
-        bsize = cd[i + 3]
-        if bcls == NBIT_NOOPTYPE:               # the whole array as one run of bytes
-            if nops >= ops.shape[0]:
-                return -1, 0
-            ops[nops, 0] = base
-            ops[nops, 1] = NBIT_NOOPTYPE
-            ops[nops, 2] = size
-            ops[nops, 3] = 0
-            ops[nops, 4] = 8 * size
-            ops[nops, 5] = 0
-            return i + 4, nops + 1
-        if bsize <= 0 or size < bsize:
-            return -1, 0
-        cnt = size // bsize
-        j = i + 2
-        for c in range(cnt):
-            j, nops = _flatten(cd, i + 2, base + c * bsize, ops, nops, depth + 1)
-            if j < 0:
-                return -1, 0
-        return j, nops
-    if cls == NBIT_COMPOUND:
-        if i + 2 >= n:
-            return -1, 0
-        nmem = cd[i + 2]
-        j = i + 3
-        used = 0
-        for m in range(nmem):
-            if j + 2 >= n:
-                return -1, 0
-            moff = cd[j]
-            msize = cd[j + 2]
-            used += msize
-            if used > size or moff + msize > size:
-                return -1, 0                    # (H5Znbit.c's overflow checks)
-            j, nops = _flatten(cd, j + 1, base + moff, ops, nops, depth + 1)
-            if j < 0:
-                return -1, 0
-        return j, nops
-    return -1, 0
+    D = 64
+    fi = np.empty(D, np.int64)                  # the type's parameters
+    fb = np.empty(D, np.int64)                  # its byte offset in the element
+    fs = np.zeros(D, np.int64)                  # 0 new, 1 iterating
+    fc = np.empty(D, np.int64)                  # array: copies done; compound: members done
+    fj = np.empty(D, np.int64)                  # compound: the next member's parameters
+    fu = np.empty(D, np.int64)                  # compound: the member sizes so far
+    top = 0
+    fi[0] = 0
+    fb[0] = 0
+    fs[0] = 0
+    nops = 0
+    ret = 0
+    while top >= 0:
+        i = fi[top]
+        base = fb[top]
+        if i + 1 >= n:
+            return -1
+        cls = cd[i]
+        size = cd[i + 1]
+        if fs[top] == 0:
+            if cls == NBIT_ATOMIC:
+                if i + 4 >= n:
+                    return -1
+                prec, off = cd[i + 3], cd[i + 4]
+                if size <= 0 or prec < 0 or off < 0 or prec > size * 8 or prec + off > size * 8:
+                    return -1
+                nops = _emit(ops, nops, base, NBIT_ATOMIC, size, cd[i + 2], prec, off)
+                ret = i + 5
+                top -= 1
+            elif cls == NBIT_NOOPTYPE:
+                if size < 0:
+                    return -1
+                nops = _emit(ops, nops, base, NBIT_NOOPTYPE, size, 0, 8 * size, 0)
+                ret = i + 2
+                top -= 1
+            elif cls == NBIT_ARRAY:
+                if i + 3 >= n:
+                    return -1
+                if cd[i + 2] == NBIT_NOOPTYPE:  # the whole array as one run of bytes
+                    if size < 0:
+                        return -1
+                    nops = _emit(ops, nops, base, NBIT_NOOPTYPE, size, 0, 8 * size, 0)
+                    ret = i + 4
+                    top -= 1
+                else:
+                    bsize = cd[i + 3]
+                    if bsize <= 0 or size < bsize or top + 1 >= D:
+                        return -1
+                    fs[top] = 1
+                    fc[top] = 0
+                    top += 1
+                    fi[top] = i + 2
+                    fb[top] = base
+                    fs[top] = 0
+            elif cls == NBIT_COMPOUND:
+                if i + 2 >= n:
+                    return -1
+                fs[top] = 1
+                fc[top] = 0
+                fj[top] = i + 3
+                fu[top] = 0
+                ret = i + 3
+                continue                        # (to the member loop below)
+            else:
+                return -1
+            if nops < 0:
+                return -1
+            continue
+        # a frame whose child (if any) just finished, its parameters ending at ret
+        if cls == NBIT_ARRAY:
+            fc[top] += 1
+            if fc[top] < size // cd[i + 3]:
+                top += 1
+                fi[top] = i + 2
+                fb[top] = base + fc[top - 1] * cd[i + 3]
+                fs[top] = 0
+            else:
+                top -= 1                        # (ret: the end of the base type's parameters)
+            continue
+        # a compound: the next member, if any
+        if fc[top] > 0:
+            fj[top] = ret
+        if fc[top] >= cd[i + 2]:
+            ret = fj[top]
+            top -= 1
+            continue
+        j = fj[top]
+        if j + 2 >= n or top + 1 >= D:
+            return -1
+        moff = cd[j]
+        msize = cd[j + 2]
+        fu[top] += msize
+        if moff < 0 or msize < 0 or fu[top] > size or moff + msize > size:
+            return -1                           # (H5Znbit.c's overflow checks)
+        fc[top] += 1
+        top += 1
+        fi[top] = j + 1
+        fb[top] = base + moff
+        fs[top] = 0
+    return nops
 
 
 @njit(cache=True, nogil=True)
@@ -227,8 +274,8 @@ def decode(src, p, pend, dst, o, oend, cd, ws):
     if nout > oend - o:
         return ERR_SPACE
     ops = np.empty((esize + 1, NOPS), np.int64)
-    j, nops = _flatten(tree, 0, 0, ops, 0, 0)
-    if j < 0:
+    nops = _flatten(tree, ops)
+    if nops < 0:
         return ERR_DATA
     bits = 0
     for r in range(nops):
