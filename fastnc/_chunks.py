@@ -137,6 +137,130 @@ def _plan(index, shape, sel):
 
 # ---------------------------------------------------------------- kernels
 
+# Undoing the byte shuffle eight elements at a time: a word of each byte
+# plane loaded, the planes' bytes interleaved with shifts and masks (bytes
+# spread to every other byte, then 16-bit units to every other unit, ...),
+# whole words stored. LLVM vectorizes these; byte by byte the same work ran
+# at 3-4 GB/s (a third of a shuffled read's decoding on one thread), this
+# at 17-25 GB/s.
+
+@njit(cache=True, nogil=True)
+def _sp8(x):
+    """The low four bytes of x spread to the even bytes of a word."""
+    u = np.uint64
+    x &= u(0xFFFFFFFF)
+    x = (x | (x << u(16))) & u(0x0000FFFF0000FFFF)
+    return (x | (x << u(8))) & u(0x00FF00FF00FF00FF)
+
+
+@njit(cache=True, nogil=True)
+def _sp16(x):
+    """The low two 16-bit units of x spread to the even units of a word."""
+    u = np.uint64
+    x &= u(0xFFFFFFFF)
+    return (x | (x << u(16))) & u(0x0000FFFF0000FFFF)
+
+
+@njit(cache=True, nogil=True)
+def _unshuffle2(sc, p0, p1, out, b, n):
+    """n 2-byte elements to out[b:], byte k of each from plane sc[pk:]."""
+    u = np.uint64
+    j = 0
+    while j + 8 <= n:
+        x = ld64(sc, p0 + j)
+        y = ld64(sc, p1 + j)
+        st64(out, b, _sp8(x) | (_sp8(y) << u(8)))
+        st64(out, b + 8, _sp8(x >> u(32)) | (_sp8(y >> u(32)) << u(8)))
+        b += 16
+        j += 8
+    while j < n:
+        out[b] = sc[p0 + j]
+        out[b + 1] = sc[p1 + j]
+        b += 2
+        j += 1
+
+
+@njit(cache=True, nogil=True)
+def _unshuffle4(sc, p0, p1, p2, p3, out, b, n):
+    """n 4-byte elements to out[b:], byte k of each from plane sc[pk:]."""
+    u = np.uint64
+    j = 0
+    while j + 8 <= n:
+        x0 = ld64(sc, p0 + j)
+        x1 = ld64(sc, p1 + j)
+        x2 = ld64(sc, p2 + j)
+        x3 = ld64(sc, p3 + j)
+        a0 = _sp8(x0) | (_sp8(x1) << u(8))                 # bytes 0-1 of elements 0-3
+        a1 = _sp8(x0 >> u(32)) | (_sp8(x1 >> u(32)) << u(8))
+        c0 = _sp8(x2) | (_sp8(x3) << u(8))                 # bytes 2-3
+        c1 = _sp8(x2 >> u(32)) | (_sp8(x3 >> u(32)) << u(8))
+        st64(out, b, _sp16(a0) | (_sp16(c0) << u(16)))
+        st64(out, b + 8, _sp16(a0 >> u(32)) | (_sp16(c0 >> u(32)) << u(16)))
+        st64(out, b + 16, _sp16(a1) | (_sp16(c1) << u(16)))
+        st64(out, b + 24, _sp16(a1 >> u(32)) | (_sp16(c1 >> u(32)) << u(16)))
+        b += 32
+        j += 8
+    while j < n:
+        out[b] = sc[p0 + j]
+        out[b + 1] = sc[p1 + j]
+        out[b + 2] = sc[p2 + j]
+        out[b + 3] = sc[p3 + j]
+        b += 4
+        j += 1
+
+
+@njit(cache=True, nogil=True)
+def _unshuffle8(sc, p0, nel, swap, out, b, n):
+    """n 8-byte elements to out[b:], byte k of each from plane k (planes nel
+    bytes apart from sc[p0:]; reversed if swap)."""
+    u = np.uint64
+    lo = u(0xFFFFFFFF)
+    hi = u(0xFFFFFFFF00000000)
+    d = -nel if swap else nel                  # from plane to plane
+    q0 = p0 + 7 * nel if swap else p0
+    j = 0
+    while j + 8 <= n:
+        x0 = ld64(sc, q0 + 0 * d + j)
+        x1 = ld64(sc, q0 + 1 * d + j)
+        x2 = ld64(sc, q0 + 2 * d + j)
+        x3 = ld64(sc, q0 + 3 * d + j)
+        x4 = ld64(sc, q0 + 4 * d + j)
+        x5 = ld64(sc, q0 + 5 * d + j)
+        x6 = ld64(sc, q0 + 6 * d + j)
+        x7 = ld64(sc, q0 + 7 * d + j)
+        a0 = _sp8(x0) | (_sp8(x1) << u(8))                 # bytes 0-1, elements 0-3
+        a1 = _sp8(x0 >> u(32)) | (_sp8(x1 >> u(32)) << u(8))
+        c0 = _sp8(x2) | (_sp8(x3) << u(8))                 # bytes 2-3
+        c1 = _sp8(x2 >> u(32)) | (_sp8(x3 >> u(32)) << u(8))
+        e0 = _sp8(x4) | (_sp8(x5) << u(8))                 # bytes 4-5
+        e1 = _sp8(x4 >> u(32)) | (_sp8(x5 >> u(32)) << u(8))
+        g0 = _sp8(x6) | (_sp8(x7) << u(8))                 # bytes 6-7
+        g1 = _sp8(x6 >> u(32)) | (_sp8(x7 >> u(32)) << u(8))
+        L0 = _sp16(a0) | (_sp16(c0) << u(16))              # bytes 0-3, elements 0-1
+        L1 = _sp16(a0 >> u(32)) | (_sp16(c0 >> u(32)) << u(16))
+        L2 = _sp16(a1) | (_sp16(c1) << u(16))
+        L3 = _sp16(a1 >> u(32)) | (_sp16(c1 >> u(32)) << u(16))
+        H0 = _sp16(e0) | (_sp16(g0) << u(16))              # bytes 4-7
+        H1 = _sp16(e0 >> u(32)) | (_sp16(g0 >> u(32)) << u(16))
+        H2 = _sp16(e1) | (_sp16(g1) << u(16))
+        H3 = _sp16(e1 >> u(32)) | (_sp16(g1 >> u(32)) << u(16))
+        st64(out, b, (L0 & lo) | (H0 << u(32)))
+        st64(out, b + 8, (L0 >> u(32)) | (H0 & hi))
+        st64(out, b + 16, (L1 & lo) | (H1 << u(32)))
+        st64(out, b + 24, (L1 >> u(32)) | (H1 & hi))
+        st64(out, b + 32, (L2 & lo) | (H2 << u(32)))
+        st64(out, b + 40, (L2 >> u(32)) | (H2 & hi))
+        st64(out, b + 48, (L3 & lo) | (H3 << u(32)))
+        st64(out, b + 56, (L3 >> u(32)) | (H3 & hi))
+        b += 64
+        j += 8
+    while j < n:
+        for k in range(8):
+            out[b + k] = sc[q0 + k * d + j]
+        b += 8
+        j += 1
+
+
 @njit(cache=True, nogil=True)
 def _place(sc, s0, nel, out, cstart, count, ostart, cstr, ostr, step, rank, esize,
            shuffled, swap):
@@ -173,7 +297,23 @@ def _place(sc, s0, nel, out, cstart, count, ostart, cstr, ostr, step, rank, esiz
                     for k in range(esize):
                         out[b + k] = sc[a + k]
         elif shuffled:
-            if swap:
+            if st_last == 1 and (esize == 2 or esize == 4 or esize == 8):
+                # whole words at a time (a swap is the byte planes reversed)
+                p0 = s0 + se
+                b = de * esize
+                if esize == 2:
+                    if swap:
+                        _unshuffle2(sc, p0 + nel, p0, out, b, n_last)
+                    else:
+                        _unshuffle2(sc, p0, p0 + nel, out, b, n_last)
+                elif esize == 4:
+                    if swap:
+                        _unshuffle4(sc, p0 + 3 * nel, p0 + 2 * nel, p0 + nel, p0, out, b, n_last)
+                    else:
+                        _unshuffle4(sc, p0, p0 + nel, p0 + 2 * nel, p0 + 3 * nel, out, b, n_last)
+                else:
+                    _unshuffle8(sc, p0, nel, swap, out, b, n_last)
+            elif swap:
                 for j in range(n_last):
                     e = se + j * st_last
                     b = (de + j) * esize
