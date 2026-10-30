@@ -46,8 +46,11 @@ Bit-identical to the reference readers, and checked:
 test corpus (`tests/data`: every layout, chunk index, group and attribute
 storage, datatype and filter), of a synthetic corpus and of real WRF and
 satellite files (MODIS, VIIRS, Metop-SG, AVHRR, RCM, a Ku-band
-scatterometer, GOES-19 ABI) with what netCDF4-python and h5py read, from
-stored digests: 7,640 comparisons, raw and masked, on numpy 1 and 2.
+scatterometer) with what netCDF4-python and h5py read, from stored
+digests: 7,640 tests, raw and masked, on numpy 1 and 2 (each test a
+variable or object, whole and in three selections). The GOES-19 ABI files
+(not in the repository) were checked the same way against both readers
+directly, with `tools/check/`.
 
 ## Speed
 
