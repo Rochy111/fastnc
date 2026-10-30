@@ -18,3 +18,6 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+
+# agent worktrees and local tool state
+.claude/
