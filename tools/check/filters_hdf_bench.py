@@ -27,7 +27,7 @@ from common import fast_thread                                    # noqa: E402
 
 from fastnc import _bzip2, _fletcher32, _nbit, _scaleoffset, _shuffle, _szip  # noqa: E402
 
-MOD = {2: _shuffle, 3: _fletcher32, 4: _szip, 5: _nbit, 6: _scaleoffset}
+MOD = {2: _shuffle, 3: _fletcher32, 4: _szip, 5: _nbit, 6: _scaleoffset, 307: _bzip2}
 
 
 def field(n, dtype, seed=0):
@@ -101,15 +101,11 @@ def ours(b, ds, chunks, out, ws):
     nb = int(cd[1])
     t = time.perf_counter()
     o = 0
-    if filt.id == 307:
-        for (offs, addr, size, mask) in chunks:
-            o = _bzip2.decode_into(b[addr:addr + size], out, o, o + nb)
-    else:
-        dec = MOD[filt.id].decode
-        for (offs, addr, size, mask) in chunks:
-            e = dec(b, addr, addr + size, out, o, o + nb, cd, ws)
-            assert e == o + nb, e
-            o = e
+    dec = MOD[filt.id].decode
+    for (offs, addr, size, mask) in chunks:
+        e = dec(b, addr, addr + size, out, o, o + nb, cd, ws)
+        assert e == o + nb, e
+        o = e
     return time.perf_counter() - t
 
 

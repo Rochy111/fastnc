@@ -50,9 +50,11 @@ def cd_array(ds, filt):
     return np.array([ds.type.size, chunk_nbytes, len(filt.cd)] + list(filt.cd), np.int64)
 
 
-def decode_chunk(src, ds, addr, size, mask, verify=True):
+def decode_chunk(src, ds, addr, size, mask, verify=True, bzip2_py=False):
     """A chunk's stored bytes src[addr:addr+size] through the reverse of the
-    dataset's pipeline: (decoded bytes as a uint8 array, or an error code)."""
+    dataset's pipeline: (decoded bytes as a uint8 array, or an error code).
+    verify=False: fletcher32 stripped unchecked; bzip2_py: bzip2 through
+    Python's bz2 rather than the numba decoder."""
     chunk_nbytes = int(np.prod(ds.chunks)) * ds.type.size
     buf, p, pend = src, addr, addr + size
     for i in range(len(ds.filters) - 1, -1, -1):
@@ -67,7 +69,7 @@ def decode_chunk(src, ds, addr, size, mask, verify=True):
             end = _inflate.zlib_inflate(buf, p, pend, out, 0, room, room, tab, iws)
         else:
             mod = MODULES[filt.id]
-            if hasattr(mod, 'decode'):
+            if not (filt.id == 307 and bzip2_py):
                 ws = np.zeros(max(1, mod.workspace_size(chunk_nbytes)), np.uint8)
                 if filt.id == 3 and not verify:
                     end = mod.strip(buf, p, pend, out, 0, room, cd, ws)

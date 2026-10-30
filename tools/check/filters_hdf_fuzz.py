@@ -23,7 +23,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, 'tests'))
 
 import test_filters_hdf as T                                       # noqa: E402
-from fastnc import _nbit, _scaleoffset, _shuffle, _szip           # noqa: E402
+from fastnc import _bzip2, _nbit, _scaleoffset, _shuffle, _szip   # noqa: E402
 
 
 def mutate(r, c):
@@ -70,7 +70,7 @@ def main():
         nout += end >= 0
     src = r.integers(0, 256, 5000, dtype=np.uint8)
     for i in range(rounds):                         # random parameters
-        mod = (_szip, _nbit, _scaleoffset, _shuffle)[i % 4]
+        mod = (_szip, _nbit, _scaleoffset, _shuffle, _bzip2)[i % 5]
         n = int(r.integers(0, 40))
         vals = r.integers(0, 70, n) if r.random() < 0.7 else r.integers(0, 2 ** 32, n)
         cd = np.array([int(r.integers(1, 9)), 2000, n] + list(vals), np.int64)
@@ -78,7 +78,8 @@ def main():
             cd[3] = n
         src[:4] = np.frombuffer(int(r.integers(0, 2500)).to_bytes(4, 'little'), np.uint8)
         dst = np.full(2200, 0x5A, np.uint8)
-        end = mod.decode(src, 0, int(r.integers(0, src.size)), dst, 100, 2100, cd, np.zeros(2000, np.uint8))
+        ws = np.zeros(max(2000, mod.workspace_size(2000)), np.uint8)
+        end = mod.decode(src, 0, int(r.integers(0, src.size)), dst, 100, 2100, cd, ws)
         assert end < 0 or 100 <= end <= 2100
         assert (dst[:100] == 0x5A).all() and (dst[2100:] == 0x5A).all()
     print('%d damaged chunks (%d errors, %d decoded to something) and %d parameter sets: ok, %.1f s'

@@ -17,7 +17,7 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 FH = os.path.join(DATA, 'filters_hdf')
 with open(os.path.join(FH, 'expected.json')) as _fh:
     EXPECTED = json.load(_fh)
-MODULES = {2: _shuffle, 3: _fletcher32, 4: _szip, 5: _nbit, 6: _scaleoffset}
+MODULES = {2: _shuffle, 3: _fletcher32, 4: _szip, 5: _nbit, 6: _scaleoffset, 307: _bzip2}
 
 
 def sha(a):
@@ -58,8 +58,6 @@ def decode_chunk(src, ds, addr, size, mask):
         if filt.id == 1:
             tab, iws = _inflate.workspace()
             end = _inflate.zlib_inflate(buf, p, pend, out, 0, room, room, tab, iws)
-        elif filt.id == 307:
-            end = _bzip2.decode_into(bytes(buf[p:pend]), out, 0, room)
         else:
             mod = MODULES[filt.id]
             ws = np.zeros(max(1, mod.workspace_size(nbytes)), np.uint8)
@@ -309,6 +307,35 @@ def test_bzip2_errors():
         _bzip2.decode_py(z, len(raw) - 1, (9,))
     with pytest.raises(ValueError):
         _bzip2.decode_py(b'BZh9' + b'\0' * 50, len(raw), (9,))
+    ws = np.zeros(_bzip2.workspace_size(0), np.uint8)
+    dst = np.zeros(len(raw), np.uint8)
+    src = np.frombuffer(z + b'junk', np.uint8)
+    assert _bzip2.decode(src, 0, src.size, dst, 0, len(raw), None, ws) == len(raw)
+    assert dst.tobytes() == raw
+    assert _bzip2.decode(src, 0, len(z) - 10, dst, 0, len(raw), None, ws) == _bzip2.ERR_INPUT
+    assert _bzip2.decode(src, 0, src.size, dst, 0, len(raw) - 1, None, ws) == _bzip2.ERR_SPACE
+    bad = np.frombuffer(z, np.uint8).copy()
+    bad[len(z) // 2] ^= 4                       # (caught by the block CRC at worst)
+    assert _bzip2.decode(bad, 0, bad.size, dst, 0, len(raw), None, ws) < 0
+
+
+def test_bzip2_numba_equals_libbzip2():
+    """Levels 1-9, several blocks, runs longer than the RLE1 limit, every
+    byte value, empty input."""
+    import bz2
+    r = np.random.default_rng(3)
+    side = 600
+    x = np.cumsum(np.cumsum(r.standard_normal((side, side)), 0), 1).astype('f4').tobytes()
+    datas = [b'', b'a', bytes(range(256)) * 9, bytes(300000), x, x[:5000] * 7,
+             np.repeat(r.integers(0, 256, 3000, dtype=np.uint8), r.integers(1, 600, 3000)).tobytes()]
+    ws = np.zeros(_bzip2.workspace_size(0), np.uint8)
+    for raw in datas:
+        for lev in (1, 5, 9):
+            z = bz2.compress(raw, lev)
+            src = np.frombuffer(z, np.uint8)
+            dst = np.zeros(len(raw) + 8, np.uint8)
+            assert _bzip2.decode(src, 0, src.size, dst, 0, len(raw), None, ws) == len(raw)
+            assert dst[:len(raw)].tobytes() == raw == _bzip2.decode_py(z, len(raw), (lev,))
 
 
 # ------------------------------------------------------------------ fuzz
@@ -318,7 +345,7 @@ def _fuzz_inputs():
     out = []
     for key, want_ids in (('filters_hdf/szip.h5', {4}), ('filters_hdf/szip_nbit.h5', {4}),
                           ('filters_hdf/scaleoffset.h5', {6}), ('filters_hdf/nbit.h5', {5}),
-                          ('filters_hdf/fletcher.h5', {3})):
+                          ('filters_hdf/fletcher.h5', {3}), ('filters_hdf/bzip2.h5', {307})):
         b, dsets = _load(key)
         names = sorted(dsets)[::max(1, len(dsets) // 40)]
         for name in names:
@@ -370,7 +397,7 @@ def test_fuzz_cd_values():
     r = np.random.default_rng(99)
     src = r.integers(0, 256, 3000, dtype=np.uint8)
     src[:4] = np.frombuffer((1000).to_bytes(4, 'little'), np.uint8)
-    for mod in (_szip, _nbit, _scaleoffset, _shuffle):
+    for mod in (_szip, _nbit, _scaleoffset, _shuffle, _bzip2):
         for _ in range(300):
             n = int(r.integers(0, 30))
             vals = r.integers(0, 70, n)
@@ -380,7 +407,7 @@ def test_fuzz_cd_values():
             if mod is _nbit and n:
                 cd[3] = n
             dst = np.full(1200, 0x5A, np.uint8)
-            ws = np.zeros(2000, np.uint8)
+            ws = np.zeros(max(2000, mod.workspace_size(1000)), np.uint8)
             end = mod.decode(src, 0, src.size, dst, 100, 1100, cd, ws)
             assert end < 0 or 100 <= end <= 1100
             assert (dst[:100] == 0x5A).all() and (dst[1100:] == 0x5A).all()
