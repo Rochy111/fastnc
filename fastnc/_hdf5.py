@@ -270,7 +270,8 @@ def parse_datatype(b, at):
 # ---------------------------------------------------------------- messages
 
 class Layout:
-    """Data layout (IV.A.2.i): `cls` 0 compact, 1 contiguous, 2 chunked."""
+    """Data layout (IV.A.2.i): `cls` 0 compact, 1 contiguous, 2 chunked,
+    3 virtual (`data`: the global heap collection and index of its mappings)."""
     __slots__ = ('cls', 'address', 'size', 'data', 'chunks', 'index', 'index_info',
                  'single_size', 'single_mask', 'flags', 'version')
 
@@ -425,6 +426,11 @@ class Dataset:
         self.null = self.shape is None                  # a null dataspace: no values at all
         if self.null:
             self.shape = self.maxshape = ()
+        if None in self.maxshape and _is_virtual(b, h.first(8)):
+            # an unlimited virtual dataset is as long as its sources are now
+            # (HDF5 works its extent out when the dataset is opened)
+            from . import _vds
+            self.shape = _vds.current_shape(self)
 
     # layout, filters and fill value are parsed when first wanted: opening a
     # file of hundreds of variables needs only their shapes and types
@@ -452,6 +458,15 @@ class Dataset:
         return self.type.dtype
 
     @property
+    def external(self):
+        """[(file name, offset, size)] of the raw data files holding the
+        values (External Data Files message), or None."""
+        if not hasattr(self, '_external'):
+            m = self.header.first(7)
+            self._external = self.file.parse_external(m) if m is not None else None
+        return self._external
+
+    @property
     def chunks(self):
         lay = self.layout
         return tuple(lay.chunks) if lay.cls == 2 else None
@@ -467,6 +482,11 @@ class Dataset:
     def chunk_arrays(self):
         """The chunk table as arrays where the index allows (else None)."""
         return self.file.chunk_arrays(self)
+
+
+def _is_virtual(b, m):
+    """True for a layout message of class 3 (virtual)."""
+    return m is not None and b[m[2]] >= 3 and b[m[2] + 1] == 3
 
 
 # ---------------------------------------------------------------- the file
@@ -539,10 +559,15 @@ class H5File:
         self._pio = None
 
     def close(self):
-        """Close the positional reader, if one was made."""
+        """Close the positional reader, if one was made, and the files that
+        virtual datasets and external storage read from."""
         r, self._pio = self._pio, None
         if r is not None:
             r.close()
+        linked = self.__dict__.pop('linked', None)
+        if linked:
+            from . import _vds
+            _vds.close_linked(linked)
 
     # -- remote files: bytes asked for before they are read (local: no-ops)
     def need(self, at, n):
@@ -746,10 +771,31 @@ class H5File:
                     raise FormatError('unknown chunk index type %d' % itype)
                 lay.address = self.offset(p)
         elif cls == 3:
-            pass                                        # virtual: refused when read
+            lay.data = (self.offset(p), _u32(b, p + O)[0])  # the mappings' global heap object
         else:
             raise FormatError('unknown layout class %d' % cls)
         return lay
+
+    def parse_external(self, m):
+        """The External Data Files message (IV.A.2.g): [(name, offset in
+        that file, size)], names from the message's local heap."""
+        b = self.b
+        p = m[2]
+        O, L = self.O, self.L
+        used = _u16(b, p + 6)[0]
+        heap = self.addr(self.offset(p + 8))
+        self.need(heap, 8 + 2 * L + O)
+        if bytes(b[heap:heap + 4]) != b'HEAP':
+            raise FormatError('bad local heap of an external file list')
+        data = self.addr(self.offset(heap + 8 + 2 * L))
+        self.need(data, self.length(heap + 8))
+        out = []
+        p += 8 + O
+        for _ in range(used):
+            name = self._cstr(data + self.length(p))
+            out.append((name, self.length(p + L), self.length(p + 2 * L)))
+            p += 3 * L
+        return out
 
     def parse_fill(self, h, dtype):
         """The fill value's bytes, or None when undefined (HDF5's default:
