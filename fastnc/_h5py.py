@@ -11,7 +11,28 @@ import posixpath
 
 import numpy as np
 
-from . import _h5read, _hdf5, _remote, _select
+from . import _h5read, _hdf5, _select
+
+
+class _LazyRemote:
+    """fastnc._remote, imported when a URL or file object is opened: its
+    HTTP machinery (http.client, ssl, urllib) costs ~40 ms to import, a
+    fifth of a fresh process's first local read."""
+
+    def __getattr__(self, name):
+        from . import _remote
+        return getattr(_remote, name)
+
+    @staticmethod
+    def open_source(name, storage_options=None):
+        import os
+        if isinstance(name, os.PathLike) or (isinstance(name, str) and '://' not in name):
+            return None
+        from . import _remote
+        return _remote.open_source(name, storage_options)
+
+
+_remote = _LazyRemote()
 
 
 class Reference:
