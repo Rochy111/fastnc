@@ -313,3 +313,65 @@ scale, readahead and the rest. What it showed, and what came of it:
   GOES-19 C02 65 -> 54, AVHRR 5.4 -> 4.8, Ku 3.4 -> 3.1, WRF on one thread
   174 -> 135 (all threads: 18.9 -> 18.5, it is bound elsewhere); MODIS
   (one 33 MB stream per band, decoded in parallel by _pinflate) unchanged.
+
+## Round 5 (2026-10-30): from what the streams contain
+
+`stream_stats.py` walks the real deflate streams symbol by symbol:
+
+| file | chunks repeated | literals of symbols | bytes from literals | bits a literal | mean match | blocks / MB |
+|---|---|---|---|---|---|---|
+| WRF d01 | 35% | 88% | 28% | 8.0 | 19 | 22 |
+| VIIRS | 51% | 91% | 23% | 7.8 | 33 | 19 |
+| MODIS 1 km | 0% | 90% | 34% | 7.5 | 17 | 23 |
+| GOES-19 C02 | 1% | 86% | 14% | 8.1 | 35 | 13 |
+| GOES-19 C13 | 0% | 92% | 25% | 8.0 | 36 | 19 |
+| RCM | 9% | 74% | 5% | 7.9 | 57 | 4 |
+| Ku | 0% | 99% | 82% | 8.0 | 24 | 2886 |
+
+`inflate_costs.py` times 2,200 chunks one by one and fits time against
+their symbol counts (R2 0.90) -- costs without hardware counters:
+
+| one of each | fastnc inflate | libdeflate | share of the time |
+|---|---|---|---|
+| literal | 1.12 ns | 0.89 ns | ~39% |
+| switch between literals and a match | 10.8 ns | 10.0 ns | 33-39% |
+| match of distance 2-32 | ~55 ns | ~30 ns | 10-17% |
+| byte a match copies | 0.08 ns | 0.15 ns | 8-20% |
+| block | 631 ns | 569 ns | ~2% |
+
+So a match costs about 19 ns in every inflate (100 cycles), and it is
+not the copying.
+
+**Worked:**
+- Threads by the decoding to do, not the output: one column of VIIRS I05
+  (13 kB from ~200 chunks, on one thread) 60.8 -> 3.7 ms.
+- netCDF-3 runs copied and swapped in one pass out of the mapping, not read
+  then swapped: WRF d02 open + load 56 -> 46 ms, again on the same open file
+  55 -> 31 ms. (The file's pages mapped once, the pass alone is 23 ms.)
+- libdeflate without its Adler-32 check, which fastnc's inflate never did:
+  4-7% (VIIRS 539 -> 514 ms, MODIS 383 -> 355, GOES-19 C02 822 -> 800).
+- Short periods in fastnc's inflate widened to 8 bytes, not copied byte by
+  byte: 1-3% (the fit made this look bigger).
+
+**Did not work:**
+- Copying 64 bytes a match unconditionally, to avoid a branch miss on the
+  length: no change at all (1019 -> 1019 ms): the copy is not the cost.
+- Decoding several chunks at once in one thread (interleaved streams),
+  worked out from the fit and not built: literals, the only part it speeds
+  up, are ~39% of the time, and every match stalls all streams; at best
+  ~1.4x before its overhead, against libdeflate's lead over any numba code.
+- A second hardware thread gives 1.47x on one core (a second core 1.85x), so
+  hyperthreading already takes much of what interleaving would.
+- Pinning threads: 24 threads on a long decode (3 GB of GOES-19) 25.9 GB/s
+  placed by the OS, 26.8 with an ideal-processor hint, 27.5 pinned. Not
+  worth what pinning does to other processes. (Short runs misled: 2 ms of
+  work measured 34 GB/s on 16 threads.)
+- VirtualLock to fault fresh memory in one call: 237 ms per GB, against 91
+  touching it on one thread and 19 on 24. Page faults do scale with threads
+  (an older note here said not).
+- Repeated chunks: decoding only one of each saves 12% of VIIRS's inflate and
+  nothing elsewhere: repeats are constants, the cheapest chunks there are.
+- The mapping for HDF5's scattered unfiltered chunks: Metop-SG open + load
+  22 -> 36 ms (again on the same file 13 -> 8): staging stays.
+- Lookup tables for netCDF4-style masked reads: at most 5-10%; in numpy,
+  `np.take` is 2.3 ns a value and VIIRS went 232 -> 864 ms.

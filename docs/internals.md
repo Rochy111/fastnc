@@ -12,7 +12,8 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 | `_h5py` | The h5py front end: `File`, `Group`, `Dataset`, `AttributeManager`, `Datatype`, `Reference`, `Empty` |
 | `_xarray` | `engine='fastnc'`: a data store over `_dataset`, xarray's CF decoding on top; `preload=True`, URLs, file objects |
 | `_nc4` | netCDF-4 as netCDF-c reads it out of HDF5: dimension scales, `_Netcdf4Dimid`, `DIMENSION_LIST`, phony dimensions, hidden attributes, NC_CHAR / NC_STRING, compounds with `align=True`, user types, `no_fill` |
-| `_nc3` | netCDF-3 classic, 64-bit offset, CDF-5: header, positional reads straight into the output with the byte swap in cache |
+| `_nc3` | netCDF-3 classic, 64-bit offset, CDF-5: header; big runs copied and swapped in one pass out of the mapping once the kernels are loaded, else positional reads straight into the output |
+| `_hw`, `_tune` | The machine, looked at once a process: CPUs allowed, cores, memory, cache, and the budgets and block sizes that follow; `fastnc.tune()`'s measurements, kept per machine |
 | `_hdf4`, `_hdf4_codecs` | HDF4 SD files as netCDF-c's HDF4 dispatch presents them; RLE, N-bit and skipping-Huffman decoders |
 | `_hdf5` | HDF5 from its bytes: superblocks, object headers, groups (symbol tables, compact and dense links), attributes, datatypes, fill values, filter pipelines, every chunk index |
 | `_h5read` | Raw values of one HDF5 dataset for an index (chunked, contiguous as virtual chunks, compact, vlen, reduced-precision types) and `read_many` |

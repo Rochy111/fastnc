@@ -32,6 +32,7 @@ SETTINGS = {
     'tiny-kernels': dict(TINY, KERNELS=True),
     'tiny-kernels-handles': dict(TINY, KERNELS=True, _IO=_nc3._Handles),
     'tiny-1-thread': dict(TINY, KERNELS=True, threads=1),
+    'out-of-the-mapping': dict(TINY, KERNELS=True, PAR_MIN=16, RUN_MIN=4, MAP_MAX=2, SWAP_NUMPY=2),
 }
 
 
@@ -311,3 +312,42 @@ def test_swap_kernel():
                 if es > 1:
                     want[lo:hi] = a[lo:hi].reshape(-1, es)[:, ::-1].reshape(-1)
                 assert (b == want).all(), (es, lo, n)
+
+
+def test_swap_copy_kernel():
+    """Copied and swapped in one pass: the same bytes as a copy, then a swap."""
+    rng = np.random.default_rng(2)
+    a = rng.integers(0, 256, 1000, dtype=np.uint8)
+    for es in (1, 2, 4, 8):
+        for lo, o in ((0, 0), (1, 3), (3, 8), (8, 5)):
+            for n in (0, 1, 7, 13, 100):
+                nb = np.array([n * es, 3 * es], np.int64)
+                fo = np.array([lo, lo + n * es], np.int64)
+                oo = np.array([o, o + n * es], np.int64)
+                got = np.zeros(1100, np.uint8)
+                ctr = np.zeros(1, np.int64)
+                _nc3._swap_copy(a, fo, got, oo, nb, es, ctr)
+                want = np.zeros(1100, np.uint8)
+                m = int(nb.sum())
+                want[o:o + m] = a[lo:lo + m]
+                if es > 1:
+                    want[o:o + m] = want[o:o + m].reshape(-1, es)[:, ::-1].reshape(-1)
+                assert got.tobytes() == want.tobytes(), (es, lo, o, n)
+
+
+def test_big_runs_come_out_of_the_mapping(edge_dir, monkeypatch):
+    """A big contiguous read with the kernels takes the fused path."""
+    import glob
+    calls = []
+    real = _nc3._swap_copy
+    monkeypatch.setattr(_nc3, '_swap_copy', lambda *a: (calls.append(1), real(*a))[1])
+    for k, v in SETTINGS['out-of-the-mapping'].items():
+        monkeypatch.setattr(_nc3, k, v)
+    import fastnc
+    fastnc.warm()
+    for path in sorted(glob.glob(os.path.join(DATA, 'nc3_*.nc'))):
+        with fastnc.Dataset(path) as d:
+            d.set_auto_maskandscale(False)
+            for v in d.variables.values():
+                v[...]
+    assert calls

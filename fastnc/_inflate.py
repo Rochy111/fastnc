@@ -520,8 +520,17 @@ def inflate(src, p, pend, dst, o0, oend, ostop, tab, iws):
                     st64(dst, o + k, w)
                     k += 8
             else:
-                for k in range(length):
+                # a short period (2-7): the first eight bytes one by one, then
+                # eight at a time from a whole number of periods back, at
+                # least eight bytes (a period's multiple is a period): long
+                # runs of these were 60 ns a match, byte by byte
+                for k in range(8):
                     dst[o + k] = dst[s + k]
+                m = dist * (7 // dist + 1)
+                k = 8
+                while k < length:
+                    st64(dst, o + k, ld64(dst, o + k - m))
+                    k += 8
             o += length
         if eob:
             continue
@@ -612,17 +621,17 @@ def zlib_inflate(src, p, pend, dst, o0, oend, ostop, tab, iws):
     """inflate() of a zlib stream (2-byte header, deflate, Adler-32 trailer,
     which is not checked). A whole stream wanted, and libdeflate's address
     in the workspace: libdeflate decodes it (~1.15-1.3x this inflate on the
-    real files); if it does not fill exactly oend - o0 bytes (or rejects
-    the stream: a bad Adler-32 too), this inflate does -- its answer, as
-    before, whatever libdeflate thought."""
-    if ostop == oend and iws.shape[0] > NATIVE + 1 and iws[NATIVE] != 0:
-        r = call_inflate(iws[NATIVE], iws[NATIVE + 1], src, p, pend - p, dst, o0, oend - o0)
-        if r == oend - o0:
-            return oend
+    real files), as raw deflate: the trailer is not checked either way, and
+    its check was 4-6% of libdeflate's time. If it does not fill exactly
+    oend - o0 bytes or rejects the stream, this inflate answers."""
     if pend - p < 2:
         return ERR_INPUT
     cmf = np.int64(src[p])
     flg = np.int64(src[p + 1])
     if (cmf & 15) != 8 or (cmf >> 4) > 7 or ((cmf << 8) | flg) % 31 != 0 or (flg & 32):
         return ERR_DATA
+    if ostop == oend and iws.shape[0] > NATIVE + 1 and iws[NATIVE] != 0:
+        r = call_inflate(iws[NATIVE], iws[NATIVE + 1], src, p + 2, pend - p - 2, dst, o0, oend - o0)
+        if r == oend - o0:
+            return oend
     return inflate(src, p + 2, pend, dst, o0, oend, ostop, tab, iws)

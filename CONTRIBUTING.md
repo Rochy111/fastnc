@@ -161,10 +161,13 @@ on fastnc's own thread pool. What has been measured to matter (see
 - **Never write outside the output range you were given**: kernels run on
   many threads writing into one shared output array. Unaligned word loads
   and stores and an atomic counter are in `fastnc/_intrin.py`.
-- **No fresh large arrays per chunk** in code that runs on every core: page
-  faults do not run in parallel (on Windows ~0.45 ms per 4 MB, on any number
-  of threads). Reuse per-thread scratch (`ws`) or write into the caller's
+- **No fresh large arrays per chunk** in code that runs on every core: fresh
+  memory costs a page fault per 4 kB (on Windows 91 ms per GB on one thread,
+  19 ms on 24). Reuse per-thread scratch (`ws`) or write into the caller's
   array.
+- **Nothing tuned to one machine.** Thread counts come from `_pool`, memory
+  held between reads scales with `_hw.scaled`, block sizes with `_hw.block`;
+  what can only be measured belongs in `fastnc.tune()`.
 - Codecs follow the `decode(src, p, pend, dst, o, oend, cd, ws)` contract of
   `docs/contracts.md` section 1, and are tested byte for byte against the
   reference decoder.

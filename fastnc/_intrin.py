@@ -55,7 +55,7 @@ def take(typingctx, ctr, i):
 
 @intrinsic
 def call_inflate(typingctx, fp, dec, src, a, n, dst, o, cap):
-    """libdeflate_zlib_decompress(dec, src+a, n, dst+o, cap, &got) through
+    """libdeflate_deflate_decompress(dec, src+a, n, dst+o, cap, &got) through
     the function pointer fp (an int: no ctypes object in the kernel, so
     numba still caches it); got, or -1 when it fails (a bad stream, more
     than cap, or less: the caller decides what to do then)."""

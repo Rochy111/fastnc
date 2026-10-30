@@ -746,6 +746,16 @@ def _read_runs(f, big, es, base, outer, run, nruns, res):
         nb = np.tile(sizes, nruns)
     else:
         nb = np.full(nruns, run, np.int64)
+    if kern and total > PAR_MIN and f._remote is None:
+        # one fused pass out of the mapping: read then swap in place took
+        # 53 ms for WRF d02's 800 MB; this 44, and 23 once its pages are
+        # mapped (a later read of the same open file)
+        src = f._source()
+        if int((offs + nb).max()) <= src.size:
+            ctr = np.zeros(1, np.int64)
+            _pool.share(lambda: _swap_copy(src, offs, u8, oo, nb, es, ctr),
+                        min(len(offs), _pool.threads()))
+            return
     fo, oo, nb = offs.tolist(), oo.tolist(), nb.tolist()
     npieces = len(fo)
     small = total <= SWAP_NUMPY or not swap
@@ -860,6 +870,42 @@ def _swap(a, lo, hi, es):
             a[i + es - 1 - j] = t
         i += es
     return 0
+
+
+@njit(cache=True, nogil=True)
+def _swap_copy(src, fo, dst, oo, nb, es, ctr):
+    """Pieces taken off ctr[0]: dst[oo[i]:] = src[fo[i]:], nb[i] bytes of
+    es-byte values, big-endian to native in the one pass."""
+    n = fo.shape[0]
+    while True:
+        i = take(ctr, 0)
+        if i >= n:
+            return
+        a, b, m = fo[i], oo[i], nb[i]
+        n8 = m // 8
+        if es == 2:
+            for k in range(n8):
+                x = ld64(src, a + k * 8)
+                st64(dst, b + k * 8, ((x & _M8) << _S8) | ((x >> _S8) & _M8))
+        elif es == 4:
+            for k in range(n8):
+                x = ld64(src, a + k * 8)
+                x = ((x & _M8) << _S8) | ((x >> _S8) & _M8)
+                st64(dst, b + k * 8, ((x & _M16) << _S16) | ((x >> _S16) & _M16))
+        elif es == 8:
+            for k in range(n8):
+                x = ld64(src, a + k * 8)
+                x = ((x & _M8) << _S8) | ((x >> _S8) & _M8)
+                x = ((x & _M16) << _S16) | ((x >> _S16) & _M16)
+                st64(dst, b + k * 8, (x << _S32) | (x >> _S32))
+        else:
+            for k in range(n8):
+                st64(dst, b + k * 8, ld64(src, a + k * 8))
+        t = n8 * 8
+        while t < m:                            # the tail, value by value
+            for j in range(es):
+                dst[b + t + j] = src[a + t + es - 1 - j]
+            t += es
 
 
 @njit(cache=True, nogil=True)

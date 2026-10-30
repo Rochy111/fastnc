@@ -344,6 +344,8 @@ references.
 | `xr.open_dataset(p, engine='fastnc', preload=False)` | xarray, same Dataset as `engine='netcdf4'` |
 | `fastnc.set_threads(n)`, `FASTNC_THREADS` | how many threads (default: every logical CPU) |
 | `fastnc.warm()` | load numba and the kernels now (else they load once reading without them has taken a second); for worker pools: `ProcessPoolExecutor(initializer=fastnc.warm)` |
+| `fastnc.hardware()` | what fastnc found here: CPUs allowed, cores, memory, cache, the threads it will use |
+| `fastnc.tune()` | time real decoding on this machine, once, and keep what suits it (optional: everything adapts without it) |
 | `fastnc.release()` | free the memory kept between reads |
 | `storage_options={...}` | remote: `region`, `endpoint_url`, `headers`, `timeout`, ... |
 

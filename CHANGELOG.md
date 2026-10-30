@@ -47,6 +47,14 @@ a bug.
   libdeflate-style table builds, faster whole-dataset plans; without the
   kernels, per-chunk work vectorized and many small deflated chunks
   staged (Ku-band 199 -> 32 ms).
+- **Adapts to the machine**: `fastnc.hardware()`, `fastnc.tune()`; threads
+  follow the CPUs a process may use (affinity, container quotas), memory
+  budgets the RAM available, block sizes the L2 cache, and numba's load
+  point the load time measured there.
+- Threads are chosen by the decoding to do, not the output: one column of
+  a VIIRS variable 60.8 -> 3.7 ms. netCDF-3 runs copied and swapped in one
+  pass out of the mapping (WRF d02 56 -> 46 ms, again on an open file 55 ->
+  31). libdeflate without its checksum: 4-7%.
 - Packaging (`pyproject.toml`), MIT license, a CI workflow for Linux /
   Windows / macOS, Python 3.9-3.13, numpy 1 and 2, with and without the
   kernels. (Its runs so far: Windows green throughout; Linux and macOS
