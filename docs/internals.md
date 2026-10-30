@@ -107,6 +107,12 @@ dimensions, reverse negative steps, pick integer/boolean sequences).
    variables keeps every core busy.
 
 Small reads use fewer threads (a thread per ~32 kB of output at most).
+A small part of a few shuffled chunks (a point, a level, a window: a
+shuffle allows no early stop, so each read decoded whole chunks) goes
+through a cache of decoded chunks (`_chunks._cached`): from a chunk's
+second read on it is decoded whole, by the same batch kernel, and kept
+(least recently used out first, 32 MB for all datasets; `fastnc.release()`
+empties it).
 
 **Contiguous datasets** of 256 kB or more are read as *virtual chunks*
 (`_h5read._virtual_index`): runs of about 1 MB of the file whose addresses
@@ -205,7 +211,11 @@ literal/length and 8-bit distance tables with subtables; an entry packs
 the code length, kind, extra-bit count and base), and a fast loop while 16
 input and 274 output bytes remain: no bounds checks per symbol, up to
 three literals per refill, 16-byte match copies, word fills for distance-1
-runs. Byte-identical to zlib on every chunk of the real files; 0.85-1.5
+runs. Tables are built as libdeflate builds them (symbols sorted by
+length, each length's entries written once and the table doubled up), and
+the fixed code's tables stay in place while blocks keep using them
+(`tab[FIXED]`; a workspace that is not zeroed must clear it, as `_blosc`
+does). Byte-identical to zlib on every chunk of the real files; 0.9-1.7
 GB/s on one core on real data where `zlib.decompress` does 0.4-0.6.
 Adler-32 is not checked.
 

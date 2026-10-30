@@ -87,6 +87,21 @@ def _plan(index, shape, sel):
     rank = len(shape)
     off = index.offsets
     C = index.chunks
+    if rank and all(s == 0 and e >= n and k == 1 for (s, e, k), n in zip(sel, shape)):
+        # the whole dataset (a load): every chunk inside the shape kept as it is
+        sh = np.array(shape, np.int64)
+        if bool((off < sh).all()) and bool((off >= 0).all()):
+            p = Plan()
+            p.addr, p.size, p.mask = index.addr, index.size, index.mask
+            p.cstart = np.zeros_like(off)
+            p.count = np.ascontiguousarray(np.minimum(C, sh - off))
+            p.ostart = np.ascontiguousarray(off)
+            cstr = np.ones(rank, np.int64)
+            for d in range(rank - 2, -1, -1):
+                cstr[d] = cstr[d + 1] * C[d + 1]
+            p.needend = ((p.count - 1) * cstr).sum(axis=1) + 1
+            p.fill_needed = not index.complete and len(off) < index.ngrid
+            return p
     keep = np.ones(len(off), bool)
     cstart = np.empty_like(off)
     count = np.empty_like(off)
@@ -137,6 +152,130 @@ def _plan(index, shape, sel):
 
 # ---------------------------------------------------------------- kernels
 
+# Undoing the byte shuffle eight elements at a time: a word of each byte
+# plane loaded, the planes' bytes interleaved with shifts and masks (bytes
+# spread to every other byte, then 16-bit units to every other unit, ...),
+# whole words stored. LLVM vectorizes these; byte by byte the same work ran
+# at 3-4 GB/s (a third of a shuffled read's decoding on one thread), this
+# at 17-25 GB/s.
+
+@njit(cache=True, nogil=True)
+def _sp8(x):
+    """The low four bytes of x spread to the even bytes of a word."""
+    u = np.uint64
+    x &= u(0xFFFFFFFF)
+    x = (x | (x << u(16))) & u(0x0000FFFF0000FFFF)
+    return (x | (x << u(8))) & u(0x00FF00FF00FF00FF)
+
+
+@njit(cache=True, nogil=True)
+def _sp16(x):
+    """The low two 16-bit units of x spread to the even units of a word."""
+    u = np.uint64
+    x &= u(0xFFFFFFFF)
+    return (x | (x << u(16))) & u(0x0000FFFF0000FFFF)
+
+
+@njit(cache=True, nogil=True)
+def _unshuffle2(sc, p0, p1, out, b, n):
+    """n 2-byte elements to out[b:], byte k of each from plane sc[pk:]."""
+    u = np.uint64
+    j = 0
+    while j + 8 <= n:
+        x = ld64(sc, p0 + j)
+        y = ld64(sc, p1 + j)
+        st64(out, b, _sp8(x) | (_sp8(y) << u(8)))
+        st64(out, b + 8, _sp8(x >> u(32)) | (_sp8(y >> u(32)) << u(8)))
+        b += 16
+        j += 8
+    while j < n:
+        out[b] = sc[p0 + j]
+        out[b + 1] = sc[p1 + j]
+        b += 2
+        j += 1
+
+
+@njit(cache=True, nogil=True)
+def _unshuffle4(sc, p0, p1, p2, p3, out, b, n):
+    """n 4-byte elements to out[b:], byte k of each from plane sc[pk:]."""
+    u = np.uint64
+    j = 0
+    while j + 8 <= n:
+        x0 = ld64(sc, p0 + j)
+        x1 = ld64(sc, p1 + j)
+        x2 = ld64(sc, p2 + j)
+        x3 = ld64(sc, p3 + j)
+        a0 = _sp8(x0) | (_sp8(x1) << u(8))                 # bytes 0-1 of elements 0-3
+        a1 = _sp8(x0 >> u(32)) | (_sp8(x1 >> u(32)) << u(8))
+        c0 = _sp8(x2) | (_sp8(x3) << u(8))                 # bytes 2-3
+        c1 = _sp8(x2 >> u(32)) | (_sp8(x3 >> u(32)) << u(8))
+        st64(out, b, _sp16(a0) | (_sp16(c0) << u(16)))
+        st64(out, b + 8, _sp16(a0 >> u(32)) | (_sp16(c0 >> u(32)) << u(16)))
+        st64(out, b + 16, _sp16(a1) | (_sp16(c1) << u(16)))
+        st64(out, b + 24, _sp16(a1 >> u(32)) | (_sp16(c1 >> u(32)) << u(16)))
+        b += 32
+        j += 8
+    while j < n:
+        out[b] = sc[p0 + j]
+        out[b + 1] = sc[p1 + j]
+        out[b + 2] = sc[p2 + j]
+        out[b + 3] = sc[p3 + j]
+        b += 4
+        j += 1
+
+
+@njit(cache=True, nogil=True)
+def _unshuffle8(sc, p0, nel, swap, out, b, n):
+    """n 8-byte elements to out[b:], byte k of each from plane k (planes nel
+    bytes apart from sc[p0:]; reversed if swap)."""
+    u = np.uint64
+    lo = u(0xFFFFFFFF)
+    hi = u(0xFFFFFFFF00000000)
+    d = -nel if swap else nel                  # from plane to plane
+    q0 = p0 + 7 * nel if swap else p0
+    j = 0
+    while j + 8 <= n:
+        x0 = ld64(sc, q0 + 0 * d + j)
+        x1 = ld64(sc, q0 + 1 * d + j)
+        x2 = ld64(sc, q0 + 2 * d + j)
+        x3 = ld64(sc, q0 + 3 * d + j)
+        x4 = ld64(sc, q0 + 4 * d + j)
+        x5 = ld64(sc, q0 + 5 * d + j)
+        x6 = ld64(sc, q0 + 6 * d + j)
+        x7 = ld64(sc, q0 + 7 * d + j)
+        a0 = _sp8(x0) | (_sp8(x1) << u(8))                 # bytes 0-1, elements 0-3
+        a1 = _sp8(x0 >> u(32)) | (_sp8(x1 >> u(32)) << u(8))
+        c0 = _sp8(x2) | (_sp8(x3) << u(8))                 # bytes 2-3
+        c1 = _sp8(x2 >> u(32)) | (_sp8(x3 >> u(32)) << u(8))
+        e0 = _sp8(x4) | (_sp8(x5) << u(8))                 # bytes 4-5
+        e1 = _sp8(x4 >> u(32)) | (_sp8(x5 >> u(32)) << u(8))
+        g0 = _sp8(x6) | (_sp8(x7) << u(8))                 # bytes 6-7
+        g1 = _sp8(x6 >> u(32)) | (_sp8(x7 >> u(32)) << u(8))
+        L0 = _sp16(a0) | (_sp16(c0) << u(16))              # bytes 0-3, elements 0-1
+        L1 = _sp16(a0 >> u(32)) | (_sp16(c0 >> u(32)) << u(16))
+        L2 = _sp16(a1) | (_sp16(c1) << u(16))
+        L3 = _sp16(a1 >> u(32)) | (_sp16(c1 >> u(32)) << u(16))
+        H0 = _sp16(e0) | (_sp16(g0) << u(16))              # bytes 4-7
+        H1 = _sp16(e0 >> u(32)) | (_sp16(g0 >> u(32)) << u(16))
+        H2 = _sp16(e1) | (_sp16(g1) << u(16))
+        H3 = _sp16(e1 >> u(32)) | (_sp16(g1 >> u(32)) << u(16))
+        st64(out, b, (L0 & lo) | (H0 << u(32)))
+        st64(out, b + 8, (L0 >> u(32)) | (H0 & hi))
+        st64(out, b + 16, (L1 & lo) | (H1 << u(32)))
+        st64(out, b + 24, (L1 >> u(32)) | (H1 & hi))
+        st64(out, b + 32, (L2 & lo) | (H2 << u(32)))
+        st64(out, b + 40, (L2 >> u(32)) | (H2 & hi))
+        st64(out, b + 48, (L3 & lo) | (H3 << u(32)))
+        st64(out, b + 56, (L3 >> u(32)) | (H3 & hi))
+        b += 64
+        j += 8
+    while j < n:
+        for k in range(8):
+            out[b + k] = sc[q0 + k * d + j]
+        b += 8
+        j += 1
+
+
 @njit(cache=True, nogil=True)
 def _place(sc, s0, nel, out, cstart, count, ostart, cstr, ostr, step, rank, esize,
            shuffled, swap):
@@ -173,7 +312,23 @@ def _place(sc, s0, nel, out, cstart, count, ostart, cstr, ostr, step, rank, esiz
                     for k in range(esize):
                         out[b + k] = sc[a + k]
         elif shuffled:
-            if swap:
+            if st_last == 1 and (esize == 2 or esize == 4 or esize == 8):
+                # whole words at a time (a swap is the byte planes reversed)
+                p0 = s0 + se
+                b = de * esize
+                if esize == 2:
+                    if swap:
+                        _unshuffle2(sc, p0 + nel, p0, out, b, n_last)
+                    else:
+                        _unshuffle2(sc, p0, p0 + nel, out, b, n_last)
+                elif esize == 4:
+                    if swap:
+                        _unshuffle4(sc, p0 + 3 * nel, p0 + 2 * nel, p0 + nel, p0, out, b, n_last)
+                    else:
+                        _unshuffle4(sc, p0, p0 + nel, p0 + 2 * nel, p0 + 3 * nel, out, b, n_last)
+                else:
+                    _unshuffle8(sc, p0, nel, swap, out, b, n_last)
+            elif swap:
                 for j in range(n_last):
                     e = se + j * st_last
                     b = (de + j) * esize
@@ -836,9 +991,110 @@ def read(ds, index, src, sel, out, swap=False, threads=None, bands=None):
     array with one dimension per dataset dimension, sized to the selection
     (integer indexes as length one). swap: reverse each element's bytes as
     it is placed (big-endian numbers read as native)."""
+    if bands is None and _cached(ds, index, src, sel, out, swap, threads):
+        return out
     read_batch([Item(ds, index, sel, out, swap, 0)], src, out.reshape(-1).view(np.uint8), threads,
                bands)
     return out
+
+
+CACHE_BYTES = 32 << 20          # decoded chunks kept, all datasets together
+CACHE_CHUNKS = 16               # reads touching at most this many chunks go through it
+_CACHE = {}                     # (chunk index, address, swap) -> decoded chunk; LRU order
+_CACHE_HELD = [0]
+_SEEN = {}                      # (id of chunk index, address) of chunks read once (an id
+                                # reused after a file is gone: only a chunk kept early)
+_CACHE_LOCK = threading.Lock()
+
+
+def release_cache():
+    with _CACHE_LOCK:
+        _CACHE.clear()
+        _SEEN.clear()
+        _CACHE_HELD[0] = 0
+
+
+def _cached(ds, index, src, sel, out, swap, threads):
+    """Small parts of a few shuffled chunks, read through a cache of decoded
+    chunks: a loop reading points, or one level of a variable, decoded the
+    whole chunk again on every read (a byte shuffle allows no early stop).
+    The chunks not in the cache are decoded whole by one read_batch (the
+    same values, on as many threads) and kept (least recently used out
+    first, CACHE_BYTES in all; fastnc.release() empties it), and the
+    selection is copied out of them. False: not such a read."""
+    rank = len(ds.shape)
+    esize = ds.type.size
+    if rank == 0 or esize < 2 or out.ndim != rank or not any(f.id == F_SHUFFLE for f in ds.filters):
+        return False
+    C = index.chunks
+    cbytes = int(np.prod(C)) * esize
+    if cbytes * 2 > CACHE_BYTES:
+        return False
+    p = plan(index, ds.shape, sel)
+    n = len(p.addr)
+    if n == 0 or n > CACHE_CHUNKS or n * cbytes * 2 > CACHE_BYTES or out.nbytes * 2 > n * cbytes:
+        return False
+    if p.fill_needed:
+        _fill(out, ds)
+    start = np.array([s[0] for s in sel], np.int64)
+    step = np.array([s[2] for s in sel], np.int64)
+    origin = start + p.ostart * step - p.cstart         # each chunk's first element
+    swap = bool(swap)
+    hits = [None] * n
+    with _CACHE_LOCK:
+        for i in range(n):
+            key = (index, int(p.addr[i]), swap)
+            h = _CACHE.pop(key, None)
+            if h is not None:
+                _CACHE[key] = h                         # (now the most recent)
+                hits[i] = h
+    miss = [i for i in range(n) if hits[i] is None]
+    if miss:
+        # a chunk is kept from its second read on: a read made once (a fresh
+        # open's first window) costs what it did, not a whole-chunk decode
+        with _CACHE_LOCK:
+            new = [i for i in miss if _SEEN.setdefault((id(index), int(p.addr[i])), False)
+                   is False]
+            for i in new:
+                _SEEN[id(index), int(p.addr[i])] = True
+            if len(_SEEN) > 1 << 16:
+                _SEEN.clear()
+        if new:
+            return False
+        items, shapes, base = [], [], 0
+        for i in miss:
+            o = [int(x) for x in origin[i]]
+            box = [(o[d], min(o[d] + int(C[d]), ds.shape[d]), 1) for d in range(rank)]
+            shapes.append(tuple(e - s for s, e, _ in box))
+            items.append((box, base))
+            base += (int(np.prod(shapes[-1])) * esize + 63) // 64 * 64
+        buf = np.empty(base, np.uint8)
+        batch = []
+        for (box, b0), shape in zip(items, shapes):
+            nb = int(np.prod(shape)) * esize
+            batch.append(Item(ds, index, box, buf[b0:b0 + nb].view(out.dtype).reshape(shape),
+                              swap, b0))
+        read_batch(batch, src, buf, threads)
+        with _CACHE_LOCK:
+            for (box, b0), shape, i in zip(items, shapes, miss):
+                nb = int(np.prod(shape)) * esize
+                h = buf[b0:b0 + nb].reshape(shape + (esize,))
+                h = hits[i] = h.copy() if len(miss) > 1 else h   # (each freed on its own)
+                key = (index, int(p.addr[i]), swap)
+                old = _CACHE.pop(key, None)
+                if old is not None:
+                    _CACHE_HELD[0] -= old.nbytes
+                _CACHE[key] = h
+                _CACHE_HELD[0] += nb
+            while _CACHE_HELD[0] > CACHE_BYTES and _CACHE:
+                _CACHE_HELD[0] -= _CACHE.pop(next(iter(_CACHE))).nbytes
+    ob = out.reshape(-1).view(np.uint8).reshape(out.shape + (esize,))
+    for i in range(n):
+        cs, cn, os_ = p.cstart[i], p.count[i], p.ostart[i]
+        ob[tuple(slice(int(os_[d]), int(os_[d] + cn[d])) for d in range(rank))] = \
+            hits[i][tuple(slice(int(cs[d]), int(cs[d] + (cn[d] - 1) * step[d] + 1), int(step[d]))
+                          for d in range(rank))]
+    return True
 
 
 def _fill(out, ds):

@@ -10,14 +10,38 @@ own dimension independently, unlike numpy's fancy indexing).
 import numpy as np
 
 
+_S = object()                   # tags a slice in a memo key (a user's tuple cannot hold it)
+_MEMO = {}                      # (shape, key) -> (box, None, drop): a read normalizes its
+                                # index up to three times (Variable, fused path, reader)
+
+
 def normalize(key, shape):
     """(box, post, drop): box is [(start, stop, step)] with step > 0 (and an
     empty box as start == stop); post a tuple of per-dimension indexes to
     apply to the box's values (None if nothing to do); drop the dimensions
     to remove (integer indexes)."""
-    rank = len(shape)
     if not isinstance(key, tuple):
         key = (key,)
+    try:
+        # (with the types: 1.0 equals 1 but is no valid index)
+        hk = (tuple(shape), tuple((_S, type(k.start), k.start, type(k.stop), k.stop,
+                                   type(k.step), k.step) if type(k) is slice else (type(k), k)
+                                  for k in key))
+        r = _MEMO.get(hk)
+    except TypeError:                               # (arrays, lists: not memoized)
+        hk = r = None
+    if r is not None:
+        return list(r[0]), None, r[2]
+    r = _normalize(key, shape)
+    if hk is not None and r[1] is None:
+        if len(_MEMO) >= 4096:
+            _MEMO.clear()
+        _MEMO[hk] = (tuple(r[0]), None, r[2])
+    return r
+
+
+def _normalize(key, shape):
+    rank = len(shape)
     # expand Ellipsis
     if any(k is Ellipsis for k in key):
         i = next(j for j, k in enumerate(key) if k is Ellipsis)

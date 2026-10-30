@@ -9,10 +9,11 @@ from ._chunks import warm  # noqa: E402,F401
 
 
 def release():
-    """Free the memory fastnc keeps between reads: pooled output blocks and,
-    if the GPU was used, the page-locked upload buffer and cupy's pools."""
-    from . import _arena
+    """Free the memory fastnc keeps between reads: pooled output blocks,
+    decoded chunks kept for small reads and, if the GPU was used, the page-locked upload buffer and cupy's pools."""
+    from . import _arena, _chunks
     _arena.release()
+    _chunks.release_cache()
     import sys
     if 'fastnc._gpu' in sys.modules:
         sys.modules['fastnc._gpu'].release()
