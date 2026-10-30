@@ -18,6 +18,7 @@ import pytest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'tools', 'check'))
 import maskscale_codec as codec                          # noqa: E402
+from helpers import RECORDED_NUMPY                       # noqa: E402
 
 from fastnc import _maskscale as M                       # noqa: E402
 
@@ -46,9 +47,9 @@ def _decode(rec):
 def _run(rec, flags, fast):
     raw, attrs, dtype, key = _decode(rec)
     m, s, am, c = flags
-    save = M.FAST_MIN_SIZE, M.BLOCK
+    save = M.FAST_MIN_SIZE, M.BLOCK, M.NP_BLOCK
     if fast:
-        M.FAST_MIN_SIZE, M.BLOCK = 1, 5
+        M.FAST_MIN_SIZE, M.BLOCK, M.NP_BLOCK = 1, 5, 64
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
@@ -57,14 +58,39 @@ def _run(rec, flags, fast):
                 chartostring=bool(c), var_dtype=rec['kind'], no_fill=rec['no_fill'],
                 var_shape=tuple(rec['shape']), key=key))
     finally:
-        M.FAST_MIN_SIZE, M.BLOCK = save
+        M.FAST_MIN_SIZE, M.BLOCK, M.NP_BLOCK = save
+
+
+@pytest.fixture(autouse=True, params=['kernel', 'numpy'])
+def engine(request, monkeypatch):
+    """Every test twice: with the numba kernels, and with the numpy path a
+    process uses until they have loaded."""
+    monkeypatch.setattr(M, '_kernels_ready', lambda: request.param == 'kernel')
+    if request.param == 'numpy':
+        monkeypatch.setattr(M, 'NP_BLOCK', 4096)
+    return request.param
+
+
+def _runner(engine):
+    return M.run_plan if engine == 'kernel' else M.run_plan_numpy
+
+
+def _only_fill(d):
+    return all(part.startswith('fill_value:') for part in d.split('; '))
 
 
 def _check(fast):
+    """Every recorded case. Under a numpy the answers were not recorded with
+    (helpers.recorded_numpy: only the fill value's type can differ, by
+    numpy's masked-array rules), a fill value that differs must be the one
+    netCDF4-python's own code (the reference path) gives under this numpy."""
     bad = []
     for i, flags, j in EXPECTED['results']:
         rec = INPUTS[i]
-        d = codec.diff(_run(rec, flags, fast), EXPECTED['table'][j])
+        got = _run(rec, flags, fast)
+        d = codec.diff(got, EXPECTED['table'][j])
+        if d and not RECORDED_NUMPY and _only_fill(d):
+            d = '' if not fast else codec.diff(got, _run(rec, flags, False))
         if d:
             bad.append('%s %s key=%s flags=%s: %s' % (rec['file'], rec['var'], rec['key'], flags, d))
     assert not bad, '%d mismatches, e.g.\n%s' % (len(bad), '\n'.join(bad[:10]))
@@ -142,7 +168,7 @@ BIG = [
 
 @pytest.mark.parametrize('case', range(len(BIG)))
 @pytest.mark.parametrize('flags', [(1, 1, 1), (1, 0, 1), (0, 1, 1), (1, 1, 0)])
-def test_big_fast_equals_reference(case, flags):
+def test_big_fast_equals_reference(case, flags, engine):
     t, attrs, specials = BIG[case]
     rng = numpy.random.default_rng(case)
     x = _big_values(t, 300003, rng, specials).reshape(3, -1)
@@ -153,7 +179,7 @@ def test_big_fast_equals_reference(case, flags):
                                                  bool(s), bool(am), True, False, None, None, None))
         plan = M.make_plan(x.dtype, attrs, x.dtype, 'primitive', bool(m), bool(s), False)
         assert plan is not None
-        got = codec.outcome(lambda: M.run_plan(plan, x, bool(am), threads=8))
+        got = codec.outcome(lambda: _runner(engine)(plan, x, bool(am), threads=8))
     assert codec.diff(got, ref) == ''
 
 
@@ -285,7 +311,7 @@ NAN_CASES = _nan_cases()
 
 
 @pytest.mark.parametrize('case', range(len(NAN_CASES)))
-def test_nan_payloads_subnormals(case):
+def test_nan_payloads_subnormals(case, engine):
     """CPU kernel == numpy (the reference path), and GPU == numpy, on NaN
     payloads, subnormals and invalid operations."""
     x, attrs = NAN_CASES[case]
@@ -299,7 +325,7 @@ def test_nan_payloads_subnormals(case):
                                                      None))
             plan = M.make_plan(x.dtype, attrs, x.dtype, 'primitive', bool(m), bool(s), False)
             assert plan is not None
-            got = codec.outcome(lambda: M.run_plan(plan, x, bool(am), threads=4))
+            got = codec.outcome(lambda: _runner(engine)(plan, x, bool(am), threads=4))
             assert codec.diff(got, ref) == '', ('cpu', flags, codec.diff(got, ref))
             if cupy is not None:
                 def gpu():

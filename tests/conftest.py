@@ -1,7 +1,8 @@
 """The tests' fixtures: files opened once per session (`opened`), the
 reference tests parametrized from the reference files (one test id per
 file, variable or HDF5 object), and the opt-in `--gpu` option, which runs
-the value comparisons again with device='gpu'. `--refs corpus` limits the
+the value comparisons again with device='gpu'. `--kernels off` runs
+everything without numba's kernels (the paths a fresh process reads by). `--refs corpus` limits the
 reference tests to tests/data (as CI runs them)."""
 import os
 
@@ -13,6 +14,9 @@ from helpers import REFERENCE_SETS, locate, references
 def pytest_addoption(parser):
     parser.addoption('--gpu', action='store_true', default=False,
                      help="also compare every read with fastnc.Dataset(path, device='gpu')")
+    parser.addoption('--kernels', default='on', choices=('on', 'off'),
+                     help="on: numba's kernels loaded first (default); off: never loaded -- "
+                          "every read as a fresh process does it (libdeflate / zlib, numpy)")
     parser.addoption('--refs', default=','.join(REFERENCE_SETS),
                      help='reference sets to test, of %s (default: all whose files are here)'
                           % ','.join(REFERENCE_SETS))
@@ -20,6 +24,11 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     config.addinivalue_line('markers', 'gpu: runs on the GPU (only with --gpu)')
+    from fastnc import _chunks
+    if config.getoption('--kernels') == 'off':
+        _chunks.LOAD_AFTER = float('inf')
+    else:
+        _chunks.warm()
     if os.environ.get('FASTNC_NEP50_WARN'):                  # tools/run_tests_numpy1.py --nep50
         import numpy as np
         if hasattr(np, '_set_promotion_state'):              # numpy 1.24-1.26 only

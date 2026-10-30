@@ -243,11 +243,42 @@ def loose_digest(x):
     return canon_sha(a, loose=True)
 
 
-def same_values(ours, ref):
+def recorded_numpy():
+    """Whether this numpy is one the references were recorded under: numpy
+    2.5+ (references_*: numpy 2.5.4) or numpy 1 on Windows (the 'numpy1'
+    answers: numpy 1.26.4 there). Elsewhere one thing differs, by numpy's
+    own rules, for netCDF4-python as for fastnc: the type of a masked
+    array's fill_value (numpy 2.5 gives the result of masked arithmetic the
+    result's type of fill value, earlier numpy 2 keeps the operand's;
+    numpy 1's default int is 32-bit on Windows only)."""
+    v = np.lib.NumpyVersion(np.__version__)
+    return v >= '2.5.0' or (v < '2.0.0' and sys.platform == 'win32')
+
+
+RECORDED_NUMPY = recorded_numpy()
+
+
+def _same_number(a, b):
+    """Two encoded fill values: the same number (types aside)?"""
+    try:
+        x, y = float(a['repr']), float(b['repr'])
+    except (TypeError, KeyError, ValueError):
+        return False
+    return x == y or (x != x and y != y)
+
+
+def same_values(ours, ref, loose_fill=None):
     """Does digest `ours` (from fastnc) equal reference digest `ref`?
     Everything but the byte order flag counts: fastnc returns native byte
-    order where h5py may return the file's. Returns (ok, message)."""
-    diff = [k for k in sorted(set(ours) | set(ref)) if k != 'byteorder' and ours.get(k) != ref.get(k)]
+    order where h5py may return the file's. Under a numpy the references
+    were not recorded with (loose_fill, by default: not RECORDED_NUMPY), a
+    fill value counts by its number only (see recorded_numpy). Returns
+    (ok, message)."""
+    if loose_fill is None:
+        loose_fill = not RECORDED_NUMPY
+    diff = [k for k in sorted(set(ours) | set(ref)) if k != 'byteorder' and ours.get(k) != ref.get(k)
+            and not (loose_fill and k == 'fill_value'
+                     and _same_number(ours.get(k), ref.get(k)))]
     if not diff:
         return True, ''
     return False, '; '.join('%s: got %r, want %r' % (k, ours.get(k), ref.get(k)) for k in diff)
