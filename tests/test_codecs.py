@@ -238,6 +238,65 @@ def test_bitshuffle_transpose():
             assert out2[:n * es].tobytes() == x.tobytes(), (es, n)
 
 
+def _b2chunk(nbytes, blocksize, ts, flags=0x15, filters=(0,) * 6, meta=(0,) * 6, bflags=0, body=b''):
+    """A blosc2 chunk with a 32-byte header and `body` after it."""
+    import struct
+    cbytes = 32 + len(body)
+    h = struct.pack('<BBBBiii', 5, 1, flags, ts, nbytes, blocksize, cbytes)
+    h += bytes(filters) + b'\0\0' + bytes(meta) + b'\0' + bytes([bflags])
+    return np.frombuffer(h + body, np.uint8)
+
+
+def _b2decode(chunk, nbytes):
+    from fastnc import _blosc
+    ws = np.zeros(_blosc.workspace_size(nbytes), np.uint8)
+    dst = np.full(nbytes + 16, 0x77, np.uint8)
+    r = _blosc.chunk(chunk, 0, len(chunk), dst, 8, 8 + nbytes, ws, _blosc.W_BLK)
+    assert (dst[:8] == 0x77).all() and (dst[8 + nbytes:] == 0x77).all()
+    return r - 8, dst[8:8 + nbytes].tobytes()
+
+
+def test_blosc2_chunk_forms():
+    """blosc2 chunk forms hdf5plugin's filter does not write but the format
+    has (c-blosc2 README_CHUNK_FORMAT, blosc2.c): special chunks (zeros,
+    NaN, a repeated value), stored as is, zero and run streams, and a
+    pipeline of two filters (shuffle after delta)."""
+    import struct
+    assert _b2decode(_b2chunk(40, 40, 4, bflags=1 << 4), 40) == (40, bytes(40))
+    assert _b2decode(_b2chunk(40, 40, 4, bflags=2 << 4), 40) == (40, b'\0\0\xc0\x7f' * 10)
+    assert _b2decode(_b2chunk(48, 48, 8, bflags=2 << 4), 48) == (48, (b'\0' * 6 + b'\xf8\x7f') * 6)
+    assert _b2decode(_b2chunk(30, 30, 3, bflags=3 << 4, body=b'abc'), 30) == (30, b'abc' * 10)
+    assert _b2decode(_b2chunk(20, 8, 4, flags=0x17, body=bytes(range(20))), 20) == (20, bytes(range(20)))
+    # two blocks, one stream each: a run of 0x41, then zeros
+    body = struct.pack('<ii', 40, 45) + struct.pack('<i', -0x41) + b'\x01' + struct.pack('<i', 0)
+    assert _b2decode(_b2chunk(64, 32, 4, flags=0x15 | 0x10, body=body), 64) == (64, b'\x41' * 32 + bytes(32))
+    # shuffle after delta, blocks stored as is (stream size = block size)
+    rng = np.random.default_rng(3)
+    ts, bs, nb = 4, 64, 160
+    x = rng.integers(0, 256, nb, dtype=np.uint8)
+    enc = []
+    for j in range(0, nb, bs):
+        blk = x[j:j + bs].copy()
+        u = blk.view('<u4')
+        if j == 0:
+            d = u.copy()
+            d[1:] ^= u[:-1]
+        else:
+            d = u ^ x[:len(blk)].view('<u4')
+        b = d.view(np.uint8)
+        enc.append(b.reshape(-1, ts).T.ravel().tobytes())
+    nblk = len(enc)
+    starts = []
+    pos = 32 + 4 * nblk
+    for e in enc:
+        starts.append(pos)
+        pos += 4 + len(e)
+    body = b''.join(struct.pack('<i', s) for s in starts)
+    body += b''.join(struct.pack('<i', len(e)) + e for e in enc)
+    ch = _b2chunk(nb, bs, ts, flags=0x15 | 0x10, filters=(0, 0, 0, 0, 3, 1), body=body)
+    assert _b2decode(ch, nb) == (nb, x.tobytes())
+
+
 def test_unshuffle():
     """blosc's byte unshuffle against numpy, with leftover bytes."""
     from fastnc import _blosc
