@@ -285,3 +285,31 @@ by a few numpy copies (`_zgrid`): Ku-band 199 -> 73 ms on 24 threads; on 1
 thread 32 ms (2 threads 37, 4 threads 60: each ctypes call gives up the GIL
 and takes it back, so for chunks of a few hundred bytes threads only
 queue) -- such chunks go on one thread (netCDF4-python: 75 ms).
+
+## Round 4 (2026-10-30): phase by phase
+
+`tools/profile/phases.py` splits each operation into open, chunk planning,
+time inside the pool (with how busy the asked-for threads were), mask /
+scale, readahead and the rest. What it showed, and what came of it:
+
+- **Handing work to the pool** cost 4.4 us per helper through
+  ThreadPoolExecutor (futures, a queue): ~100 us to wake 23, 160 times in
+  a WRF masked loop. fastnc's own workers parked on a lock each: 2.8 us
+  for any number. Ku-band one variable 4.8 -> 3.8 ms, load 12.1 -> 10.4.
+  Helpers still join 55-300 us late (each needs the GIL to enter the
+  kernel), so short jobs stay mostly on the caller: thread efficiency of
+  12-40% on the small files is that, not overhead.
+- **Opening** is most of a small read (WRF d01: 6.3 of 9-11 ms). The root
+  group's 150 attributes were all parsed to look for one; attribute names
+  were decoded to look them up; datatypes parsed per dataset; each
+  attribute header unpacked field by field: WRF open 6.3 -> 5.2 ms,
+  Metop-SG 4.2 -> 3.7, xarray open 21.3 -> 20.4 (half of that is xarray's
+  own).
+- **Inflate** is the floor of the big reads (GOES-19 C02: 60 of 63 ms in
+  the pool at 99% efficiency). libdeflate, where installed, now decodes
+  whole chunks from inside the numba kernel -- called through a function
+  pointer passed as an integer, so the kernels stay cached -- with this
+  inflate taking over whenever it declines: load() VIIRS 47 -> 40 ms,
+  GOES-19 C02 65 -> 54, AVHRR 5.4 -> 4.8, Ku 3.4 -> 3.1, WRF on one thread
+  174 -> 135 (all threads: 18.9 -> 18.5, it is bound elsewhere); MODIS
+  (one 33 MB stream per band, decoded in parallel by _pinflate) unchanged.

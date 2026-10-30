@@ -538,7 +538,13 @@ def _scratch(nbytes):
         _TLS.scratch = s
     if getattr(_TLS, 'tab', None) is None:
         _TLS.tab, _TLS.iws = _inflate.workspace()
+        if NATIVE_INFLATE:
+            from . import _zlib
+            _TLS.iws[_inflate.NATIVE:_inflate.NATIVE + 2] = _zlib.native()
     return s, _TLS.tab, _TLS.iws
+
+
+NATIVE_INFLATE = True           # whole chunks through libdeflate where it is installed
 
 
 SUPPORTED = (F_DEFLATE, F_SHUFFLE, F_FLETCHER)

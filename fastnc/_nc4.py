@@ -225,8 +225,9 @@ class NC4File:
         self.next_dimid = 0
         self.by_scale = {}                          # dimension scale object address -> Dim
         self.type_names = {}                        # committed datatype address -> name
-        attrs = f.root.attributes()
-        self.data_model = 'NETCDF4_CLASSIC' if '_nc3_strict' in attrs else 'NETCDF4'
+        # (one lookup, not every root attribute parsed: WRF's root has 150)
+        root = f.object_header(f.root.address)
+        self.data_model = 'NETCDF4_CLASSIC' if f.find_attribute(root, '_nc3_strict') is not None             else 'NETCDF4'
         # as netCDF-c: read every group's scales and variables first, then
         # match variables to dimensions over the whole tree (children first),
         # making phony dimensions where a dataset has no scales attached
