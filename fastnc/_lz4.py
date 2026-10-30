@@ -198,10 +198,13 @@ def lz4_block(src, p, pend, dst, o0, o, oend):
                 return o                        # the last sequence: literals only
             if p + 2 > pend:
                 return ERR_INPUT
-        dist = np.int64(ld64(src, p) & np.uint64(0xFFFF))   # (p + 8 <= pend here)
+        if p + 8 <= pend:
+            dist = np.int64(ld64(src, p) & np.uint64(0xFFFF))
+        else:
+            dist = np.int64(src[p]) | (np.int64(src[p + 1]) << 8)
         p += 2
         ml = tok & 15
-        if ml != 15 and dist >= 8 and dist <= o - o0:  # (o + 24 <= oend here)
+        if ml != 15 and dist >= 8 and dist <= o - o0 and o <= of:
             s = o - dist
             st64(dst, o, ld64(dst, s))
             st64(dst, o + 8, ld64(dst, s + 8))
