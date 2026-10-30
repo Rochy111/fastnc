@@ -339,9 +339,54 @@ class Item:
         self.ds, self.index, self.box, self.out, self.swap, self.base = ds, index, box, out, swap, base
 
 
+_READY = threading.Event()      # numba and the kernels loaded
+WARM_AFTER = 1 << 20           # a read bigger than this starts loading them
+_LOADING = []
+
+
+def _warm():
+    """Import numba and load (from cache, or compile) the batch kernel with
+    the argument types reads use, off the caller's thread."""
+    try:
+        i64 = np.zeros(1, np.int64)
+        i2 = np.zeros((1, 1), np.int64)
+        u8 = np.zeros(16, np.uint8)
+        ro = np.frombuffer(bytes(16), np.uint8)    # the file: a read-only view of its mapping
+        tab, iws = _inflate.workspace()
+        _work(ro, u8, np.zeros((1, V_COLS), np.int64), np.zeros((1, 4, 1), np.int64),
+              i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i2[:0], i2[:0], i2[:0],
+              np.zeros(1, np.int64), i64[:0], u8, tab, iws)
+    finally:
+        _READY.set()
+
+
+def _start_warm():
+    if not _LOADING:
+        _LOADING.append(threading.Thread(target=_warm, name='fastnc-warm', daemon=True))
+        _LOADING[0].start()
+
+
+def warm(wait=True):
+    """Load numba and fastnc's kernels now (they load on their own in the
+    background at the first read; reads until then use zlib). For worker
+    processes: ProcessPoolExecutor(initializer=fastnc.warm)."""
+    _start_warm()
+    if wait:
+        _READY.wait()
+
+
 def read_batch(items, src, buf, threads=None):
     """Decode the chunks of every item in one pass of the pool, biggest
     chunks first, into buf (uint8; each item's output starts at its base)."""
+    if not _READY.is_set() and all(f.id in SUPPORTED for it in items for f in it.ds.filters):
+        # the kernels load in the background (~0.5-1 s, once per process),
+        # started by the first read big enough to want them (the import holds
+        # the GIL: not during the small reads of an xarray open); until then
+        # zlib, which releases the GIL, decodes on the pool
+        if sum(int(np.prod(it.out.shape)) * it.ds.type.size for it in items) > WARM_AFTER:
+            _start_warm()
+        _read_python(items, src, threads)
+        return
     plans = []
     V = np.zeros((len(items), V_COLS), np.int64)
     maxrank = max(1, max(len(it.ds.shape) for it in items))
@@ -454,3 +499,58 @@ def swap_native(out, threads=None):
     nb = -(-n // 65536)
     _pool.share(lambda: _swap_inplace(b, esize, counter, n), min(threads or _pool.threads(), nb))
     return out.view(out.dtype.newbyteorder('='))
+
+
+def _read_python(items, src, threads=None):
+    """Reads before the kernels are loaded: zlib and numpy -- the reference
+    path itself, so the values are the same -- chunk by chunk on the pool."""
+    import zlib
+    jobs = []
+    for it in items:
+        ds, index, box, out = it.ds, it.index, it.box, it.out
+        p = plan(index, ds.shape, box)
+        if p.fill_needed:
+            _fill(out, ds)
+        jobs.extend((it, p, i) for i in range(len(p.addr)))
+    jobs.sort(key=lambda j: -int(j[1].size[j[2]]))
+
+    def one(job):
+        it, p, i = job
+        ds = it.ds
+        esize = ds.type.size
+        C = tuple(int(c) for c in it.index.chunks)
+        nel = int(np.prod(C)) if C else 1
+        filters = ds.filters
+        a, n, m = int(p.addr[i]), int(p.size[i]), int(p.mask[i])
+        data = src[a:a + n]
+        shuffled = False
+        for k in range(len(filters) - 1, -1, -1):
+            if (m >> k) & 1:
+                continue
+            fid = filters[k].id
+            if fid == F_FLETCHER:
+                data = data[:-4]
+            elif fid == F_DEFLATE:
+                data = zlib.decompress(data)
+            elif fid == F_SHUFFLE:
+                shuffled = esize > 1
+        b = np.frombuffer(data, np.uint8, nel * esize)
+        if shuffled:
+            b = b.reshape(esize, nel).T
+        chunk = np.ascontiguousarray(b).view(np.dtype('V%d' % esize)).reshape(C)
+        step = [s[2] for s in it.box]
+        src_sl = tuple(slice(int(c0), int(c0) + (int(cn) - 1) * k + 1, k)
+                       for c0, cn, k in zip(p.cstart[i], p.count[i], step))
+        dst_sl = tuple(slice(int(o0), int(o0) + int(cn)) for o0, cn in zip(p.ostart[i], p.count[i]))
+        ov = it.out.view(np.dtype('V%d' % esize))
+        if it.swap:
+            sel = np.ascontiguousarray(chunk[src_sl])
+            swapped = sel.view(np.uint8).reshape(sel.shape + (esize,))[..., ::-1].copy()
+            ov[dst_sl] = swapped.view(np.dtype('V%d' % esize)).reshape(sel.shape)
+        else:
+            ov[dst_sl] = chunk[src_sl]
+    if len(jobs) <= 1:
+        for j in jobs:
+            one(j)
+    else:
+        _pool.map_items(one, jobs)
