@@ -35,5 +35,5 @@ a bug.
   Python 3.9-3.13, numpy 1 and 2.
 
 ### Known gaps
-- HDF5 virtual datasets and external storage, HDF4 szip, zstd
-  dictionaries, blosc2 variable-length blocks; reading only.
+- HDF4 szip, zstd dictionaries, blosc2 variable-length blocks; reading
+  only. (HDF5 virtual datasets and external storage are read.)
