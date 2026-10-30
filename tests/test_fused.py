@@ -147,3 +147,37 @@ def test_load_with_fused_equals_plain(name, monkeypatch):
                 got = {'raised': type(e).__name__}
             out[fused] = {k: _outcome(lambda v=v: v)[0] for k, v in got.items()}
     assert out[True] == out[False]
+
+
+@pytest.mark.parametrize('name', FILES)
+def test_read_lut_equals_lookup_of_raw(name):
+    """_fused.read_lut (table looked up while decoding) == the table looked
+    up in the raw read, for every chunked 8 / 16-bit variable and selection."""
+    fastnc.warm()
+    rng = np.random.default_rng(3)
+    ran = 0
+    bad = []
+    with fastnc.Dataset(os.path.join(DATA, name)) as ds:
+        for g in ds._walk():
+            for vname, v in g.variables.items():
+                bv = v._bv
+                if not isinstance(bv.dtype, np.dtype) or bv.dtype.kind not in 'iu' \
+                        or bv.dtype.itemsize > 2 or not v.shape:
+                    continue
+                n = 1 << (8 * bv.dtype.itemsize)
+                for lut in (rng.integers(0, 1 << 32, n, dtype=np.uint32).view(np.float32),
+                            rng.integers(0, 1 << 63, n, dtype=np.uint64).view(np.float64)):
+                    for k in _keys(v.shape):
+                        v.set_auto_maskandscale(False)
+                        got = _fused.read_lut(v, k if isinstance(k, tuple) else (k,), lut,
+                                              threads=1, min_size=1)
+                        if got is None:
+                            continue
+                        ran += 1
+                        raw = np.asarray(v[k])
+                        want = lut.view('u%d' % lut.itemsize)[raw.view('u%d' % raw.itemsize)]
+                        if got.shape != raw.shape or got.view(want.dtype).tobytes() != want.tobytes():
+                            bad.append((g.path, vname, k))
+    assert not bad, bad[:5]
+    if name in ('nc4.nc', 'idx_latest.h5', 'filters.h5'):
+        assert ran

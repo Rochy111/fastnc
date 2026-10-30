@@ -19,7 +19,7 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 | `_vds` | HDF5 virtual datasets (mapping lists v0/v1, every selection type, same-file and cross-file sources, unlimited mappings, printf-style names) and external-file storage |
 | `_chunks` | The chunk engine: planning a selection over a chunk table (plans cached per box), the batch kernel (with per-band progress counts for the GPU pipeline), big chunks on many threads, the path used until numba is loaded (`_read_python`, `_gather_grid`) and when to load it (`ready()`, `LOAD_AFTER`) |
 | `_zlib` | Inflate without numba: libdeflate or zlib found as a shared library, called through ctypes straight into numpy arrays (else `zlib.decompress`) |
-| `_fused` | Masked / scaled reads with mask/scale done per chunk while it is in cache |
+| `_fused` | Masked / scaled reads with mask/scale done per chunk while it is in cache; `read_lut`: raw 8 / 16-bit values looked up in a table as each chunk is decoded (xarray's decoding) |
 | `_readahead` | Whole variables read in the file's order decoded several at a time (a bounded window) |
 | `_staged`, `_codecs` | Filter pipelines beyond deflate / shuffle / fletcher32: stage by stage over all chunks, one small batch kernel per codec |
 | `_select` | numpy / netCDF4 indexes reduced to boxes, then post-indexing |
@@ -315,4 +315,21 @@ recording:
   compiled loops use (MSVC and gcc builds differ). This only arises with a
   NaN `scale_factor` / `add_offset`; then numpy does the arithmetic
   (`Plan.nan_const`), on the CPU and for GPU reads alike.
+
+## xarray's decoding by lookup table
+
+The xarray backend leaves CF decoding to xarray's own coders but applies
+the functions they make (taken from decoding a one-element stand-in) itself
+(`_xarray.DecodedArray`). Those functions are elementwise, so for raw
+values of 8 or 16 bits they are applied once to an array of every possible
+value (`np.arange(2**bits)` viewed as the raw type): the result is a table
+of at most 65,536 decoded values, and decoding an array is `table[raw]`,
+copied as bits. Same functions, same inputs, same outputs -- the only
+operations whose result could depend on where in an array they run are
+NaN-times-NaN payload choices, which need a NaN `scale_factor` /
+`add_offset`; those keep the block-by-block path. For a chunked read the
+lookup happens as each chunk is decoded (`_fused.read_lut`), so the raw
+array never exists. tests/test_xarray.py checks the table path against
+`xarray.decode_cf` on every possible value of each 8 / 16-bit type under
+several attribute sets, and on every corpus variable.
 

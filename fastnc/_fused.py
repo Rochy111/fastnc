@@ -30,10 +30,12 @@ from ._jit import njit
 from ._maskscale import _fix_block, _flag_hits, _scale_block
 
 
-def read(var, key, threads=None):
-    """Variable.read(key) masked and scaled, fused with the decoding; None
-    when this read is not one for it (the caller then reads as usual)."""
-    from . import _h5read, _hdf5
+def _prepare(var, key, threads, min_size):
+    """What a fused read of var[key] needs, or None when it is not such a
+    read: an HDF5 dataset of numbers, chunked deflate / shuffle /
+    fletcher32 (or virtual chunks), every chunk stored, simple slices, at
+    least min_size values and a chunk per thread."""
+    from . import _h5read
     if not _chunks._READY.is_set():
         return None
     bv = var._bv
@@ -60,12 +62,7 @@ def read(var, key, threads=None):
     shape = tuple(_select.box_shape(box))
     final = tuple(s for d, s in enumerate(shape) if d not in drop) if drop else shape
     n = int(np.prod(shape)) if shape else 1
-    if not final or n < _maskscale.FAST_MIN_SIZE:
-        return None
-    dt = var.datatype
-    var_dtype = None if isinstance(dt, np.dtype) or dt is str else dt
-    kind = _maskscale._kind(bv.dtype, var_dtype)
-    if kind not in ('primitive', 'enum') or np.dtype(bv.dtype) != nat:
+    if not final or n < min_size:
         return None
     index = r.index
     p = _chunks.plan(index, ds.shape, box)
@@ -74,19 +71,76 @@ def read(var, key, threads=None):
     nthr = threads or _pool.threads()
     if nthr > 1 and (int(p.size.max()) >= _chunks.PAR_MIN or len(p.addr) < nthr):
         return None                                 # (fewer chunks than threads: the usual
-                                                    # read, then mask/scale on every thread)
+                                                    # read, then a pass on every thread)
+    if r.f.source is not None:
+        _chunks.fetch_chunks([_chunks.Item(ds, index, box, None, swap)], [p])
+    return r, ds, index, box, shape, final, nat, swap, p, nthr
+
+
+def read(var, key, threads=None):
+    """Variable.read(key) masked and scaled, fused with the decoding; None
+    when this read is not one for it (the caller then reads as usual)."""
+    bv = var._bv
+    if not hasattr(bv, '_reader') or not isinstance(bv.dtype, np.dtype):
+        return None
+    dt = var.datatype
+    var_dtype = None if isinstance(dt, np.dtype) or dt is str else dt
+    kind = _maskscale._kind(bv.dtype, var_dtype)
+    if kind not in ('primitive', 'enum'):
+        return None
+    ctx = _prepare(var, key, threads, _maskscale.FAST_MIN_SIZE)
+    if ctx is None or np.dtype(bv.dtype) != ctx[6]:
+        return None
+    r, ds, index, box, shape, final, nat, swap, p, nthr = ctx
     # (last: the plan warns about odd attributes, once per read)
     pl = _maskscale.make_plan(nat, bv.attrs, bv.dtype, kind, var._mask, var._scale,
                               getattr(bv, 'no_fill', False))
     if pl is None or pl.out_dtype is None or pl.nan_const:
         return None                                 # (mask only: the read goes straight into
                                                     # the result, then a parallel pass: faster)
-    if r.f.source is not None:
-        _chunks.fetch_chunks([_chunks.Item(ds, index, box, None, swap)], [p])
     return _run(var, r, ds, index, box, shape, final, nat, swap, pl, p, nthr)
 
 
-def _run(var, r, ds, index, box, shape, final, nat, swap, pl, p, nthr):
+def read_lut(var, key, lut, threads=None, min_size=1 << 16):
+    """lut[raw var[key]]: raw values of 8 or 16 bits looked up in a table as
+    each chunk is decoded (the xarray backend's decoding); None when this
+    read is not one for it."""
+    ctx = _prepare(var, key, threads, min_size)
+    if ctx is None:
+        return None
+    r, ds, index, box, shape, final, nat, swap, p, nthr = ctx
+    if (nat.kind not in 'iu' or nat.itemsize > 2 or lut.dtype.itemsize not in (1, 2, 4, 8)
+            or lut.shape != (1 << (8 * nat.itemsize),)):
+        return None
+    V, VD, arrs, nel, esize = _tables(ds, index, box, shape, swap, p)
+    addr, size, mask, needend, cstart, count, ostart = arrs
+    u = np.dtype('u%d' % lut.dtype.itemsize)
+    out = _arena.empty(shape, lut.dtype)
+    of = out.reshape(-1).view(u)
+    tab = lut.view(u)
+    nch = len(addr)
+    status = np.zeros(nch, np.int64)
+    ctr = np.zeros(1, np.int64)
+    maxsel = int(np.prod(count, axis=1).max())
+    xproto = np.zeros(1, 'u%d' % nat.itemsize)
+    src = r.src
+    nthr = max(1, min(nthr, nch, (int(np.prod(shape)) * lut.dtype.itemsize) >> 15))
+
+    def work():
+        sc, tb, iws = _chunks._scratch(nel * esize + 8)
+        _work_lut(src, V, VD, addr, size, mask, needend, cstart, count, ostart, ctr, status,
+                  sc, tb, iws, xproto, maxsel, of, tab)
+    _pool.share(work, nthr)
+    if status.any():
+        bad = np.nonzero(status)[0][0]
+        raise IOError('chunk at byte %d of %s could not be decoded (error %d)'
+                      % (addr[bad], ds.name, status[bad]))
+    return out.reshape(final) if final != shape else out
+
+
+def _tables(ds, index, box, shape, swap, p):
+    """The kernels' per-variable tables, and the plan's rows biggest chunk
+    first."""
     rank = len(shape)
     esize = ds.type.size
     stages = [f.id for f in reversed(ds.filters)]
@@ -105,8 +159,14 @@ def _run(var, r, ds, index, box, shape, final, nat, swap, pl, p, nthr):
     VD[3] = [s[2] for s in box]
     VD[4] = shape
     order = np.argsort(-p.size, kind='stable')
-    addr, size, mask, needend = p.addr[order], p.size[order], p.mask[order], p.needend[order]
-    cstart, count, ostart = p.cstart[order], p.count[order], p.ostart[order]
+    arrs = (p.addr[order], p.size[order], p.mask[order], p.needend[order], p.cstart[order],
+            p.count[order], p.ostart[order])
+    return V, VD, arrs, nel, esize
+
+
+def _run(var, r, ds, index, box, shape, final, nat, swap, pl, p, nthr):
+    V, VD, arrs, nel, esize = _tables(ds, index, box, shape, swap, p)
+    addr, size, mask, needend, cstart, count, ostart = arrs
     xdt = pl.xdt
     maskonly = pl.out_dtype is None
     out = _arena.empty(shape, nat if maskonly else pl.out_dtype)
@@ -342,6 +402,61 @@ def _work_ms(src, V, VD, addr, size, mask, needend, cstart, count, ostart, ctr, 
             stats[i, 1] = cnt[1]
             stats[i, 2] = cnt[2]
         stats[i, 3] = c_chunk
+
+
+@njit(cache=True, nogil=True)
+def _work_lut(src, V, VD, addr, size, mask, needend, cstart, count, ostart, ctr, status,
+              scratch, tab, iws, xproto, maxsel, of, lut):
+    """Chunks taken off ctr[0]: each decoded, its selection placed in this
+    thread's scratch (rs: the raw values as unsigned indexes), then looked
+    up run by run into the result: of[...] = lut[rs] (bits copied)."""
+    n = addr.shape[0]
+    rank = V[0, V_RANK]
+    esize = V[0, V_ESIZE]
+    swap = V[0, V_SWAP] == 1
+    last = rank - 1
+    cstr = VD[1]
+    ostr = VD[2]
+    step = VD[3]
+    rs = np.empty(maxsel, xproto.dtype)
+    rsb = rs.view(np.uint8)
+    zero = np.zeros(MAXDIM, np.int64)
+    rstr = np.ones(MAXDIM, np.int64)
+    while True:
+        i = take(ctr, 0)
+        if i >= n:
+            return
+        p = addr[i]
+        st, in_scratch, shuffled, planes = _decode(src, V, p, p + size[i], mask[i], needend[i],
+                                                   scratch, tab, iws)
+        status[i] = st
+        if st != 0:
+            continue
+        cnt_i = count[i]
+        os_i = ostart[i]
+        nsel = 1
+        for d in range(rank):
+            nsel *= cnt_i[d]
+        for d in range(rank - 2, -1, -1):
+            rstr[d] = rstr[d + 1] * cnt_i[d + 1]
+        if in_scratch:
+            _place(scratch, 0, planes, rsb, cstart[i], cnt_i, zero, cstr, rstr, step,
+                   rank, esize, shuffled, swap)
+        else:
+            _place(src, p, V[0, V_NEL], rsb, cstart[i], cnt_i, zero, cstr, rstr, step,
+                   rank, esize, shuffled, swap)
+        run = cnt_i[last]
+        nruns = nsel // run
+        for r in range(nruns):
+            rem = r
+            de = os_i[last] * ostr[last]
+            for d in range(last - 1, -1, -1):
+                q = rem % cnt_i[d]
+                rem //= cnt_i[d]
+                de += (os_i[d] + q) * ostr[d]
+            b = r * run
+            for k in range(run):
+                of[de + k] = lut[rs[b + k]]
 
 
 @njit(cache=True, nogil=True)
