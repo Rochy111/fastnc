@@ -526,9 +526,10 @@ def fill_special(src, p, special, ts, cbytes, hdr, fa, fo, n):
 
 
 @njit(cache=True, nogil=True)
-def chunk(src, p, pend, dst, o, oend, ws):
+def chunk(src, p, pend, dst, o, oend, ws, a):
     """A whole blosc chunk (blosc1 or blosc2 format) src[p:pend] into dst
-    from o on, blocks in order. Returns the end of the output or an error."""
+    from o on, blocks in order, with block buffers in ws from a on. Returns
+    the end of the output or an error."""
     v, nbytes, bsize, cbytes, hdr, special = header(src, p, pend, ws)
     if v < 0:
         return v
@@ -550,8 +551,7 @@ def chunk(src, p, pend, dst, o, oend, ws):
     nblocks = (nbytes + bsize - 1) // bsize
     if hdr + 4 * nblocks > cbytes:
         return ERR_DATA
-    a = W_BLK
-    b = W_BLK + bsize + 64
+    b = a + bsize + 64
     if b + bsize > ws.shape[0]:
         return ERR_SPACE
     for j in range(nblocks):
@@ -567,7 +567,7 @@ def decode(src, p, pend, dst, o, oend, cd, ws):
     """The HDF5 blosc filter: one blosc chunk src[p:pend] into dst[o:oend]."""
     if pend - p >= 16 and src[p] > 2:
         return ERR_DATA                         # blosc1 reads format version 2 only
-    r = chunk(src, p, pend, dst, o, oend, ws)
+    r = chunk(src, p, pend, dst, o, oend, ws, W_BLK)
     if r == o:
         return ERR_DATA                         # (the filter fails on an empty chunk)
     return r
