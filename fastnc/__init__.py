@@ -8,6 +8,21 @@ from ._pool import set_threads, threads  # noqa: E402,F401
 from ._chunks import warm  # noqa: E402,F401
 
 
+def hardware():
+    """What fastnc found on this machine (CPUs allowed, cores, memory,
+    cache, what tune() measured) and the threads it will use."""
+    from . import _hw
+    return _hw.info()
+
+
+def tune(gpu=True, verbose=True):
+    """Time real decoding on this machine (a few seconds, once per machine)
+    and keep what suits it: threads, work per thread, the numba load time,
+    the GPU's bands. Everything works without it."""
+    from . import _tune
+    return _tune.tune(gpu=gpu, verbose=verbose)
+
+
 def release():
     """Free the memory fastnc keeps between reads: pooled output blocks,
     decoded chunks kept for small reads and, if the GPU was used, the page-locked upload buffer and cupy's pools."""

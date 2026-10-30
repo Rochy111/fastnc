@@ -124,7 +124,8 @@ def read_lut(var, key, lut, threads=None, min_size=1 << 16):
     maxsel = int(np.prod(count, axis=1).max())
     xproto = np.zeros(1, 'u%d' % nat.itemsize)
     src = r.src
-    nthr = max(1, min(nthr, nch, (int(np.prod(shape)) * lut.dtype.itemsize) >> 15))
+    nthr = _pool.work_threads(max(int(np.prod(shape)) * lut.dtype.itemsize, 2 * int(size.sum())),
+                              min(nthr, nch))
 
     def work():
         sc, tb, iws = _chunks._scratch(nel * esize + 8)
@@ -183,7 +184,7 @@ def _run(var, r, ds, index, box, shape, final, nat, swap, pl, p, nthr):
     src = r.src
     xproto = np.zeros(1, xdt)
     outbytes = int(np.prod(shape)) * max(esize, out.dtype.itemsize)
-    nthr = max(1, min(nthr, nch, outbytes >> 15))
+    nthr = _pool.work_threads(max(outbytes, 2 * int(size.sum())), min(nthr, nch))
 
     def work():
         sc, tab, iws = _chunks._scratch(nel * esize + 8)

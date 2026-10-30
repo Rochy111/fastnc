@@ -56,7 +56,7 @@ import time
 
 import numpy as np
 
-from . import _pool
+from . import _hw, _pool
 from ._inflate import (CBITS, CSIZE, DBITS, DSIZE, ERR_DATA, ERR_INPUT, ERR_SPACE, K_EOB,
                        K_LEN, K_LIT, K_SUB, LBITS, LSIZE, _CLORDER, _build, _fixed, workspace)
 from ._intrin import ld64, st64, take
@@ -1256,7 +1256,7 @@ def _arena(n):
 
 
 def _keep(a):
-    if a.size > KEEP:
+    if a.size > _hw.scaled(KEEP):
         return
     with _ARENA_LOCK:
         if _ARENA[0] is None or _ARENA[0].size < a.size:
@@ -1319,7 +1319,7 @@ def _plan(SI, act, T, ppt, min_part, budget, total):
 def inflate_many(src, starts, ends, dst, o0s, oends, ostops=None, nthreads=None,
                  dst2=None, which=None, extra=None, total=0,
                  parts_per_thread=PARTS_PER_THREAD, min_part=MIN_PART, findmax=FINDMAX,
-                 budget=BUDGET, info=None):
+                 budget=None, info=None):
     """Inflate zlib streams src[starts[i]:ends[i]] into dst[o0s[i]:oends[i]]
     (disjoint ranges) on up to nthreads threads of the pool, each stream cut
     into parts that all decode at once. ostops[i] (default oends[i]): the
@@ -1357,6 +1357,8 @@ def inflate_many(src, starts, ends, dst, o0s, oends, ostops=None, nthreads=None,
             SI[s, SI_ST] = ERR_DATA
     dsts = (dst, dst if dst2 is None else dst2)
     T = max(1, min(nthreads or _pool.threads(), _pool.threads()))
+    if budget is None:
+        budget = _hw.scaled(BUDGET)
     pending = [extra]
     while True:
         act = [s for s in range(ns) if SI[s, SI_ST] == 0]

@@ -13,15 +13,16 @@ numpy keeps `base` as the base of every view derived from it (the block
 itself is not an ndarray, so numpy's base collapsing stops there), and a
 finalizer on `base` returns the block to the pool only when the last view
 is gone. The next read of a similar size writes into pages already mapped.
-The pool holds at most a quarter of physical memory (capped at 4 GB);
-`fastnc.release()` empties it.
+The pool holds at most a quarter of physical memory, half of what is
+available at import, and 4 GB; `fastnc.release()` empties it.
 """
 import mmap
-import os
 import threading
 import weakref
 
 import numpy as np
+
+from . import _hw
 
 MIN_BYTES = 1 << 20             # smaller arrays: plain numpy (malloc reuses those)
 ALIGN = 1 << 16
@@ -31,25 +32,10 @@ _held = 0
 
 
 def _budget():
-    try:
-        if os.name == 'nt':
-            import ctypes
-
-            class MS(ctypes.Structure):
-                _fields_ = [('len', ctypes.c_ulong), ('load', ctypes.c_ulong),
-                            ('total', ctypes.c_ulonglong), ('avail', ctypes.c_ulonglong),
-                            ('tp', ctypes.c_ulonglong), ('ap', ctypes.c_ulonglong),
-                            ('tv', ctypes.c_ulonglong), ('av', ctypes.c_ulonglong),
-                            ('ext', ctypes.c_ulonglong)]
-            m = MS()
-            m.len = ctypes.sizeof(MS)
-            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
-            total = m.total
-        else:
-            total = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
-    except Exception:
-        total = 8 << 30
-    return min(total // 4, 4 << 30)
+    total, avail = _hw.memory()
+    if total is None:
+        total, avail = 8 << 30, 4 << 30
+    return min(total // 4, avail // 2, 4 << 30)
 
 
 BUDGET = _budget()

@@ -18,7 +18,9 @@ import threading
 
 import numpy as np
 
-START = 64 << 20                # first window (bytes of raw values; 32, 64, 128, 256 MB: WRF xarray load 64, 59, 59, 57 ms)
+from . import _hw
+
+START = 64 << 20              # first window (bytes of raw values; 32, 64, 128, 256 MB: WRF xarray load 64, 59, 59, 57 ms)
 MAX = 256 << 20                 # the window grows by doubling up to this
 BIG = 256 << 10                 # reads of variables at least this big drive the pattern
 ENABLED = True
@@ -34,7 +36,7 @@ class Readahead:
         self.pos = None             # id(bv) -> index in order
         self.last = -1              # index of the last big variable read whole
         self.streak = 0
-        self.window = START
+        self.window = _hw.scaled(START)
         self.cache = {}             # index -> raw array
 
     def _index(self):
@@ -56,7 +58,7 @@ class Readahead:
             if _nbytes(var) >= BIG:
                 self.last = i
             if not self.cache:                  # consumed in order: a bigger one next
-                self.window = min(2 * self.window, MAX)
+                self.window = min(2 * self.window, _hw.scaled(MAX))
                 self._fetch(i + 1)
             return raw
 
@@ -75,7 +77,7 @@ class Readahead:
             else:
                 self.streak = 1
                 self.cache.clear()
-                self.window = START
+                self.window = _hw.scaled(START)
             self.last = i
             if self.streak >= 2:
                 self._fetch(i + 1)

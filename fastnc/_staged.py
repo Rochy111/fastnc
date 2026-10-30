@@ -14,7 +14,7 @@ import threading
 
 import numpy as np
 
-from . import _chunks, _codecs, _fletcher32, _inflate, _pool
+from . import _chunks, _codecs, _fletcher32, _hw, _inflate, _pool
 from ._chunks import F_FLETCHER, F_SHUFFLE
 
 GROUP_BYTES = 256 << 20
@@ -47,7 +47,7 @@ def read_items(items, src, buf, threads=None):
         if not n:
             continue
         cbytes = int(np.prod(it.index.chunks)) * ds.type.size
-        per = max(1, GROUP_BYTES // max(cbytes, 1))
+        per = max(1, _hw.scaled(GROUP_BYTES) // max(cbytes, 1))
         order = np.argsort(-p.size, kind='stable')
         for g0 in range(0, n, per):
             sel = order[g0:g0 + per]

@@ -29,7 +29,7 @@ import time
 
 import numpy as np
 
-from . import _inflate, _pinflate, _pio, _pool
+from . import _hw, _inflate, _pinflate, _pio, _pool
 from ._intrin import ld64, st64, take
 from ._jit import njit
 
@@ -566,17 +566,26 @@ _READY = threading.Event()      # numba and the kernels loaded
 _LOADING = []
 
 # When the kernels load. Loading them (numba's import, then the kernels from
-# its cache) takes 0.7-0.9 s of a fresh process, holding the GIL nearly
-# throughout; loaded in the background it slowed a first read threefold (the
-# pool's threads queue for the GIL after every chunk). So reads do without
-# them -- zlib or libdeflate on every core, numpy (_read_python,
-# _maskscale.run_plan_numpy) -- until those have taken LOAD_AFTER seconds in
-# all, then load them, on the reading thread, before the next read: a
-# script reading a few files never pays for them; a session that keeps
-# reading pays once, after it has spent about as long doing without them
-# (the ski-rental rule: never more than twice the better of the two).
-LOAD_AFTER = 1.0
+# its cache) takes most of a second of a fresh process, holding the GIL
+# nearly throughout; loaded in the background it slowed a first read
+# threefold (the pool's threads queue for the GIL after every chunk). So
+# reads do without them -- zlib or libdeflate on every core, numpy
+# (_read_python, _maskscale.run_plan_numpy) -- until those have taken as
+# long as loading takes on this machine, then load them, on the reading
+# thread, before the next read: a script reading a few files never pays for
+# them; a session that keeps reading pays once, after it has spent about as
+# long doing without them (the ski-rental rule: never more than twice the
+# better of the two). The load time is noted whenever a load happens.
+LOAD_AFTER = None               # seconds (None: this machine's load time)
+LOAD_GUESS = 1.0                # ... before any load was timed here
+LOAD_MOST = 3.0                 # ... and at most (a compile is not a load)
 _SLOW = [0.0]                   # seconds read without the kernels so far
+
+
+def _load_after():
+    if LOAD_AFTER is not None:
+        return LOAD_AFTER
+    return min(_hw.tuned().get('load_s') or LOAD_GUESS, LOAD_MOST)
 
 
 def slow(seconds):
@@ -586,10 +595,10 @@ def slow(seconds):
 
 def ready():
     """Whether to use the kernels now: once loaded -- and loading them
-    here if reading without them has taken LOAD_AFTER seconds so far."""
+    here if reading without them has taken as long as that would."""
     if _READY.is_set():
         return True
-    if _SLOW[0] >= LOAD_AFTER:
+    if _SLOW[0] >= _load_after():
         warm(wait=True)
         return True
     return False
@@ -597,7 +606,10 @@ def ready():
 
 def _warm():
     """Import numba and load (from cache, or compile) the batch kernel with
-    the argument types reads use, off the caller's thread."""
+    the argument types reads use, off the caller's thread; the time it
+    took is kept for this machine (the shortest seen: a compile or a busy
+    moment is not what a load costs)."""
+    t0 = time.perf_counter()
     try:
         i64 = np.zeros(1, np.int64)
         i2 = np.zeros((1, 1), np.int64)
@@ -608,6 +620,9 @@ def _warm():
               i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i2[:0], i2[:0], i2[:0],
               np.zeros(1, np.int64), i64[:0], u8, tab, iws, i64[:0], i64[:1])
         _pinflate.warm()
+        took = round(time.perf_counter() - t0, 3)
+        if took < LOAD_MOST and took < (_hw.tuned().get('load_s') or LOAD_MOST):
+            _hw.save_tuned(cpu={'load_s': took})
     finally:
         _READY.set()
 
@@ -751,7 +766,7 @@ def _bigtmp(n):
 
 
 def _bigtmp_keep(t):
-    if t.size <= BIGTMP_KEEP:
+    if t.size <= _hw.scaled(BIGTMP_KEEP):
         with _BIGTMP_LOCK:
             if _BIGTMP[0] is None or _BIGTMP[0].size < t.size:
                 _BIGTMP[0] = t
@@ -888,7 +903,10 @@ def read_batch(items, src, buf, threads=None, bands=None):
             big = None
     counter = np.zeros(1, np.int64)
     status = np.zeros(n, np.int64)
-    nthreads = max(1, min(allthreads, n, outbytes >> 15))
+    # (the work is the decoding: a column of a variable has little output
+    # but every chunk to inflate; compressed bytes count double, about
+    # what they inflate to)
+    nthreads = _pool.work_threads(max(outbytes, 2 * int(size.sum())), min(allthreads, n))
 
     def work():
         sc, tab, iws = _scratch(cmax + 8)
@@ -944,7 +962,7 @@ def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
         _work(src, buf, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
               counter, status, sc, tab, iws, _EMPTY, _EMPTY1)
     nbytes = int(np.prod(it.out.shape)) * esize
-    _pool.share(work, max(1, min(threads or _pool.threads(), n, nbytes >> 15)))
+    _pool.share(work, _pool.work_threads(nbytes, min(threads or _pool.threads(), n)))
     if status.any():
         raise IOError('a staged chunk of %s could not be placed' % ds.name)
 
@@ -1034,11 +1052,12 @@ def _cached(ds, index, src, sel, out, swap, threads):
         return False
     C = index.chunks
     cbytes = int(np.prod(C)) * esize
-    if cbytes * 2 > CACHE_BYTES:
+    budget = _hw.scaled(CACHE_BYTES)
+    if cbytes * 2 > budget:
         return False
     p = plan(index, ds.shape, sel)
     n = len(p.addr)
-    if n == 0 or n > CACHE_CHUNKS or n * cbytes * 2 > CACHE_BYTES or out.nbytes * 2 > n * cbytes:
+    if n == 0 or n > CACHE_CHUNKS or n * cbytes * 2 > budget or out.nbytes * 2 > n * cbytes:
         return False
     if p.fill_needed:
         _fill(out, ds)
@@ -1092,7 +1111,7 @@ def _cached(ds, index, src, sel, out, swap, threads):
                     _CACHE_HELD[0] -= old.nbytes
                 _CACHE[key] = h
                 _CACHE_HELD[0] += nb
-            while _CACHE_HELD[0] > CACHE_BYTES and _CACHE:
+            while _CACHE_HELD[0] > budget and _CACHE:
                 _CACHE_HELD[0] -= _CACHE.pop(next(iter(_CACHE))).nbytes
     ob = out.reshape(-1).view(np.uint8).reshape(out.shape + (esize,))
     for i in range(n):
@@ -1254,7 +1273,7 @@ def _zgrid(it, p, src, threads):
     esize = ds.type.size
     nel = int(np.prod(C)) if C else 1
     cb = nel * esize
-    if (rank == 0 or n < GRID_MIN or cb > ZGRID_CHUNK or n * cb > ZGRID_MAX or p.fill_needed
+    if (rank == 0 or n < GRID_MIN or cb > ZGRID_CHUNK or n * cb > _hw.scaled(ZGRID_MAX) or p.fill_needed
             or not ds.filters):
         return False
     f = [x.id for x in ds.filters]
@@ -1350,7 +1369,7 @@ def _gather_grid(it, p, src):
     n = len(p.addr)
     esize = ds.type.size
     cb = int(np.prod(C)) * esize
-    if ds.filters or rank == 0 or n < GRID_MIN or n * cb > GRID_MAX or p.fill_needed:
+    if ds.filters or rank == 0 or n < GRID_MIN or n * cb > _hw.scaled(GRID_MAX) or p.fill_needed:
         return False
     start = np.array([b[0] for b in it.box], np.int64)
     step = np.array([b[2] for b in it.box], np.int64)

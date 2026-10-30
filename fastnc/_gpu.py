@@ -27,8 +27,26 @@ _LOCK = threading.Lock()
 _PINNED = None                  # (cupy pinned memory, size)
 _STREAM = None
 BAND_BYTES = 32 << 20           # upload granularity of band-by-band reads
-PIPE_BAND_BYTES = 8 << 20       # ... of the pipelined read (measured: 8 MB a little ahead
-                                # of 32, 4 and 2 on VIIRS, GOES-19, AVHRR)
+PIPE_BAND_BYTES = None          # ... of the pipelined read (None: _pipe_band's)
+PIPE_BAND_GUESS = 8 << 20       # (measured on PCIe 5: 8 MB a little ahead of 32, 4 and 2)
+_BAND = {}
+
+
+def _pipe_band():
+    """Bytes a band of the pipelined read: what fastnc.tune() found for this
+    card, else PIPE_BAND_GUESS."""
+    if PIPE_BAND_BYTES is not None:
+        return PIPE_BAND_BYTES
+    if 'b' not in _BAND:
+        from . import _hw
+        try:
+            cp = _cupy()
+            name = cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)['name']
+            name = name.decode() if isinstance(name, bytes) else str(name)
+            _BAND['b'] = int(_hw.tuned_gpu(name).get('band_bytes') or PIPE_BAND_GUESS)
+        except Exception:
+            _BAND['b'] = PIPE_BAND_GUESS
+    return _BAND['b']
 
 
 def _cupy():
@@ -124,7 +142,7 @@ def _pipelined(bv, box, oshape, dt, host, dev, stream, threads):
     grow = (s + p.ostart[:, 0] - p.cstart[:, 0]) // c0      # each chunk's grid row
     g0 = int(grow.min())
     rowbytes = int(np.prod(oshape[1:])) * dt.itemsize
-    per = max(1, PIPE_BAND_BYTES // max(rowbytes * c0, 1))      # grid rows per band
+    per = max(1, _pipe_band() // max(rowbytes * c0, 1))         # grid rows per band
     band = (grow - g0) // per
     nb = int(band.max()) + 1
     expected = np.bincount(band, minlength=nb)

@@ -40,7 +40,7 @@ import warnings
 
 import numpy
 
-from . import _arena
+from . import _arena, _hw
 
 from ._jit import njit
 from ._intrin import ld64, take
@@ -65,7 +65,7 @@ DEFAULT_FILLVALS = {
 }
 
 FAST_MIN_SIZE = 1 << 15         # below this the reference path is faster (the fast one: ~70 us fixed)
-BLOCK = 1 << 16                 # elements a thread takes at a time
+BLOCK = _hw.block(1 << 16)      # elements a thread takes at a time (fits this machine's L2)
 
 
 # ---------------------------------------------------------------------------
@@ -690,7 +690,7 @@ def xdt_kind_f(dt):
     return numpy.dtype(dt).kind == 'f'
 
 
-NP_BLOCK = 1 << 18              # elements per block of the numpy path (a multiple of 64:
+NP_BLOCK = _hw.block(1 << 18)   # elements per block of the numpy path (a multiple of 64:
                                 # numpy's SIMD loops then end where they would over the
                                 # whole array -- a NaN times a NaN gives the first or the
                                 # second operand's payload depending on which loop)

@@ -47,17 +47,40 @@ def _threads_from_env():
 
 
 _THREADS = _threads_from_env()
+_AUTO = 0                       # threads() when nothing set them, worked out once
+_WORK = 0                       # work_threads()'s bytes per thread, worked out once
+THREAD_BYTES = 1 << 15          # ... before fastnc.tune() has measured this machine's
 
 
 def threads():
     """How many threads reading uses: set_threads()'s, else FASTNC_THREADS,
-    else one per logical CPU."""
-    return _THREADS or os.cpu_count() or 1
+    else what fastnc.tune() found best here, else every CPU this process
+    may use (its affinity and a container's quota count: _hw)."""
+    global _AUTO
+    if _THREADS:
+        return _THREADS
+    if not _AUTO:
+        from . import _hw
+        n = _hw.tuned().get('threads') or _hw.cpus()
+        _AUTO = max(1, min(int(n), _hw.cpus()))
+    return _AUTO
+
+
+def work_threads(nbytes, most):
+    """Threads worth waking for nbytes of output, at most `most` (and at
+    least one): a helper joins some time after it is woken, so each must
+    have more than that time's work left -- THREAD_BYTES, or what
+    fastnc.tune() measured here."""
+    global _WORK
+    if not _WORK:
+        from . import _hw
+        _WORK = int(_hw.tuned().get('thread_bytes') or THREAD_BYTES)
+    return max(1, min(most, nbytes // _WORK))
 
 
 def set_threads(n=None):
-    """Read on n threads (None: one per logical CPU). Calls already running
-    finish on the threads they have."""
+    """Read on n threads (None: as many as suit this machine). Calls already
+    running finish on the threads they have."""
     global _THREADS, _POOL
     if n is not None and (int(n) != n or n < 1):
         raise ValueError('set_threads: a whole number of threads, 1 or more (or None)')
