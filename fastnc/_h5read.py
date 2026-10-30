@@ -7,7 +7,7 @@ h5py keeps the stored order -- the values are the same).
 """
 import numpy as np
 
-from . import _chunks, _hdf5, _select
+from . import _arena, _chunks, _hdf5, _select
 
 
 def native(dt):
@@ -150,7 +150,7 @@ class Reader:
             return vals
         direct_out = out is not None and post is None and not drop and out.shape == shape \
             and out.dtype == nat and out.flags.c_contiguous
-        res = out if direct_out else np.empty(shape, nat)
+        res = out if direct_out else _arena.empty(shape, nat)
         if res.size:
             self._read_into(box, res, swap, threads)
             if stored.byteorder == '>' and not swap:
@@ -219,7 +219,7 @@ def read_many(readers, threads=None):
         n = int(np.prod(ds.shape)) * t.size
         batch.append((i, r, total, n))
         total += (n + 63) // 64 * 64                    # each array 64-byte aligned
-    buf = np.empty(total, np.uint8)
+    buf = _arena.empty((total,), np.uint8)
     items = []
     for i, r, base, n in batch:
         ds = r.ds
