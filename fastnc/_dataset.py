@@ -11,7 +11,7 @@ import os
 
 import numpy as np
 
-from . import _hdf5, _select
+from . import _hdf5, _readahead, _select
 
 FUSED = True                    # masked / scaled HDF5 reads through _fused when it can
 
@@ -245,6 +245,20 @@ class Variable:
             return _gpu.read(self, key, threads=threads)
         k = key if isinstance(key, tuple) else (key,)
         bv = self._bv
+        if _readahead.ENABLED and hasattr(bv, '_reader') and _readahead.whole(k, bv.shape):
+            # whole variables read in the file's order: decoded several at a time
+            ra = self._group._readahead()
+            raw = ra.take(self)
+            if raw is None:
+                res = self._read(k, threads)
+                ra.note(self)
+                return res
+            box, post, drop = _select.normalize(k, bv.shape)
+            return self._post(raw, box, drop, threads)
+        return self._read(k, threads)
+
+    def _read(self, k, threads):
+        bv = self._bv
         if FUSED and (self._mask or self._scale) and hasattr(bv, '_reader'):
             from . import _fused                    # mask / scale while decoding
             res = _fused.read(self, k, threads)
@@ -294,6 +308,12 @@ class Group:
         self.dimensions = {name: Dimension(self, name, *_dim_info(d)) for name, d in bg.dimensions.items()}
         self.variables = {name: Variable(self, bv) for name, bv in bg.variables.items()}
         self.groups = {name: Group(dataset, sub, self) for name, sub in bg.groups.items()}
+
+    def _readahead(self):
+        ra = self.__dict__.get('_ra')
+        if ra is None:
+            ra = self.__dict__.setdefault('_ra', _readahead.Readahead(self))
+        return ra
 
     @property
     def path(self):

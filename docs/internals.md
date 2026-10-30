@@ -17,14 +17,17 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 | `_hdf5` | HDF5 from its bytes: superblocks, object headers, groups (symbol tables, compact and dense links), attributes, datatypes, fill values, filter pipelines, every chunk index |
 | `_h5read` | Raw values of one HDF5 dataset for an index (chunked, contiguous as virtual chunks, compact, vlen, reduced-precision types) and `read_many` |
 | `_vds` | HDF5 virtual datasets (mapping lists v0/v1, every selection type, same-file and cross-file sources, unlimited mappings, printf-style names) and external-file storage |
-| `_chunks` | The chunk engine: planning a selection over a chunk table (plans cached per box), the batch kernel, big chunks on many threads, the zlib path used until numba is loaded |
+| `_chunks` | The chunk engine: planning a selection over a chunk table (plans cached per box), the batch kernel (with per-band progress counts for the GPU pipeline), big chunks on many threads, the path used until numba is loaded (`_read_python`, `_gather_grid`) and when to load it (`ready()`, `LOAD_AFTER`) |
+| `_zlib` | Inflate without numba: libdeflate or zlib found as a shared library, called through ctypes straight into numpy arrays (else `zlib.decompress`) |
+| `_fused` | Masked / scaled reads with mask/scale done per chunk while it is in cache |
+| `_readahead` | Whole variables read in the file's order decoded several at a time (a bounded window) |
 | `_staged`, `_codecs` | Filter pipelines beyond deflate / shuffle / fletcher32: stage by stage over all chunks, one small batch kernel per codec |
 | `_select` | numpy / netCDF4 indexes reduced to boxes, then post-indexing |
 | `_inflate` | Deflate / zlib in numba |
 | `_pinflate` | One deflate stream inflated on many threads (speculative, verified) |
 | `_lzf`, `_lz4`, `_zstd`, `_blosc`, `_blosc2`, `_bitshuffle`, `_szip`, `_scaleoffset`, `_nbit`, `_fletcher32`, `_bzip2`, `_shuffle` | The other HDF5 filters, each `decode(src, p, pend, dst, o, oend, cd, ws)` |
 | `_maskscale` | netCDF4-python's masking and scaling: its own rules carried over line for line, and a fused numba kernel for the common cases; `_maskscale_gpu` the same on the card |
-| `_gpu` | Reads straight to cupy arrays |
+| `_gpu` | Reads straight to cupy arrays: one decode pass, each band uploaded as its last chunk lands |
 | `_arena` | Big output arrays carved from pooled, already-mapped memory |
 | `_pio` | Big unfiltered batches read with positional reads instead of through a fresh mapping |
 | `_remote` | HTTP(S) / S3 / file-object sources: a sparse buffer filled by parallel byte-range requests |
@@ -267,3 +270,49 @@ netCDF-c errors.
 
 HDF4 szip; zstd dictionaries; blosc2 variable-length blocks and
 dictionaries; external storage next to a remote file; writing.
+
+## Reading before numba is loaded
+
+numba's import and the kernels' cache take 0.7-0.9 s of a fresh process and
+hold the GIL; started in the background at the first big read, that made
+the read itself three times slower (each pool thread queues for the GIL
+after every chunk). So nothing starts numba behind the reader's back. Until
+the kernels are loaded:
+
+- deflate chunks are inflated by `_zlib` (libdeflate, else zlib, through
+  ctypes, which lets go of the GIL) straight into a per-thread buffer, or
+  into the output when the chunk is a whole contiguous part of it, then
+  unshuffled by one numpy copy per byte plane (`_chunks._quick`);
+- unfiltered datasets of many chunks are gathered at once: the chunks'
+  bytes concatenated in grid order, the grid's axes interleaved by one
+  transposing copy (`_chunks._gather_grid`; Metop-SG's 19,000 one-row
+  chunks would otherwise cost 25 us of Python each);
+- mask/scale runs `_maskscale.run_plan_numpy`: the kernel's steps as numpy
+  ufuncs over blocks of 2^18 values on the pool (a multiple of 64, so
+  numpy's SIMD loops split where they would over the whole array: NaN
+  payloads come out the same).
+
+The time spent so is summed; once it reaches `_chunks.LOAD_AFTER` (1 s) the
+next read loads the kernels first, on its own thread (ski rental: never
+more than twice what the better choice would have cost). `fastnc.warm()`
+loads them at once. `pytest --kernels off` runs the suite on these paths.
+
+## Values that depend on the platform's numpy
+
+Two things in netCDF4-python's answers come from numpy itself and differ
+between numpy builds, so fastnc follows the running numpy rather than a
+recording:
+
+- a masked array's `fill_value` type after masked arithmetic (numpy 2.5
+  converts it to the result type, earlier versions keep the operand's;
+  numpy 1's default integer is 32-bit on Windows only). fastnc builds the
+  masked array through numpy.ma with the same inputs as netCDF4-python
+  (`_maskscale.finish`), so it gets the running numpy's answer; the tests
+  compare the type exactly where the references were recorded (numpy 2.5,
+  Windows numpy 1.26) and elsewhere against netCDF4-python's own code run
+  under that numpy (`_maskscale._reference`).
+- which NaN's payload survives NaN times NaN: the operand order numpy's
+  compiled loops use (MSVC and gcc builds differ). This only arises with a
+  NaN `scale_factor` / `add_offset`; then numpy does the arithmetic
+  (`Plan.nan_const`), on the CPU and for GPU reads alike.
+

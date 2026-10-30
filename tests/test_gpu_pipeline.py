@@ -46,7 +46,7 @@ def _enc(r):
 @pytest.mark.parametrize('name', FILES)
 def test_pipelined_gpu_equals_cpu(name, monkeypatch):
     fastnc.warm()
-    monkeypatch.setattr(_gpu, 'BAND_BYTES', 64)
+    monkeypatch.setattr(_gpu, 'PIPE_BAND_BYTES', 64)
     used = []
     real = _gpu._pipelined
     monkeypatch.setattr(_gpu, '_pipelined', lambda *a: used.append(real(*a)) or used[-1])

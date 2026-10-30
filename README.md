@@ -245,6 +245,15 @@ above.
 - **Many variables, one pass.** `Dataset.load()` and xarray's
   `preload=True` decode every variable's chunks together, biggest first:
   a WRF file's 200 variables no longer wait on each other.
+- **Readahead across variables.** Code that reads whole variables one
+  after another in the file's order -- xarray's `.load()`, a loop over
+  `ds.variables` -- gets the next ones decoded together in a window (32
+  MB, doubling to 256 MB while the reads keep to the order; dropped when
+  they do not): a WRF variable of four chunks alone keeps four cores busy.
+  xarray's load of wrfout d01 152 -> 86 ms, of the Ku-band file 80 -> 31.
+- **Mask and scale while decoding.** For big scaled variables each chunk
+  becomes float32 and a mask while still in cache, so the raw integers
+  never go to memory and back (GOES-19 C02 140 -> ~122 ms).
 - **Memory reused.** Windows faults in fresh pages slowly (55 ms per GB);
   big outputs reuse already-mapped memory once earlier arrays are gone.
 - **Metadata read lazily** from the file's bytes in Python, and netCDF's
@@ -254,12 +263,24 @@ above.
   recomputed on every question); fastnc 30 ms.
 - **The GPU** does what it is good at: decompressing deflate on the card
   loses (nvCOMP measured slower than the CPU on every file here), so the
-  CPU cores decode, the packed integers cross PCIe while the next band
-  decodes, and masking and scaling to float32 run on the card.
+  CPU cores decode the whole selection in one pass and each 8 MB band
+  crosses PCIe the moment its last chunk is placed -- the upload hides
+  behind the decoding (GOES-19 C02 to the card: 90 ms raw where the CPU
+  read alone takes 82) -- and masking and scaling to float32 run on the
+  card (masked: 95 ms, against 120 masked on the CPU).
+- **A fresh process never waits for numba.** Importing numba and loading
+  the kernels takes 0.7-0.9 s (most of it Windows opening ~300 modules)
+  and holds the GIL; loaded in the background it slowed the first read
+  threefold. So reads start without it -- chunks inflated by libdeflate or
+  zlib through ctypes straight into place on every core, chunk grids of
+  uncompressed data gathered by numpy in one go, mask/scale by numpy
+  block by block on the pool -- and the kernels load only once reading
+  without them has taken a second in all (or on `fastnc.warm()`). A
+  script that reads a few variables never pays for them.
 
 Where it is no faster: a file of a few tiny variables (opening costs about
-the same as the references'), and the first read of a process when numba
-is loading (reads use zlib meanwhile; `fastnc.warm()` loads it up front).
+the same as the references'), and a fresh process reading little (both
+pay ~150 ms for numpy's import; fastnc's own import is ~40 ms).
 
 ## Install
 
@@ -281,7 +302,7 @@ references.
 | `Variable.read(key, device='gpu')` | values as a cupy array (masked results: data and mask on the card, `.get()` for numpy) |
 | `xr.open_dataset(p, engine='fastnc', preload=False)` | xarray, same Dataset as `engine='netcdf4'` |
 | `fastnc.set_threads(n)`, `FASTNC_THREADS` | how many threads (default: every logical CPU) |
-| `fastnc.warm()` | load numba and the kernels now (for worker pools: `ProcessPoolExecutor(initializer=fastnc.warm)`) |
+| `fastnc.warm()` | load numba and the kernels now (else they load once reading without them has taken a second); for worker pools: `ProcessPoolExecutor(initializer=fastnc.warm)` |
 | `fastnc.release()` | free the memory kept between reads |
 | `storage_options={...}` | remote: `region`, `endpoint_url`, `headers`, `timeout`, ... |
 

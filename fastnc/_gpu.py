@@ -26,7 +26,9 @@ from . import _pool, _select
 _LOCK = threading.Lock()
 _PINNED = None                  # (cupy pinned memory, size)
 _STREAM = None
-BAND_BYTES = 32 << 20           # upload granularity: overlap without tiny copies
+BAND_BYTES = 32 << 20           # upload granularity of band-by-band reads
+PIPE_BAND_BYTES = 8 << 20       # ... of the pipelined read (measured: 8 MB a little ahead
+                                # of 32, 4 and 2 on VIIRS, GOES-19, AVHRR)
 
 
 def _cupy():
@@ -122,7 +124,7 @@ def _pipelined(bv, box, oshape, dt, host, dev, stream, threads):
     grow = (s + p.ostart[:, 0] - p.cstart[:, 0]) // c0      # each chunk's grid row
     g0 = int(grow.min())
     rowbytes = int(np.prod(oshape[1:])) * dt.itemsize
-    per = max(1, BAND_BYTES // max(rowbytes * c0, 1))           # grid rows per band
+    per = max(1, PIPE_BAND_BYTES // max(rowbytes * c0, 1))      # grid rows per band
     band = (grow - g0) // per
     nb = int(band.max()) + 1
     expected = np.bincount(band, minlength=nb)

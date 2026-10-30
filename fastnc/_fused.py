@@ -142,7 +142,12 @@ def _run(var, r, ds, index, box, shape, final, nat, swap, pl, p, nthr):
         out = out.reshape(final)
         if pl.mask:
             msk = msk.reshape(final)
-    data = out.view(pl.view) if (maskonly and pl.view is not None) else out
+    if maskonly:
+        data = out.view(pl.view) if pl.view is not None else out
+    else:
+        # (finish takes the raw values' type from data: under numpy < 2.5
+        # the masked array's fill_value keeps it through the scaling)
+        data = np.empty(0, pl.xdt)
     return _maskscale.finish(pl, data, None if maskonly else out, msk, tot, var._always_mask)
 
 
