@@ -44,6 +44,7 @@ fit, -3 input ends early); nothing is written outside dst[o0:oend] or the
 module's own scratch.
 """
 import threading
+import time
 
 import numpy as np
 
@@ -81,7 +82,8 @@ MAXSEG = 32
 # streams (SI) and parts (PT) tables
 SI_LO, SI_PEND, SI_O0, SI_OEND, SI_OSTOP, SI_K, SI_S, SI_O, SI_ST, SI_P0, SI_NP = range(11)
 SI_NUSED, SI_NREDO, SI_REDOB = 11, 12, 13   # parts used, serial redos, bytes redone
-NSI = 14
+SI_D, SI_RND = 14, 15           # output array (0 / 1), rounds so far
+NSI = 16
 PT_S, PT_J, PT_A, PT_B = range(4)        # stream, index in it, cut, next cut (bits)
 NPT = 4
 J_T, J_DST, J_SRC, J_LEN, J_WIN, J_LO, J_STREAM = range(7)
@@ -463,7 +465,7 @@ def _sym8(src, pend, p, buf, bc, dst, dlo, o, oend, ostop, tab):
                 return ERR_SPACE, p, buf, bc, o
             dst[o] = e >> 16
             o += 1
-            if o >= ostop:
+            if o >= ostop and ostop < oend:         # (a full decode goes on: more is an error)
                 return END_STOP, p, buf, bc, o
             continue
         if kind != K_LEN:
@@ -1067,12 +1069,13 @@ def _place_part(dst, B8, W16, seg, nreg, lastn, O, L, o0, JOBS, j0, s):
 
 
 @njit(cache=True, nogil=True)
-def _chain(src, dst, SI, PT, RES, SEG, B8, W16, JOBS, s, tab, iws):
+def _chain(src, dsts, SI, PT, RES, SEG, B8, W16, JOBS, s, tab, iws):
     """Stream s's parts in order once all have run: use each part that
     started exactly where the verified decode reached, redo serially from
     there any that did not. Writes the redone stretches and every used
     part's last 32 kB into place (what the next part's markers and the
     redos read); queues the rest of the copying in JOBS."""
+    dst = dsts[SI[s, SI_D]]
     lo = SI[s, SI_LO]
     pend = SI[s, SI_PEND]
     o0 = SI[s, SI_O0]
@@ -1146,11 +1149,11 @@ def _chain(src, dst, SI, PT, RES, SEG, B8, W16, JOBS, s, tab, iws):
 
 
 @njit(cache=True, nogil=True)
-def _steps_ab(src, dst, SI, PT, RES, SEG, DONE, B8, W16, JOBS, ctr, slab, sbase, ssize, nslab,
+def _steps_ab(src, dsts, SI, PT, RES, SEG, DONE, B8, W16, JOBS, ctr, slab, sbase, ssize, nslab,
               findmax, tab, iws):
     """Take parts off ctr[0] and decode them -- part 0 of a stream truly,
-    straight into dst; the others speculatively into slabs. The thread
-    finishing a stream's last part walks its chain."""
+    straight into its output; the others speculatively into slabs. The
+    thread finishing a stream's last part walks its chain."""
     n = PT.shape[0]
     while True:
         t = take(ctr, 0)
@@ -1161,18 +1164,18 @@ def _steps_ab(src, dst, SI, PT, RES, SEG, DONE, B8, W16, JOBS, ctr, slab, sbase,
         lo = SI[s, SI_LO]
         pend = SI[s, SI_PEND]
         if PT[t, PT_J] == 0:
-            res[R_ST] = _decode_true(src, lo, pend, SI[s, SI_K], SI[s, SI_S], PT[t, PT_B], dst,
-                                     SI[s, SI_O0], SI[s, SI_O], SI[s, SI_OEND], SI[s, SI_OSTOP],
-                                     tab, iws, res)
+            res[R_ST] = _decode_true(src, lo, pend, SI[s, SI_K], SI[s, SI_S], PT[t, PT_B],
+                                     dsts[SI[s, SI_D]], SI[s, SI_O0], SI[s, SI_O], SI[s, SI_OEND],
+                                     SI[s, SI_OSTOP], tab, iws, res)
         else:
             _part(src, lo, pend, PT[t, PT_A], PT[t, PT_B], findmax, B8, W16, SEG[t], slab, sbase,
                   ssize, nslab, tab, iws, res)
         if take(DONE, s) == SI[s, SI_NP] - 1:
-            _chain(src, dst, SI, PT, RES, SEG, B8, W16, JOBS, s, tab, iws)
+            _chain(src, dsts, SI, PT, RES, SEG, B8, W16, JOBS, s, tab, iws)
 
 
 @njit(cache=True, nogil=True)
-def _step_c(dst, B8, W16, JOBS, CUM, SI, ctr):
+def _step_c(dsts, B8, W16, JOBS, CUM, SI, ctr):
     """The queued copies and marker resolutions, PIECE at a time off ctr[0]."""
     total = CUM[CUM.shape[0] - 1]
     while True:
@@ -1182,13 +1185,15 @@ def _step_c(dst, B8, W16, JOBS, CUM, SI, ctr):
         jb = np.searchsorted(CUM, k, side='right') - 1
         a = (k - CUM[jb]) * PIECE
         b = min(a + PIECE, JOBS[jb, J_LEN])
+        s = JOBS[jb, J_STREAM]
+        dst = dsts[SI[s, SI_D]]
         if JOBS[jb, J_T] == J_COPY:
             _copy(dst, JOBS[jb, J_DST] + a, B8, JOBS[jb, J_SRC] + a, b - a)
         else:
             e = _resolve(dst, W16, JOBS[jb, J_SRC], a, b, JOBS[jb, J_DST], JOBS[jb, J_WIN],
                          JOBS[jb, J_LO])
             if e < 0:
-                SI[JOBS[jb, J_STREAM], SI_ST] = e
+                SI[s, SI_ST] = e
 
 
 # ---------------------------------------------------------------- driver
@@ -1197,9 +1202,10 @@ MIN_PART = 1 << 18              # compressed bytes a part gets at least
 PARTS_PER_THREAD = 2            # parts per thread (load balance across P and E cores)
 FINDMAX = 1 << 22               # bits a part searches for its start at most (512 kB)
 SLABF = 1.25                    # a slab: room for this many times a part's expected output, as symbols
-SPARE = 1.0                     # extra slabs a round has, per part
-BUDGET = 256 << 20              # scratch bytes a round aims to stay under (one stream at least)
-SLACK = 1.15                    # partial reads: extra share of input covered by a round
+SPARE = 0.75                    # extra slabs a round has, per part
+BUDGET = 1 << 30                # scratch (address space) a round aims to stay under (one stream at least)
+KEEP = 512 << 20                # scratch kept between calls up to this size
+SLACK = 1.15                    # partial reads: extra share of input a first round covers
 
 _TLS = threading.local()
 _ARENA_LOCK = threading.Lock()
@@ -1220,11 +1226,14 @@ def _arena(n):
         a = _ARENA[0]
         _ARENA[0] = None
     if a is None or a.size < n:
+        a = None
         a = np.empty((max(n, 8) + 7) // 8, np.uint64).view(np.uint8)
     return a
 
 
 def _keep(a):
+    if a.size > KEEP:
+        return
     with _ARENA_LOCK:
         if _ARENA[0] is None or _ARENA[0].size < a.size:
             _ARENA[0] = a
@@ -1236,11 +1245,14 @@ def release():
         _ARENA[0] = None
 
 
-def _plan(SI, act, T, ppt, min_part, budget):
+def _plan(SI, act, T, ppt, min_part, budget, total):
     """This round's parts: for the active streams that fit the scratch
     budget (the first always), cuts at equal shares of the compressed
-    input. Returns (PT, slab size, number of slabs); streams left out get
-    SI_NP 0."""
+    input, about total / (T * ppt) bytes each (total: the compressed bytes
+    of all the work the threads share, at least these streams'). A partial
+    read's first round covers the input expected to give the output wanted
+    (if that is under half), later ones the rest. Returns (PT, slab size,
+    number of slabs); streams left out get SI_NP 0."""
     rows = []
     chosen = []
     need = 0
@@ -1248,7 +1260,7 @@ def _plan(SI, act, T, ppt, min_part, budget):
         lo, pend, o0, oend, ostop, k, sync, O = (int(x) for x in SI[s, :SI_ST])
         E = 8 * pend
         ratio = (oend - o0) / max(1, pend - lo)            # output bytes per input byte
-        if ostop < oend:
+        if ostop < oend and SI[s, SI_RND] == 0 and 2 * (ostop - o0) < oend - o0:
             bits = 8 * (ostop - O) / max(ratio, 1e-9) * SLACK + 8 * 65536
             E = min(E, sync + int(bits))
         scratch = 2 * SLABF * (1 + SPARE) * ratio * (E - sync) / 8
@@ -1257,8 +1269,9 @@ def _plan(SI, act, T, ppt, min_part, budget):
             continue
         chosen.append((s, E, ratio))
         need += scratch
-    total = sum(E - int(SI[s, SI_S]) for s, E, _ in chosen)
-    target = max(8 * min_part, total / max(1, T * ppt))
+        SI[s, SI_RND] += 1
+    mine = sum(E - int(SI[s, SI_S]) for s, E, _ in chosen)
+    target = max(8 * min_part, max(mine, 8 * total) / max(1, T * ppt))
     nspec = 0
     big = 0.0
     for s, E, ratio in chosen:
@@ -1273,20 +1286,29 @@ def _plan(SI, act, T, ppt, min_part, budget):
         if n > 1:
             big = max(big, ratio * (cuts[2] - cuts[1]) / 8)
     ssize = (max(int(2 * SLABF * big), 2 * (65536 + 1024)) + 2 * W + 63) & ~63
-    nslab = int(nspec * (1 + SPARE)) + (4 if nspec else 0)
+    nslab = int(nspec * (1 + SPARE) + 0.5) + (4 if nspec else 0)
     return np.array(rows, np.int64).reshape(-1, NPT), ssize, nslab
 
 
 def inflate_many(src, starts, ends, dst, o0s, oends, ostops=None, nthreads=None,
+                 dst2=None, which=None, extra=None, total=0,
                  parts_per_thread=PARTS_PER_THREAD, min_part=MIN_PART, findmax=FINDMAX,
                  budget=BUDGET, info=None):
     """Inflate zlib streams src[starts[i]:ends[i]] into dst[o0s[i]:oends[i]]
-    (disjoint ranges), together, on up to nthreads threads of the pool, each
-    stream cut into parts decoded at once. ostops[i] (default oends[i]):
-    output stream i needs; decoding may stop soon after. Returns an int64
-    array: each stream's output end, or a negative error code as
-    `_inflate.zlib_inflate`'s. info: a list to append each round's part
-    table, records and regions to, then the stream table (diagnostics)."""
+    (disjoint ranges) on up to nthreads threads of the pool, each stream cut
+    into parts that all decode at once. ostops[i] (default oends[i]): the
+    output stream i needs; decoding may stop soon after it.
+
+    dst2, which: a second output array, for streams with which[i] = 1.
+    extra: a function each thread runs once its parts are done (in the
+    first round): other work sharing the pool with the parts, e.g. the
+    engine's smaller chunks. total: the compressed bytes of all that work
+    together, which sizes the parts (a stream much smaller than its share
+    of the threads is not cut).
+
+    Returns an int64 array: each stream's output end, or a negative error
+    code as `_inflate.zlib_inflate`'s. info: a list to append each round's
+    tables and step times to, then the stream table (diagnostics)."""
     starts = np.asarray(starts, np.int64)
     ns = len(starts)
     SI = np.zeros((ns, NSI), np.int64)
@@ -1297,6 +1319,8 @@ def inflate_many(src, starts, ends, dst, o0s, oends, ostops=None, nthreads=None,
     SI[:, SI_OSTOP] = oends if ostops is None else np.minimum(ostops, oends)
     SI[:, SI_S] = 8 * (starts + 2)
     SI[:, SI_O] = o0s
+    if which is not None:
+        SI[:, SI_D] = which
     for s in range(ns):
         p, pend = int(starts[s]), int(SI[s, SI_PEND])
         if pend - p < 2:
@@ -1305,12 +1329,14 @@ def inflate_many(src, starts, ends, dst, o0s, oends, ostops=None, nthreads=None,
         cmf, flg = int(src[p]), int(src[p + 1])
         if (cmf & 15) != 8 or (cmf >> 4) > 7 or ((cmf << 8) | flg) % 31 != 0 or (flg & 32):
             SI[s, SI_ST] = ERR_DATA
+    dsts = (dst, dst if dst2 is None else dst2)
     T = max(1, min(nthreads or _pool.threads(), _pool.threads()))
+    pending = [extra]
     while True:
         act = [s for s in range(ns) if SI[s, SI_ST] == 0]
         if not act:
             break
-        PT, ssize, nslab = _plan(SI, act, T, parts_per_thread, min_part, budget)
+        PT, ssize, nslab = _plan(SI, act, T, parts_per_thread, min_part, budget, total)
         B8 = _arena(ssize * nslab)
         W16 = B8.view(np.uint16)
         RES = np.zeros((len(PT), NRES), np.int64)
@@ -1319,23 +1345,44 @@ def inflate_many(src, starts, ends, dst, o0s, oends, ostops=None, nthreads=None,
         JOBS = np.zeros((MAXSEG * len(PT), NJ), np.int64)
         ctr = np.zeros(1, np.int64)
         slab = np.zeros(1, np.int64)
+        more = pending.pop() if pending else None
 
         def ab():
             tab, iws = _ws()
-            _steps_ab(src, dst, SI, PT, RES, SEG, DONE, B8, W16, JOBS, ctr, slab, 0, ssize,
+            _steps_ab(src, dsts, SI, PT, RES, SEG, DONE, B8, W16, JOBS, ctr, slab, 0, ssize,
                       nslab, findmax, tab, iws)
-        _pool.share(ab, min(T, len(PT)))
+            if more is not None:
+                more()
+        t0 = time.perf_counter()
+        _pool.share(ab, T if more is not None else min(T, len(PT)))
+        t1 = time.perf_counter()
         pieces = np.where(JOBS[:, J_T] > 0, -(-JOBS[:, J_LEN] // PIECE), 0)
         CUM = np.concatenate([np.zeros(1, np.int64), np.cumsum(pieces)])
         if CUM[-1]:
             ctr[0] = 0
-            _pool.share(lambda: _step_c(dst, B8, W16, JOBS, CUM, SI, ctr), min(T, int(CUM[-1])))
+            _pool.share(lambda: _step_c(dsts, B8, W16, JOBS, CUM, SI, ctr), min(T, int(CUM[-1])))
         _keep(B8)
+        total = 0                                   # later rounds: these streams alone
         if info is not None:
-            info.append((PT, RES, SEG, int(slab[0]), nslab, ssize))
+            info.append((PT, RES, SEG, int(slab[0]), nslab, ssize, t1 - t0,
+                         time.perf_counter() - t1))
+    if pending and pending[0] is not None:
+        _pool.share(pending[0], T)
     if info is not None:
         info.append(SI)
     return np.where(SI[:, SI_ST] < 0, SI[:, SI_ST], SI[:, SI_O])
+
+
+def warm():
+    """Load (from numba's cache, or compile) every kernel with the argument
+    types reads use: a small stream cut in two, from a read-only buffer as
+    a file mapping is."""
+    import zlib
+    x = np.arange(1 << 17, dtype=np.uint32) * np.uint32(2654435761) >> np.uint32(24)
+    z = zlib.compress(x.astype(np.uint8).tobytes(), 1)
+    src = np.frombuffer(z, np.uint8)
+    out = np.empty(1 << 17, np.uint8)
+    inflate_parallel(src, 0, len(z), out, 0, len(out), nthreads=2, min_part=1 << 12)
 
 
 def inflate_parallel(src, p, pend, dst, o0, oend, ostop=None, nthreads=None, **kw):
