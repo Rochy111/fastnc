@@ -82,12 +82,54 @@ def _defer(fn, opts, kind):
         return k
 
 
+def _clear_stale_cache():
+    """Delete fastnc's numba cache files when any fastnc source changed.
+
+    numba's cache checks only the source file of the kernel itself, not of
+    the kernels it calls in other modules: after an edit of _inflate.py (or
+    an upgrade -- pip does not remove .nbi/.nbc files), the engine kernel in
+    _chunks.py kept running the old inflate from its cache. So a stamp of
+    every fastnc source file (name, size, modification time) is kept next
+    to the cache; when it differs, the whole cache goes."""
+    import hashlib
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        names = sorted(n for n in os.listdir(here) if n.endswith('.py'))
+        h = hashlib.sha1()
+        for n in names:
+            st = os.stat(os.path.join(here, n))
+            h.update(('%s %d %d;' % (n, st.st_size, st.st_mtime_ns)).encode())
+        stamp = h.hexdigest()
+        cache = os.path.join(here, '__pycache__')
+        path = os.path.join(cache, 'fastnc_kernels.stamp')
+        try:
+            with open(path) as f:
+                if f.read() == stamp:
+                    return
+        except OSError:
+            pass
+        if os.path.isdir(cache):
+            for n in os.listdir(cache):
+                if n.endswith(('.nbi', '.nbc')):
+                    try:
+                        os.remove(os.path.join(cache, n))
+                    except OSError:
+                        pass
+        os.makedirs(cache, exist_ok=True)
+        with open(path, 'w') as f:
+            f.write(stamp)
+    except OSError:
+        pass                                        # read-only install: numba's own checks only
+
+
 def load():
     """numba imported, every pending kernel made, and each fastnc module's
     stand-ins replaced by them."""
     global _numba
     with _LOCK:
         if _numba is None:
+            _clear_stale_cache()
             import numba
             for k in _PENDING:
                 k.real = k.make(numba)

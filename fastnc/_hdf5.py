@@ -57,7 +57,7 @@ class Datatype:
     hold directly (vlen); `cls` is the HDF5 class number."""
     __slots__ = ('cls', 'size', 'dtype', 'order', 'signed', 'base', 'members',
                  'enum', 'vlen_string', 'charset', 'strpad', 'dims', 'ref_kind',
-                 'precision', 'offset', 'tag', 'committed')
+                 'precision', 'offset', 'tag', 'committed', 'fields')
 
     @property
     def h5py_dtype(self):
@@ -84,6 +84,7 @@ class Datatype:
         self.signed = False
         self.ref_kind = None
         self.precision = self.offset = 0
+        self.fields = None
         self.tag = b''
         self.committed = None
 
@@ -114,6 +115,9 @@ def parse_datatype(b, at):
             raise FormatError('VAX-order floating point is not supported')
         t.order = '>' if f0 & 1 else '<'
         t.offset, t.precision = _u16(b, p)[0], _u16(b, p + 2)[0]
+        # sign position, exponent position/size, mantissa position/size,
+        # exponent bias, mantissa normalization (0 none, 1 msb set, 2 implied)
+        t.fields = (f1, b[p + 4], b[p + 5], b[p + 6], b[p + 7], _u32(b, p + 8)[0], (f0 >> 4) & 3)
         p += 12
         if size in (2, 4, 8):
             t.dtype = np.dtype('%sf%d' % (t.order, size))

@@ -22,6 +22,83 @@ def native(dt):
                      'itemsize': dt.itemsize})
 
 
+# IEEE layouts (sign, exponent position, size, mantissa position, size, bias, implied)
+_IEEE = {2: (15, 10, 5, 0, 10, 15, 2), 4: (31, 23, 8, 0, 23, 127, 2), 8: (63, 52, 11, 0, 52, 1023, 2)}
+
+
+def reduced(t):
+    """True for a type whose stored bits are not the native type's: an
+    integer narrower than its size or off bit 0, a float with a non-IEEE
+    layout (n-bit data mostly), or a compound / array holding one."""
+    if t.cls in (0, 4):
+        return t.precision < 8 * t.size or t.offset != 0
+    if t.cls == 1:
+        return t.fields is not None and t.size in _IEEE and (
+            t.fields != _IEEE[t.size] or t.offset != 0 or t.precision != 8 * t.size)
+    if t.cls == 6:
+        return any(reduced(m[2]) for m in t.members)
+    if t.cls in (8, 10):
+        return reduced(t.base)
+    return False
+
+
+def convert_reduced(a, t):
+    """Values of a reduced type as HDF5 converts them to the native type
+    (what h5py and netCDF-c return): integers shifted down by their bit
+    offset and sign-extended from their precision, floats re-encoded from
+    their sign / exponent / mantissa fields into IEEE."""
+    if t.cls == 6:
+        out = a.astype(native(a.dtype))
+        for name, off, mt in t.members:
+            if reduced(mt):
+                out[name] = convert_reduced(a[name], mt)
+        return out
+    if t.cls in (8, 10):
+        return convert_reduced(a, t.base)
+    a = a.astype(a.dtype.newbyteorder('=')) if a.dtype.byteorder == '>' else a
+    u = a.view('u%d' % t.size).astype(np.uint64)
+    if t.cls in (0, 4):
+        mask = np.uint64((1 << t.precision) - 1)
+        v = (u >> np.uint64(t.offset)) & mask
+        if t.signed:
+            sign = np.uint64(1 << (t.precision - 1))
+            v = np.where(v & sign, v | ~mask, v)    # sign-extended, in two's complement
+        return v.astype(np.uint64).view(np.int64).astype(a.dtype) if t.signed else v.astype(a.dtype)
+    return _float_bits(u, t).astype(a.dtype)
+
+
+def float_target(t):
+    """The native float a custom float converts to (h5py's choice): the
+    smallest of float32 / float64 at least its size (and holding its fields)."""
+    spos, epos, esize, mpos, msize, bias, norm = t.fields
+    return np.dtype('f4') if t.size <= 4 and esize <= 8 and msize <= 23 else np.dtype('f8')
+
+
+def odd_float(raw, t):
+    """Values of a float type numpy has no dtype for (an odd size),
+    from its raw bytes (V-dtype array)."""
+    b = raw.reshape(-1).view(np.uint8).reshape(-1, t.size)
+    if t.order == '>':
+        b = b[:, ::-1]
+    pad = np.zeros((b.shape[0], 8), np.uint8)
+    pad[:, :t.size] = b
+    u = pad.view('<u8').reshape(raw.shape)
+    return _float_bits(u, t).astype(float_target(t))
+
+
+def _float_bits(u, t):
+    spos, epos, esize, mpos, msize, bias, norm = t.fields
+    s = ((u >> np.uint64(spos)) & np.uint64(1)).astype(bool)
+    e = ((u >> np.uint64(epos)) & np.uint64((1 << esize) - 1)).astype(np.int64)
+    m = ((u >> np.uint64(mpos)) & np.uint64((1 << msize) - 1)).astype(np.float64)
+    emax = (1 << esize) - 1
+    frac = m / float(1 << msize)
+    lead = 1.0 if norm == 2 else 0.0
+    val = np.where(e == 0, np.ldexp(frac, 1 - bias), np.ldexp(lead + frac, e - bias))
+    val = np.where(e == emax, np.where(m == 0, np.inf, np.nan), val)
+    return np.where(s, -val, val)
+
+
 def _simple_swap(dt):
     """True for a plain big-endian number: swapped as it is placed."""
     return dt.fields is None and dt.subdtype is None and dt.byteorder == '>' and dt.itemsize > 1
@@ -50,6 +127,9 @@ class Reader:
             return None
         box, post, drop = _select.normalize(key, ds.shape)
         shape = _select.box_shape(box)
+        if t.cls == _hdf5.Datatype.FLOAT and t.dtype is None and t.fields is not None and t.size <= 8:
+            raw = self._raw_box(box, shape, np.dtype('V%d' % t.size), threads)
+            return _select.finish(odd_float(raw, t), post, drop, scalars)
         if t.dtype is None or t.cls in (_hdf5.Datatype.VLEN, _hdf5.Datatype.REFERENCE):
             raw = self._raw_box(box, shape, np.dtype('V%d' % t.size), threads)
             vals = self.f.decode_values(t, shape, raw.tobytes()) if t.cls == _hdf5.Datatype.VLEN else raw
@@ -57,6 +137,17 @@ class Reader:
         stored = t.dtype
         nat = native(stored)
         swap = _simple_swap(stored)
+        if t.cls in (_hdf5.Datatype.COMPOUND, _hdf5.Datatype.ARRAY) and (reduced(t) or nat != stored):
+            # big-endian or reduced members: the stored bytes, then one conversion
+            raw = self._raw_box(box, shape, np.dtype('V%d' % t.size), threads)
+            vals = np.frombuffer(raw.tobytes(), stored)
+            vals = vals.reshape(tuple(shape) + vals.shape[1:])
+            vals = convert_reduced(vals, t) if reduced(t) else vals.astype(nat)
+            vals = _select.finish(vals, post, drop, scalars)
+            if out is not None:
+                out[...] = vals
+                return out
+            return vals
         direct_out = out is not None and post is None and not drop and out.shape == shape \
             and out.dtype == nat and out.flags.c_contiguous
         res = out if direct_out else np.empty(shape, nat)
@@ -64,6 +155,8 @@ class Reader:
             self._read_into(box, res, swap, threads)
             if stored.byteorder == '>' and not swap:
                 res[...] = res.view(stored).astype(nat)     # compound / array types
+        if reduced(t) and res.size:
+            res = convert_reduced(res, t)
         res = _select.finish(res, post, drop, scalars)
         if out is not None and not direct_out:
             out[...] = res

@@ -19,6 +19,8 @@ def same(a, b):
     if a.dtype.kind == 'O' or b.dtype.kind == 'O':
         return [x.decode() if isinstance(x, bytes) else x for x in a.ravel().tolist()] == \
                [x.decode() if isinstance(x, bytes) else x for x in b.ravel().tolist()] if a.dtype.kind == b.dtype.kind or True else False
+    if a.dtype.fields is not None and b.dtype.fields is not None:
+        return list(a.dtype.names) == list(b.dtype.names) and all(same(a[n], b[n]) for n in b.dtype.names)
     if b.dtype.kind in 'bc' or a.dtype.fields is not None:
         return a.tobytes() == np.ascontiguousarray(b).astype(_h5read.native(b.dtype)).tobytes() or \
                a.tobytes() == np.ascontiguousarray(b).tobytes()
