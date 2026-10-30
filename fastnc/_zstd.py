@@ -80,12 +80,65 @@ _DEFLOG = np.array([6, 5, 6], np.int64)
 U8 = np.uint64(8)
 
 
+def _default_table(norm, log, kind):
+    """A predefined distribution's decoding table, as _build_fse makes it
+    (plain Python, at import: the tables are constants in the kernels)."""
+    size = 1 << log
+    high = size - 1
+    sym = [0] * size
+    nxt = list(norm)
+    for s, c in enumerate(norm):
+        if c == -1:
+            sym[high] = s
+            high -= 1
+            nxt[s] = 1
+    pos = 0
+    step = (size >> 1) + (size >> 3) + 3
+    for s, c in enumerate(norm):
+        for i in range(max(c, 0)):
+            sym[pos] = s
+            pos = (pos + step) & (size - 1)
+            while pos > high:
+                pos = (pos + step) & (size - 1)
+    tab = np.zeros(size, np.uint64)
+    for u in range(size):
+        s = sym[u]
+        ns = nxt[s]
+        nxt[s] += 1
+        nb = log - (int(ns).bit_length() - 1)
+        st = (ns << nb) - size
+        if kind == 0:
+            base, add = int(_LL_BASE[s]), int(_LL_BITS[s])
+        elif kind == 2:
+            base, add = int(_ML_BASE[s]), int(_ML_BITS[s])
+        else:
+            base, add = 1 << s, s
+        tab[u] = base | (add << 32) | (nb << 40) | (st << 48)
+    return tab
+
+
+_LL_DEF = _default_table([int(x) for x in _LL_NORM], 6, 0)
+_OF_DEF = _default_table([int(x) for x in _OF_NORM], 5, 1)
+_ML_DEF = _default_table([int(x) for x in _ML_NORM], 6, 2)
+
+
 @njit(cache=True, nogil=True)
 def _highbit(x):
-    """Index of the highest set bit of x > 0."""
+    """Index of the highest set bit of 0 < x < 2**32."""
     n = 0
-    while x > 1:
-        x >>= 1
+    if x >= 65536:
+        x >>= 16
+        n += 16
+    if x >= 256:
+        x >>= 8
+        n += 8
+    if x >= 16:
+        x >>= 4
+        n += 4
+    if x >= 4:
+        x >>= 2
+        n += 2
+    if x >= 2:
         n += 1
     return n
 
@@ -101,6 +154,8 @@ def _bits32(src, p, pend, pos):
     """32 bits of src[p:pend] from bit pos on (little-endian, LSB first),
     zeros past the end."""
     b = p + (pos >> 3)
+    if b + 8 <= pend:
+        return np.int64((ld64(src, b) >> np.uint64(pos & 7)) & np.uint64(0xFFFFFFFF))
     v = 0
     for k in range(5):
         if b + k < pend:
@@ -481,18 +536,14 @@ def _seq_table(src, q, send, mode, which, ws, iws):
     nxt = iws[I_NEXT:I_NEXT + 256]
     if mode == 0:
         if which == 0:
-            n = 36
-            for s in range(n):
-                norm[s] = _LL_NORM[s]
+            for k in range(64):
+                tab[k] = _LL_DEF[k]
         elif which == 1:
-            n = 29
-            for s in range(n):
-                norm[s] = _OF_NORM[s]
+            for k in range(32):
+                tab[k] = _OF_DEF[k]
         else:
-            n = 53
-            for s in range(n):
-                norm[s] = _ML_NORM[s]
-        _build_fse(norm, n, _DEFLOG[which], tab, nxt, kind)
+            for k in range(64):
+                tab[k] = _ML_DEF[k]
         iws[I_LOG + which] = _DEFLOG[which]
         return q
     if mode == 1:
@@ -671,16 +722,17 @@ def _block(src, p, bend, dst, fstart, o, oend, ws, iws, bsmax):
             eo = oft[so]
             em = mlt[sm]
             q, buf, bc, dfc = _refill(src, start, q, buf, bc, dfc)
-            nb = np.int64((eo >> u(32)) & M8)
-            ofv = np.int64(eo & M32) + np.int64((buf >> u(bc - nb)) & ((u(1) << u(nb)) - u(1)))
-            bc -= nb
-            q, buf, bc, dfc = _refill(src, start, q, buf, bc, dfc)
-            nb = np.int64((em >> u(32)) & M8)
-            ml = np.int64(em & M32) + np.int64((buf >> u(bc - nb)) & ((u(1) << u(nb)) - u(1)))
-            bc -= nb
-            nb = np.int64((el >> u(32)) & M8)
-            ll = np.int64(el & M32) + np.int64((buf >> u(bc - nb)) & ((u(1) << u(nb)) - u(1)))
-            bc -= nb
+            ob = np.int64((eo >> u(32)) & M8)
+            mb = np.int64((em >> u(32)) & M8)
+            lb = np.int64((el >> u(32)) & M8)
+            ofv = np.int64(eo & M32) + np.int64((buf >> u(bc - ob)) & ((u(1) << u(ob)) - u(1)))
+            bc -= ob
+            if ob + mb + lb > 56:                   # (long offsets and lengths: rare)
+                q, buf, bc, dfc = _refill(src, start, q, buf, bc, dfc)
+            ml = np.int64(em & M32) + np.int64((buf >> u(bc - mb)) & ((u(1) << u(mb)) - u(1)))
+            bc -= mb
+            ll = np.int64(el & M32) + np.int64((buf >> u(bc - lb)) & ((u(1) << u(lb)) - u(1)))
+            bc -= lb
             if i + 1 < nseq:
                 q, buf, bc, dfc = _refill(src, start, q, buf, bc, dfc)
                 nb = np.int64((el >> u(40)) & M8)
@@ -713,32 +765,43 @@ def _block(src, p, bend, dst, fstart, o, oend, ws, iws, bsmax):
                         r2 = r1
                     r1 = r0
                     r0 = off
-            # literals
             if ll > lend - lp:
                 return ERR_DATA
-            if ll <= 16 and lp + 16 <= llim and o + 16 <= oend:
+            if off > o + ll - fstart or off <= 0:
+                return ERR_DATA
+            end = o + ll + ml
+            if end + 32 <= oend:
+                # literals then match, by words, overshooting (the literal
+                # buffer has slack after its end, the output room after `end`)
                 st64(dst, o, ld64(lit, lp))
                 st64(dst, o + 8, ld64(lit, lp + 8))
+                k = 16
+                while k < ll:
+                    st64(dst, o + k, ld64(lit, lp + k))
+                    st64(dst, o + k + 8, ld64(lit, lp + k + 8))
+                    k += 16
+                o += ll
+                lp += ll
+                if off >= 16:
+                    s = o - off
+                    st64(dst, o, ld64(dst, s))
+                    st64(dst, o + 8, ld64(dst, s + 8))
+                    k = 16
+                    while k < ml:
+                        st64(dst, o + k, ld64(dst, s + k))
+                        st64(dst, o + k + 8, ld64(dst, s + k + 8))
+                        k += 16
+                else:
+                    copy_match(dst, o, off, ml, oend)
+                o = end
             else:
-                if o + ll > oend:
+                if end > oend:
                     return ERR_SPACE
                 copy_bytes(lit, lp, dst, o, ll)
-            o += ll
-            lp += ll
-            # match
-            if off > o - fstart or off <= 0:
-                return ERR_DATA
-            if o + ml > oend:
-                return ERR_SPACE
-            if off >= 16 and ml <= 32 and o + 32 <= oend:
-                s = o - off
-                st64(dst, o, ld64(dst, s))
-                st64(dst, o + 8, ld64(dst, s + 8))
-                st64(dst, o + 16, ld64(dst, s + 16))
-                st64(dst, o + 24, ld64(dst, s + 24))
-            else:
+                o += ll
+                lp += ll
                 copy_match(dst, o, off, ml, oend)
-            o += ml
+                o = end
         if bc != dfc or q != start:
             return ERR_DATA
         iws[I_REP] = r0

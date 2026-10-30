@@ -42,41 +42,189 @@ def copy_match(dst, o, dist, n, oend):
     """dst[o:o+n] = the n bytes starting dist back (an LZ77 match, which may
     overlap its own output). Writes nothing at or past oend; the caller has
     checked o + n <= oend and dist <= o - (start of the window)."""
+    if o + n + 32 <= oend:
+        _copy_fast(dst, o, dist, n)
+        return
+    m = oend - 32 - o                           # the bulk, with room to overshoot
+    if m > 0:
+        _copy_fast(dst, o, dist, m)
+    else:
+        m = 0
     s = o - dist
-    if o + n + 8 <= oend:
-        if dist >= 8:
-            k = 0
-            while k < n:
-                st64(dst, o + k, ld64(dst, s + k))
-                k += 8
-            return
-        if dist == 1:
-            v = ld64(dst, s) & np.uint64(0xFF)
-            v *= np.uint64(0x0101010101010101)
-            k = 0
-            while k < n:
-                st64(dst, o + k, v)
-                k += 8
-            return
-        # a short period: the first 8 bytes one by one, then words from the
-        # smallest multiple of the period that is at least 8 back
-        for k in range(8):
-            dst[o + k] = dst[s + k]
-        step = dist * ((8 + dist - 1) // dist)
-        k = 8
+    for k in range(m, n):
+        dst[o + k] = dst[s + k]
+
+
+@njit(cache=True, nogil=True)
+def _copy_fast(dst, o, dist, n):
+    """copy_match with at least 32 bytes of room after o + n (it writes up
+    to 31 bytes past the match).
+
+    Long matches at short distances (runs of a byte or of a few-byte
+    pattern: constant and periodic data) are written from registers
+    holding 32 bytes of the pattern, so that no load reads bytes stored a
+    moment before (a load straddling two recent stores stalls for a dozen
+    cycles: copying such a match a word at a time runs at a third of the
+    speed)."""
+    s = o - dist
+    if dist >= 32:
+        k = 0
         while k < n:
-            st64(dst, o + k, ld64(dst, o + k - step))
+            a = ld64(dst, s + k)
+            b = ld64(dst, s + k + 8)
+            c = ld64(dst, s + k + 16)
+            d = ld64(dst, s + k + 24)
+            st64(dst, o + k, a)
+            st64(dst, o + k + 8, b)
+            st64(dst, o + k + 16, c)
+            st64(dst, o + k + 24, d)
+            k += 32
+        return
+    if n >= 48 or dist == 1:
+        if dist == 1:
+            v0 = np.uint64(dst[s]) * np.uint64(0x0101010101010101)
+            v1 = v0
+            v2 = v0
+            v3 = v0
+            step = 32
+        else:
+            # 32 bytes of the pattern, then stores advancing a whole
+            # number of periods each time
+            v0 = np.uint64(0)
+            v1 = np.uint64(0)
+            v2 = np.uint64(0)
+            v3 = np.uint64(0)
+            j = 0
+            for i in range(32):
+                x = np.uint64(dst[s + j]) << np.uint64(8 * (i & 7))
+                if i < 8:
+                    v0 |= x
+                elif i < 16:
+                    v1 |= x
+                elif i < 24:
+                    v2 |= x
+                else:
+                    v3 |= x
+                j += 1
+                if j == dist:
+                    j = 0
+            step = dist * (32 // dist)
+        k = 0
+        while k < n:
+            st64(dst, o + k, v0)
+            st64(dst, o + k + 8, v1)
+            st64(dst, o + k + 16, v2)
+            st64(dst, o + k + 24, v3)
+            k += step
+        return
+    if dist >= 8:
+        k = 0
+        while k < n:
+            st64(dst, o + k, ld64(dst, s + k))
             k += 8
         return
-    for k in range(n):
+    # a short period: the first 8 bytes one by one, then words from the
+    # smallest multiple of the period that is at least 8 back
+    for k in range(8):
         dst[o + k] = dst[s + k]
+    step = dist * ((8 + dist - 1) // dist)
+    k = 8
+    while k < n:
+        st64(dst, o + k, ld64(dst, o + k - step))
+        k += 8
+    return
+
+
+@njit(cache=True, nogil=True)
+def wild_copy(src, s, dst, d, n):
+    """dst[d:d+n] = src[s:s+n], 32 bytes at a time: reads and writes up to
+    31 bytes past the ends (the caller has the room); non-overlapping, or
+    dst at least 32 bytes before or after src."""
+    k = 0
+    while k < n:
+        a = ld64(src, s + k)
+        b = ld64(src, s + k + 8)
+        c = ld64(src, s + k + 16)
+        e = ld64(src, s + k + 24)
+        st64(dst, d + k, a)
+        st64(dst, d + k + 8, b)
+        st64(dst, d + k + 16, c)
+        st64(dst, d + k + 24, e)
+        k += 32
 
 
 @njit(cache=True, nogil=True)
 def lz4_block(src, p, pend, dst, o0, o, oend):
     """Decode the LZ4 block src[p:pend] into dst from o on, matches reaching
     back no further than o0, writing nothing at or past oend. Returns the
-    end of the output, or a negative error code."""
+    end of the output, or a negative error code.
+
+    While far from both ends (one check per sequence), a sequence of at
+    most 14 literals and a match of at most 18 bytes from 8 or more back --
+    most of them -- is copied with five word loads and stores and no
+    other branch, as LZ4's own decoder does; the rest of the block goes
+    through the careful loop."""
+    pf = pend - 32
+    of = oend - 64
+    while p <= pf and o <= of:
+        tok = np.int64(src[p])
+        p += 1
+        ll = tok >> 4
+        if ll != 15:
+            st64(dst, o, ld64(src, p))
+            st64(dst, o + 8, ld64(src, p + 8))
+            p += ll
+            o += ll
+        else:
+            while True:
+                if p >= pend:
+                    return ERR_INPUT
+                b = np.int64(src[p])
+                p += 1
+                ll += b
+                if b != 255:
+                    break
+            if ll > pend - p:
+                return ERR_INPUT
+            if ll > oend - o:
+                return ERR_SPACE
+            if p + ll + 32 <= pend and o + ll + 32 <= oend:
+                wild_copy(src, p, dst, o, ll)
+            else:
+                copy_bytes(src, p, dst, o, ll)
+            p += ll
+            o += ll
+            if p >= pend:
+                return o                        # the last sequence: literals only
+            if p + 2 > pend:
+                return ERR_INPUT
+        dist = np.int64(ld64(src, p) & np.uint64(0xFFFF))   # (p + 8 <= pend here)
+        p += 2
+        ml = tok & 15
+        if ml != 15 and dist >= 8 and dist <= o - o0:  # (o + 24 <= oend here)
+            s = o - dist
+            st64(dst, o, ld64(dst, s))
+            st64(dst, o + 8, ld64(dst, s + 8))
+            st64(dst, o + 16, ld64(dst, s + 16))
+            o += ml + 4
+            continue
+        if ml == 15:
+            while True:
+                if p >= pend:
+                    return ERR_INPUT
+                b = np.int64(src[p])
+                p += 1
+                ml += b
+                if b != 255:
+                    break
+        ml += 4
+        if dist == 0 or dist > o - o0:
+            return ERR_DATA
+        if ml > oend - o:
+            return ERR_SPACE
+        copy_match(dst, o, dist, ml, oend)
+        o += ml
+    # near the ends: every length checked
     while True:
         if p >= pend:
             return ERR_INPUT
@@ -92,20 +240,14 @@ def lz4_block(src, p, pend, dst, o0, o, oend):
                 ll += b
                 if b != 255:
                     break
-        if ll <= 16 and p + 16 <= pend and o + 16 <= oend:
-            st64(dst, o, ld64(src, p))          # short run: two words, overshooting
-            st64(dst, o + 8, ld64(src, p + 8))
-        else:
-            if p + ll > pend:
-                return ERR_INPUT
-            if o + ll > oend:
-                return ERR_SPACE
-            copy_bytes(src, p, dst, o, ll)
+        if ll > pend - p:
+            return ERR_INPUT
+        if ll > oend - o:
+            return ERR_SPACE
+        copy_bytes(src, p, dst, o, ll)
         p += ll
         o += ll
         if p >= pend:
-            if p > pend:
-                return ERR_INPUT
             return o                            # the last sequence: literals only
         if p + 2 > pend:
             return ERR_INPUT
@@ -124,14 +266,9 @@ def lz4_block(src, p, pend, dst, o0, o, oend):
         ml += 4
         if dist == 0 or dist > o - o0:
             return ERR_DATA
-        if o + ml > oend:
+        if ml > oend - o:
             return ERR_SPACE
-        if dist >= 8 and ml <= 16 and o + 16 <= oend:
-            s = o - dist
-            st64(dst, o, ld64(dst, s))
-            st64(dst, o + 8, ld64(dst, s + 8))
-        else:
-            copy_match(dst, o, dist, ml, oend)
+        copy_match(dst, o, dist, ml, oend)
         o += ml
 
 
