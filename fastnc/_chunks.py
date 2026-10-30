@@ -54,11 +54,24 @@ class ChunkIndex:
         self.grid = np.array([-(-s // c) for s, c in zip(shape, chunks)], np.int64)
         self.ngrid = int(np.prod(self.grid)) if rank else 1
         self.complete = n >= self.ngrid             # every chunk stored: no fill needed
+        self.plans = {}                             # box -> Plan, for repeated reads
 
 
 def plan(index, shape, sel):
     """Chunks touched by `sel` (one (start, stop, step) per dimension, step >
-    0, start < stop) as a Plan; None when the selection is empty."""
+    0, start < stop) as a Plan, kept on the index for the next read of the
+    same box (planning a small read costs more than decoding it)."""
+    key = tuple(tuple(s) for s in sel)
+    p = index.plans.get(key)
+    if p is None:
+        p = _plan(index, shape, sel)
+        if len(index.plans) >= 16:
+            index.plans.pop(next(iter(index.plans)))
+        index.plans[key] = p
+    return p
+
+
+def _plan(index, shape, sel):
     rank = len(shape)
     off = index.offsets
     C = index.chunks
@@ -251,29 +264,49 @@ def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count
         in_scratch = False
         ok = 0
         placed = False
+        # fletcher32 listed after deflate in decoding order was applied first
+        # when writing: its checksum trails the decompressed bytes
+        # (and if it came before the shuffle too, the byte planes include it)
+        tail = 0
+        planes = nel
+        seen_deflate = False
+        seen_shuffle = False
+        for k in range(nst):
+            if (m >> (nst - 1 - k)) & 1:
+                continue
+            fk = V[v, V_STAGE0 + k]
+            if fk == F_DEFLATE:
+                seen_deflate = True
+            elif fk == F_SHUFFLE:
+                seen_shuffle = True
+            elif fk == F_FLETCHER and seen_deflate:
+                tail = 4
+                if seen_shuffle:
+                    planes = (cbytes + 4) // esize
         for k in range(nst):
             f = V[v, V_STAGE0 + k]
             if (m >> (nst - 1 - k)) & 1:
                 continue                            # filter skipped for this chunk
             if f == F_FLETCHER:
-                pend -= 4
+                if not in_scratch:
+                    pend -= 4                       # checksum of the stored bytes
             elif f == F_SHUFFLE:
                 pass
             elif f == F_DEFLATE:
                 if in_scratch:
                     ok = 1                          # two compressors: not here
                     break
-                if direct[i] >= 0:
+                if direct[i] >= 0 and tail == 0:
                     o = obase + direct[i]
                     r = _inflate.zlib_inflate(src, p, pend, out, o, o + cbytes, o + cbytes, tab, iws)
                     ok = r if r < 0 else 0
                     placed = True
                     break
-                stop = cbytes
+                stop = cbytes + tail
                 need = needend[i] * esize
                 if not shuffled and need < cbytes:
                     stop = need                     # the rest of the chunk is not wanted
-                r = _inflate.zlib_inflate(src, p, pend, scratch, 0, cbytes, stop, tab, iws)
+                r = _inflate.zlib_inflate(src, p, pend, scratch, 0, cbytes + tail, stop, tab, iws)
                 if r < 0:
                     ok = r
                     break
@@ -285,7 +318,7 @@ def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count
         if ok != 0 or placed:
             continue
         if in_scratch:
-            _place(scratch, 0, nel, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
+            _place(scratch, 0, planes, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
                    VD[v, 2], VD[v, 3], rank, esize, shuffled, swap)
         else:
             _place(src, p, nel, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
@@ -580,8 +613,7 @@ def _read_python(items, src, threads=None):
         filters = ds.filters
         a, n, m = int(p.addr[i]), int(p.size[i]), int(p.mask[i])
         data = src[a:a + n]
-        shuffled = False
-        for k in range(len(filters) - 1, -1, -1):
+        for k in range(len(filters) - 1, -1, -1):  # each stage in decoding order
             if (m >> k) & 1:
                 continue
             fid = filters[k].id
@@ -589,11 +621,11 @@ def _read_python(items, src, threads=None):
                 data = data[:-4]
             elif fid == F_DEFLATE:
                 data = zlib.decompress(data)
-            elif fid == F_SHUFFLE:
-                shuffled = esize > 1
+            elif fid == F_SHUFFLE and esize > 1:
+                q = len(data) // esize              # HDF5 leaves the leftover bytes at the end
+                data = (np.frombuffer(data, np.uint8, q * esize).reshape(esize, q).T.tobytes()
+                        + bytes(data[q * esize:]))
         b = np.frombuffer(data, np.uint8, nel * esize)
-        if shuffled:
-            b = b.reshape(esize, nel).T
         chunk = np.ascontiguousarray(b).view(np.dtype('V%d' % esize)).reshape(C)
         step = [s[2] for s in it.box]
         src_sl = tuple(slice(int(c0), int(c0) + (int(cn) - 1) * k + 1, k)

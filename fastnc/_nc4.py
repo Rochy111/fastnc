@@ -101,9 +101,10 @@ class Variable:
         the committed datatype, as netCDF-c), else None."""
         from ._dataset import CompoundType, EnumType, VLType
         t = self.ds.type
-        if t.cls not in (_hdf5.Datatype.COMPOUND, _hdf5.Datatype.ENUM, _hdf5.Datatype.VLEN):
+        if t.cls not in (_hdf5.Datatype.COMPOUND, _hdf5.Datatype.ENUM, _hdf5.Datatype.VLEN,
+                         _hdf5.Datatype.STRING) or (t.cls == _hdf5.Datatype.STRING and t.size == 1):
             return None
-        if t.cls == _hdf5.Datatype.VLEN and t.vlen_string:
+        if (t.cls == _hdf5.Datatype.VLEN and t.vlen_string) or (t.cls == _hdf5.Datatype.STRING and t.size > 1):
             return VLType(None, str)                # NC_STRING (netCDF4-python's VLType of str)
         names = self.group.nc.type_names
         name = names.get(t.committed) if t.committed is not None else None
@@ -169,6 +170,14 @@ class Variable:
 
     def read(self, key=(), out=None, threads=None):
         t = self.ds.type
+        if t.cls == _hdf5.Datatype.STRING and t.size > 1:
+            # a fixed-length string longer than a byte is NC_STRING to
+            # netCDF-c: str values (up to the first NUL), as netCDF4-python
+            raw = self._reader.read(key, threads=threads, scalars=False)
+            dec = [x.split(b'\0', 1)[0].decode('utf-8', 'replace') for x in raw.reshape(-1).tolist()]
+            res = np.empty(raw.shape, object)
+            res.reshape(-1)[:] = dec
+            return res[()] if res.ndim == 0 else res
         if t.cls == _hdf5.Datatype.COMPOUND:
             raw = self._reader.read(key, threads=threads)
             dt = nc_dtype(t)
