@@ -30,7 +30,7 @@ blocks is one value repeated.
 """
 import numpy as np
 
-from ._intrin import ld64
+from ._intrin import ld64, st64
 from ._jit import intrinsic, njit
 from ._shuffle import unshuffle_into
 
@@ -40,6 +40,24 @@ ERR_INPUT = -3                  # stream ends early
 
 SZ_ALLOW_K13, SZ_CHIP, SZ_EC, SZ_LSB, SZ_MSB, SZ_NN, SZ_RAW = 1, 2, 4, 8, 16, 32, 128
 SE_TABLE_SIZE = 90              # libaec: a second-extension code above this is an error
+
+
+def _se_table():
+    """Second extension: code m is the pair (s - d1, d1) with s(s+1)/2 + d1 = m,
+    0 <= d1 <= s. (s, d1) for each m up to SE_TABLE_SIZE."""
+    t = np.zeros((SE_TABLE_SIZE + 1, 2), np.int64)
+    m = 0
+    s = 0
+    while m <= SE_TABLE_SIZE:
+        for d1 in range(s + 1):
+            if m <= SE_TABLE_SIZE:
+                t[m] = (s, d1)
+            m += 1
+        s += 1
+    return t
+
+
+_SE = _se_table()
 
 
 @intrinsic
@@ -76,37 +94,98 @@ def be64(src, q):
     return bswap64(ld64(src, q))
 
 
+def _st(bits):
+    def st(typingctx, a, i, v):
+        """a[i:i+n] = v's low n bytes, little-endian (an unaligned store)."""
+        from llvmlite import ir
+        from numba import types
+        from numba.core import cgutils
+        def codegen(context, builder, sig, args):
+            ary = context.make_array(sig.args[0])(context, builder, args[0])
+            p = cgutils.get_item_pointer(context, builder, sig.args[0], ary, [args[1]])
+            p = builder.bitcast(p, ir.IntType(bits).as_pointer())
+            builder.store(builder.trunc(args[2], ir.IntType(bits)), p, align=1)
+            return context.get_dummy_value()
+        return types.void(a, i, types.uint64), codegen
+    st.__name__ = 'st%d' % bits
+    return intrinsic(st)
+
+
+st32 = _st(32)
+st16 = _st(16)
+
+
 @njit(cache=True, nogil=True)
-def getbits(src, pos, k, pend):
-    """k (0..56) bits, big-endian, from absolute bit position pos of src,
-    reading nothing at or past byte pend (zeros there)."""
-    if k == 0:
-        return 0
+def put_word(dst, at, w, size, be):
+    """w's low `size` (1, 2, 4 or 8) bytes at dst[at:], little-endian, or
+    big-endian if be: one store (unchecked)."""
+    if be:
+        w = bswap64(w) >> np.uint64(64 - 8 * size)
+    if size == 8:
+        st64(dst, at, w)
+    elif size == 4:
+        st32(dst, at, w)
+    elif size == 2:
+        st16(dst, at, w)
+    else:
+        dst[at] = w & np.uint64(255)
+
+
+@njit(cache=True, nogil=True)
+def _tail64(src, q, pend):
+    """src[q:q+8] big-endian, zeros from byte pend on (the stream's end)."""
+    x = np.uint64(0)
+    for j in range(8):
+        x <<= np.uint64(8)
+        if q + j < pend:
+            x |= np.uint64(src[q + j])
+    return x
+
+
+@njit(cache=True, nogil=True)
+def window(src, pos, pend):
+    """The stream from bit pos on, most significant bit first, in a uint64
+    (57 bits or more of it; zeros past byte pend). One load and a bswap but
+    near the end: small enough for LLVM to inline -- a bit read that
+    was not inlined made split blocks 4x slower."""
     q = pos >> 3
     if q + 8 <= pend:
         x = be64(src, q)
     else:
-        x = np.uint64(0)
-        for j in range(8):
-            x <<= np.uint64(8)
-            if q + j < pend:
-                x |= np.uint64(src[q + j])
-    return np.int64((x << np.uint64(pos & 7)) >> np.uint64(64 - k))
+        x = _tail64(src, q, pend)
+    return x << np.uint64(pos & 7)
+
+
+@njit(cache=True, nogil=True)
+def getbits(src, pos, k, pend):
+    """k (0..56) bits, big-endian, from absolute bit position pos of src,
+    reading nothing at or past byte pend (zeros there). (The shift by one
+    first makes k = 0 give 0 without a branch.)"""
+    return np.int64((window(src, pos, pend) >> np.uint64(1)) >> np.uint64(63 - k))
+
+
+@njit(cache=True, nogil=True)
+def _fs_long(src, pos, pend):
+    """_fs for a code of 57 zeros or more, or at the stream's end."""
+    z = 0
+    end = pend * 8
+    while pos + z < end:
+        w = window(src, pos + z, pend) >> np.uint64(8)
+        if w != 0:
+            lz = clz64(w) - 8                   # (w: 56 bits)
+            return z + lz, z + lz + 1
+        z += 56
+    return -1, 0
 
 
 @njit(cache=True, nogil=True)
 def _fs(src, pos, pend):
     """A fundamental-sequence codeword at bit pos: (its value, bits used),
     or (-1, 0) if the stream ends first."""
-    z = 0
-    end = pend * 8
-    while pos + z < end:
-        w = getbits(src, pos + z, 56, pend)
-        if w != 0:
-            lz = clz64(np.uint64(w)) - 8        # (w: 56 bits)
-            return z + lz, z + lz + 1
-        z += 56
-    return -1, 0
+    lz = clz64(window(src, pos, pend))
+    if lz <= 56:
+        return lz, lz + 1
+    return _fs_long(src, pos, pend)
 
 
 @njit(cache=True, nogil=True)
@@ -124,7 +203,7 @@ def _split_block(src, pos, pend, tmp, t, J):
             tmp[t] = v
             t += 1
             continue
-        w = be64(src, q) << np.uint64(pos & 7)  # 57 bits or more of the stream
+        w = window(src, pos, pend)              # 57 bits or more of the stream
         used = 0
         while t < J:
             lz = clz64(w)
@@ -157,10 +236,8 @@ def _se_block(src, pos, pend, tmp, t, J):
         if mm > SE_TABLE_SIZE:
             return -2
         pos += used
-        s = 0
-        while (s + 1) * (s + 2) // 2 <= mm:
-            s += 1
-        d1 = mm - s * (s + 1) // 2
+        s = _SE[mm, 0]
+        d1 = _SE[mm, 1]
         if t % 2 == 0:
             tmp[t] = s - d1
             t += 1
@@ -279,19 +356,40 @@ def aec_decode(src, p, pend, out, o, nout, bps, pixel, msb, pp, J, rsi, pps, tmp
                 if pos == -2:
                     return ERR_DATA
             elif opt == uncomp:
+                sh = np.uint64(64 - bps)
                 for t in range(ref, J):
-                    tmp[t] = getbits(src, pos, bps, pend)
+                    tmp[t] = np.int64(window(src, pos, pend) >> sh)
                     pos += bps
             else:
                 kk = opt - 1
                 pos = _split_block(src, pos, pend, tmp, ref, J)
                 if kk and pos >= 0:             # the low bits, after all the FS codes
-                    for t in range(ref, J):
-                        tmp[t] = (tmp[t] << kk) | getbits(src, pos, kk, pend)
-                        pos += kk
+                    sh = np.uint64(64 - kk)
+                    if ((pos + J * kk) >> 3) + 8 <= pend:
+                        for t in range(ref, J):
+                            x = be64(src, pos >> 3) << np.uint64(pos & 7)
+                            tmp[t] = (tmp[t] << kk) | np.int64(x >> sh)
+                            pos += kk
+                    else:
+                        for t in range(ref, J):
+                            tmp[t] = (tmp[t] << kk) | np.int64(window(src, pos, pend) >> sh)
+                            pos += kk
             if pos < 0:
                 return ERR_INPUT
-            if pp:                              # mapped residuals from the sample before
+            if pp and (opt == uncomp or kk >= bps - 3):
+                # noisy samples (raw, or nearly all their bits split off): the
+                # residual is often beyond the prediction's reach, so both
+                # cases are computed and one taken -- a branch would be
+                # mispredicted half the time (f4 bytes 220 -> 350 MB/s)
+                for t in range(ref, J):
+                    d = tmp[t]
+                    th = xmax - xh
+                    lo = xh <= th
+                    near = xh + ((d >> 1) ^ -(d & 1))
+                    far = d if lo else th - d + xh
+                    xh = near if d <= 2 * (xh if lo else th) else far
+                    tmp[t] = xh
+            elif pp:                            # mapped residuals from the sample before
                 for t in range(ref, J):
                     d = tmp[t]
                     # within reach of the prediction (nearly always): +d/2 for

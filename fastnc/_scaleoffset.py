@@ -31,8 +31,8 @@ import math
 import numpy as np
 
 from ._intrin import ld64, st64
-from ._jit import njit
-from ._szip import be64, getbits
+from ._jit import intrinsic, njit
+from ._szip import getbits, put_word
 
 ERR_DATA = -1
 ERR_SPACE = -2
@@ -42,17 +42,36 @@ HEADER = 21                     # minbits 4, minval size 1, minval 16 (8 used)
 SO_FLOAT_DSCALE, SO_FLOAT_ESCALE, SO_INT = 0, 1, 2
 
 
+def _bitcast(name, frm, to):
+    def cast(typingctx, x):
+        from llvmlite import ir
+        from numba import types
+        width = 32 if '32' in to else 64
+        out = getattr(types, to)
+        def codegen(context, builder, sig, args):
+            v = args[0]
+            if frm == 'float':
+                return builder.bitcast(v, ir.IntType(width))
+            return builder.bitcast(builder.trunc(v, ir.IntType(width)) if width == 32 else v,
+                                   ir.FloatType() if width == 32 else ir.DoubleType())
+        return out(getattr(types, 'float%d' % width) if frm == 'float' else types.uint64), codegen
+    cast.__name__ = name
+    return intrinsic(cast)
+
+
+f32_bits = _bitcast('f32_bits', 'float', 'uint32')      # a float32's bits
+f64_bits = _bitcast('f64_bits', 'float', 'uint64')      # a float64's bits
+bits_f32 = _bitcast('bits_f32', 'int', 'float32')       # the float32 of a uint64's low 32 bits
+bits_f64 = _bitcast('bits_f64', 'int', 'float64')       # the float64 of a uint64's bits
+
+
 @njit(cache=True, nogil=True)
-def _put(dst, at, w, size, be):
-    """w's low `size` bytes at dst[at:], little- or big-endian."""
-    if be:
-        for t in range(size):
-            dst[at + t] = (w >> np.uint64(8 * (size - 1 - t))) & np.uint64(255)
-    elif size == 8:
-        st64(dst, at, w)
-    else:
-        for t in range(size):
-            dst[at + t] = (w >> np.uint64(8 * t)) & np.uint64(255)
+def _read(src, pos, minbits, pend):
+    """minbits (1..63) bits at bit pos, as a uint64."""
+    if minbits <= 56:
+        return np.uint64(getbits(src, pos, minbits, pend))
+    return ((np.uint64(getbits(src, pos, minbits - 32, pend)) << np.uint64(32))
+            | np.uint64(getbits(src, pos + minbits - 32, 32, pend)))
 
 
 @njit(cache=True, nogil=True)
@@ -121,80 +140,53 @@ def decode(src, p, pend, dst, o, oend, cd, ws):
     for t in range(size * filavail):            # cd[8:]'s bytes, little-endian words
         filval |= u((cd[11 + t // 4] >> (8 * (t % 4))) & 255) << u(8 * t)
     allones = (u(1) << u(minbits)) - u(1)
-    wmask = u(0xFFFFFFFFFFFFFFFF) if size == 8 else (u(1) << u(8 * size)) - u(1)
     if cls == 0:
-        minv = minval & wmask
+        minv = minval                           # (added in the type's width: the store truncates)
         if minbits == 0:
             w = filval if filavail else minv    # (the zeros all match the 0-bit fill code)
             for i in range(nel):
-                _put(dst, o + i * size, w, size, be)
+                put_word(dst, o + i * size, w, size, be)
             return o + nout
         pos = q0 * 8
+        if minbits > 56:                        # (8-byte integers only)
+            for i in range(nel):
+                v = _read(src, pos + i * minbits, minbits, pend)
+                put_word(dst, o + i * size, filval if filavail and v == allones else v + minv,
+                         size, be)
+        elif filavail:
+            for i in range(nel):
+                v = np.uint64(getbits(src, pos + i * minbits, minbits, pend))
+                put_word(dst, o + i * size, filval if v == allones else v + minv, size, be)
+        else:
+            for i in range(nel):
+                v = np.uint64(getbits(src, pos + i * minbits, minbits, pend))
+                put_word(dst, o + i * size, v + minv, size, be)
+        return o + nout
+    # floats, D-scaling
+    pos = q0 * 8
+    if size == 4:
+        pw32 = math.pow(np.float32(10.0), np.float32(D))     # powf, as HDF5
+        fmin = bits_f32(minval)
         for i in range(nel):
-            q = pos >> 3
-            if minbits <= 56 and q + 8 <= pend:
-                v = (be64(src, q) << u(pos & 7)) >> u(64 - minbits)
-            elif minbits <= 56:
-                v = u(getbits(src, pos, minbits, pend))
-            else:
-                v = ((u(getbits(src, pos, minbits - 32, pend)) << u(32))
-                     | u(getbits(src, pos + minbits - 32, 32, pend)))
-            pos += minbits
+            v = np.uint64(getbits(src, pos + i * minbits, minbits, pend))   # (0 bits: 0)
             if filavail and v == allones:
                 w = filval
             else:
-                w = (v + minv) & wmask
-            _put(dst, o + i * size, w, size, be)
-        return o + nout
-    # floats, D-scaling
-    if size == 4:
-        pw32 = math.pow(np.float32(10.0), np.float32(D))     # powf, as HDF5
-        fb = np.zeros(1, np.float32)
-        ub = fb.view(np.uint32)
-        ub[0] = np.uint32(minval & u(0xFFFFFFFF))
-        fmin = fb[0]
-        fill32 = np.int64(allones)              # (minbits < 32: the int it is)
-        pos = q0 * 8
-        for i in range(nel):
-            v = np.int64(0)
-            if minbits:
-                q = pos >> 3
-                if q + 8 <= pend:
-                    v = np.int64((be64(src, q) << u(pos & 7)) >> u(64 - minbits))
-                else:
-                    v = getbits(src, pos, minbits, pend)
-                pos += minbits
-            if filavail and v == fill32:
-                w = filval
-            else:
-                fb[0] = np.float32(v) / pw32 + fmin             # all in float32
-                w = u(ub[0])
-            _put(dst, o + i * 4, w, 4, be)
+                w = u(f32_bits(np.float32(np.int64(v)) / pw32 + fmin))     # all in float32
+            put_word(dst, o + i * 4, w, 4, be)
         return o + nout
     pw = math.pow(10.0, np.float64(D))
-    db = np.zeros(1, np.float64)
-    vb = db.view(np.uint64)
-    vb[0] = minval
-    dmin = db[0]
-    pos = q0 * 8
+    dmin = bits_f64(minval)
     for i in range(nel):
-        v = u(0)
-        if minbits:
-            q = pos >> 3
-            if minbits <= 56 and q + 8 <= pend:
-                v = (be64(src, q) << u(pos & 7)) >> u(64 - minbits)
-            elif minbits <= 56:
-                v = u(getbits(src, pos, minbits, pend))
-            else:
-                v = ((u(getbits(src, pos, minbits - 32, pend)) << u(32))
-                     | u(getbits(src, pos + minbits - 32, 32, pend)))
-            pos += minbits
+        if minbits > 56:
+            v = _read(src, pos + i * minbits, minbits, pend)
+        else:
+            v = np.uint64(getbits(src, pos + i * minbits, minbits, pend))
         if filavail and v == allones:
             w = filval
         else:
-            db[0] = np.float64(np.int64(v)) / pw + dmin
-            w = vb[0]
-        _put(dst, o + i * 8, w, 8, be)
+            w = f64_bits(np.float64(np.int64(v)) / pw + dmin)
+        put_word(dst, o + i * 8, w, 8, be)
     return o + nout
 
 

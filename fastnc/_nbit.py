@@ -31,7 +31,7 @@ import numpy as np
 
 from ._intrin import ld64, st64
 from ._jit import njit
-from ._szip import be64, getbits
+from ._szip import getbits, put_word
 
 ERR_DATA = -1
 ERR_SPACE = -2
@@ -226,15 +226,10 @@ def _atomic_bytes(dst, at, size, be, prec, off, src, pos, pend):
 def _atomic(dst, at, size, be, prec, off, src, pos, pend):
     """An atomic value of at most 8 bytes and 56 bits of precision: one
     bit-field read, shifted to its offset, stored in its byte order."""
-    q = pos >> 3
-    if prec == 0:
-        v = np.uint64(0)
-    elif q + 8 <= pend:
-        v = (be64(src, q) << np.uint64(pos & 7)) >> np.uint64(64 - prec)
-    else:
-        v = np.uint64(getbits(src, pos, prec, pend))
-    v <<= np.uint64(off)
-    if be:
+    v = np.uint64(getbits(src, pos, prec, pend)) << np.uint64(off)
+    if size == 1 or size == 2 or size == 4 or size == 8:
+        put_word(dst, at, v, size, be)
+    elif be:
         for t in range(size):
             dst[at + t] = (v >> np.uint64(8 * (size - 1 - t))) & np.uint64(255)
     else:
@@ -282,17 +277,19 @@ def decode(src, p, pend, dst, o, oend, cd, ws):
         bits += ops[r, 4]
     if (nel * bits + 7) // 8 > pend - p:
         return ERR_INPUT
+    pos = p * 8
+    size = ops[0, 2]
+    if (nops == 1 and ops[0, 1] == NBIT_ATOMIC and size == esize and ops[0, 4] <= 56
+            and (size == 1 or size == 2 or size == 4 or size == 8)):
+        be = ops[0, 3] == 1                     # (the common case: one value, one store each)
+        prec = ops[0, 4]
+        off = np.uint64(ops[0, 5])
+        for e in range(nel):
+            v = np.uint64(getbits(src, pos + e * prec, prec, pend)) << off
+            put_word(dst, o + e * esize, v, size, be)
+        return o + nout
     for k in range(o, o + nout):                # (bits outside the fields are zero)
         dst[k] = 0
-    pos = p * 8
-    if nops == 1 and ops[0, 1] == NBIT_ATOMIC and ops[0, 2] <= 8 and ops[0, 4] <= 56:
-        size = ops[0, 2]
-        be = ops[0, 3] == 1
-        prec = ops[0, 4]
-        off = ops[0, 5]
-        for e in range(nel):
-            pos = _atomic(dst, o + e * esize, size, be, prec, off, src, pos, pend)
-        return o + nout
     for e in range(nel):
         at = o + e * esize
         for r in range(nops):
