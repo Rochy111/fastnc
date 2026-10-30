@@ -727,14 +727,16 @@ def _block(src, p, bend, dst, fstart, o, oend, ws, iws, bsmax):
             lb = np.int64((el >> u(32)) & M8)
             ofv = np.int64(eo & M32) + np.int64((buf >> u(bc - ob)) & ((u(1) << u(ob)) - u(1)))
             bc -= ob
-            if ob + mb + lb > 56:                   # (long offsets and lengths: rare)
+            xb = ob + mb + lb
+            if xb > 56:                             # (long offsets and lengths: rare)
                 q, buf, bc, dfc = _refill(src, start, q, buf, bc, dfc)
             ml = np.int64(em & M32) + np.int64((buf >> u(bc - mb)) & ((u(1) << u(mb)) - u(1)))
             bc -= mb
             ll = np.int64(el & M32) + np.int64((buf >> u(bc - lb)) & ((u(1) << u(lb)) - u(1)))
             bc -= lb
             if i + 1 < nseq:
-                q, buf, bc, dfc = _refill(src, start, q, buf, bc, dfc)
+                if xb > 56 - 26:                    # (else the state bits are there already)
+                    q, buf, bc, dfc = _refill(src, start, q, buf, bc, dfc)
                 nb = np.int64((el >> u(40)) & M8)
                 sl = np.int64(el >> u(48)) + np.int64((buf >> u(bc - nb)) & ((u(1) << u(nb)) - u(1)))
                 bc -= nb
@@ -782,8 +784,8 @@ def _block(src, p, bend, dst, fstart, o, oend, ws, iws, bsmax):
                     k += 16
                 o += ll
                 lp += ll
+                s = o - off
                 if off >= 16:
-                    s = o - off
                     st64(dst, o, ld64(dst, s))
                     st64(dst, o + 8, ld64(dst, s + 8))
                     k = 16
@@ -791,6 +793,12 @@ def _block(src, p, bend, dst, fstart, o, oend, ws, iws, bsmax):
                         st64(dst, o + k, ld64(dst, s + k))
                         st64(dst, o + k + 8, ld64(dst, s + k + 8))
                         k += 16
+                elif off >= 8 and ml <= 32:
+                    st64(dst, o, ld64(dst, s))
+                    k = 8
+                    while k < ml:
+                        st64(dst, o + k, ld64(dst, s + k))
+                        k += 8
                 else:
                     copy_match(dst, o, off, ml, oend)
                 o = end

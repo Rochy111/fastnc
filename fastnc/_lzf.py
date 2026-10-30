@@ -56,7 +56,12 @@ def lzf(src, p, pend, dst, o0, oend):
                 return ERR_SPACE
             if dist > o - o0:
                 return ERR_DATA
-            copy_match(dst, o, dist, n, oend)
+            if dist >= 8 and n <= 16 and o + 16 <= oend:
+                s = o - dist
+                st64(dst, o, ld64(dst, s))
+                st64(dst, o + 8, ld64(dst, s + 8))
+            else:
+                copy_match(dst, o, dist, n, oend)
             o += n
     return o
 

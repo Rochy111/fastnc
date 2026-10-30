@@ -67,6 +67,10 @@ def _copy_fast(dst, o, dist, n):
     cycles: copying such a match a word at a time runs at a third of the
     speed)."""
     s = o - dist
+    if n <= 16 and dist >= 8:
+        st64(dst, o, ld64(dst, s))
+        st64(dst, o + 8, ld64(dst, s + 8))
+        return
     if dist >= 32:
         k = 0
         while k < n:
