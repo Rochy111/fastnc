@@ -145,3 +145,26 @@ for whole reads. Byte-swapping can ride along with the copy in L2.
   would make later windows cheap.
 - Mask+scale doubles VIIRS (198 -> 364 ms): several numpy passes over the
   array.
+
+## Later experiments (after the design)
+
+- **Double-literal inflate tables** (one lookup writing two literals when
+  both codes fit in the 11-bit table): byte-identical, but slower on the
+  quiet machine -- MODIS 824 -> 768 MB/s, VIIRS 1454 -> 1354, wrfout 1200
+  -> 1133. In data that barely compresses, literal codes are 8-10 bits, so
+  pairs rarely fit; the pairing pass and the extra branch cost more than
+  they save. Not kept.
+- **Output arena** (big outputs reuse already-mapped memory): kept.
+  Repeated whole-file reads 1.3-2.5x faster (VIIRS masked 348 -> 139 ms).
+- **Parallel single-stream inflate** for chunks bigger than a thread's
+  share: kept. MODIS 250 m band 109 -> 23 ms.
+- **Contiguous data as virtual chunks**: kept. GOES-19 full-disk C02 read
+  per dataset 102 ms (h5py 2445).
+- **Dense-attribute lookups by name hash** (lookup3, self-tested against the
+  file's own index once per process): kept, but `Dataset` open is still
+  5-8 ms on files of 150-210 variables (netCDF4-python 11-20 ms): the rest
+  is header parsing and the DIMENSION_LIST attributes that do exist.
+  `fastnc.File` opens in 0.2 ms (h5py 0.17).
+- **Numba first-class function arguments** for per-codec specialisation:
+  not cacheable (recompiled in every process); one small driver kernel per
+  codec instead.
