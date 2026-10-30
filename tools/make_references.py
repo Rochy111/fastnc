@@ -146,7 +146,17 @@ def nc_read(v, k, mask, path):
         x = v[k]
     except Exception as e:
         return {'error': err(e, path)}, None
-    return digest(x), (loose_digest(x) if not mask else None)
+    return safe_digest(x, not mask)
+
+
+def safe_digest(x, with_loose):
+    """digest(x) (and the loose one), or a 'generator:' error saying the
+    digest code could not handle the value -- a bug here, not the reader's."""
+    try:
+        return digest(x), (loose_digest(x) if with_loose else None)
+    except Exception as e:
+        print('    digest failed on a %s: %s' % (type(x).__name__, e), flush=True)
+        return {'error': 'generator: %s: %s' % (type(e).__name__, e)}, None
 
 
 def nc_reference(path, loose):
@@ -226,7 +236,7 @@ def h5_read(ds, k, path):
         x = ds[k]
     except Exception as e:
         return {'error': err(e, path)}, None
-    return digest(x), loose_digest(x)
+    return safe_digest(x, True)
 
 
 LAYOUTS = {0: 'compact', 1: 'contiguous', 2: 'chunked', 3: 'virtual'}
@@ -330,6 +340,19 @@ def h5_reference(path, loose):
     return out
 
 
+def h5_errors(h5):
+    """What h5py failed on in a file's record: the file, or objects."""
+    if 'error' in h5:
+        return [h5['error']]
+    out = []
+    for p, o in h5.get('objects', {}).items():
+        if o.get('kind') == 'error':
+            out.append('%s: %s' % (p, o['error']))
+        elif o.get('kind') == 'dataset' and 'error' in o['raw']:
+            out.append('%s: %s' % (p, o['raw']['error']))
+    return out
+
+
 def h5_versions():
     import h5py
     return 'h5py %s, HDF5 %s, numpy %s, Python %s' % (
@@ -412,18 +435,16 @@ def reference_file(path, alt_python):
     t = time.perf_counter()
     if fmt == 'HDF5':
         h5 = h5_reference(path, h5_loose)
-        if 'error' in h5 and have_alt:
-            first = h5['error']
+        h5['reader'] = h5_versions()
+        bad = h5_errors(h5)
+        if bad and have_alt:                                 # e.g. HDF5 2.0 files HDF5 1.14 cannot read
             got = run_worker(alt_python, 'h5py', path)
-            if 'h5py' in got and 'error' not in got['h5py']:
+            if 'h5py' in got and len(h5_errors(got['h5py'])) < len(bad):
+                first = bad[0]
                 h5 = got['h5py']
-                h5['note'] = 'read with %s: the dev env\'s h5py (%s) failed: %s' % (
-                    os.path.basename(os.path.dirname(alt_python)), h5_versions(), first)
+                h5['note'] = 'read with the %s env: the dev env\'s h5py (%s) failed on %d objects, first: %s' % (
+                    os.path.basename(os.path.dirname(alt_python)), h5_versions(), len(bad), first)
                 h5_loose = {tuple(k): v for k, v in got['loose']}
-            else:
-                h5['alt_error'] = got.get('worker_error') or got['h5py']['error']
-        else:
-            h5['reader'] = h5_versions()
         rec['h5py'] = h5
     t_h5 = time.perf_counter() - t
     rec['agreement'] = agreement(rec, nc_loose, h5_loose)
@@ -593,12 +614,14 @@ def report(name, rec, dt):
         bits.append('h5: ' + ('ERR ' + h5['error'][:60] if 'error' in h5 else '%d objs' % len(h5.get('objects', {}))))
         if 'note' in h5:
             bits.append('(alt env)')
+    if 'seconds' in rec:
+        bits.append('(nc %.1f s incl. numpy-1 env, h5py %.1f s)' % (rec['seconds']['netcdf4'], rec['seconds']['h5py']))
     a = rec.get('agreement', {})
     if a.get('differ'):
         bits.append('DISAGREE x%d' % len(a['differ']))
-    if 'error' in rec:
-        bits.append('GENERATOR ERROR')
     print('  ' + '  '.join(bits), flush=True)
+    if 'error' in rec:
+        print('  GENERATOR ERROR\n' + rec['error'], flush=True)
 
 
 def write(doc, which):

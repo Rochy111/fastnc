@@ -88,27 +88,40 @@ def dtype_meta(dt):
 def _sha(a):
     """sha256 of an array's bytes in native byte order, C order. Compound
     values lose their padding first: what lies between fields is whatever
-    the reader's buffer held (netCDF4-python's differs run to run)."""
-    a = _canonical_array(a)
+    the reader's buffer held (netCDF4-python builds compound types with
+    align=True and leaves the padding uninitialised), so each field is
+    hashed on its own, in field order, recursively."""
     h = hashlib.sha256()
-    if a.size:
-        h.update(memoryview(a.reshape(-1).view(np.uint8)))
+    _feed(h, np.asarray(a))
     return h.hexdigest()
 
 
-def _canonical_array(a):
-    """C-contiguous, native byte order, compound fields packed."""
-    a = np.asarray(a)
-    if a.dtype.byteorder not in ('=', '|') or a.dtype.names:
-        a = a.astype(native(a.dtype))
+def _feed(h, a):
+    """Add an array's values to hash `h`: whole if it has no fields, else
+    field by field (each field's values for every point, C order)."""
     if a.dtype.names:
-        from numpy.lib import recfunctions
-        a = recfunctions.repack_fields(a, recurse=True)
-    return np.ascontiguousarray(a)
+        for n in a.dtype.names:
+            _feed(h, a[n])
+        return
+    if a.dtype.subdtype is not None:                         # a subarray type outside a compound
+        a = a.view(a.dtype.subdtype[0]).reshape(a.shape + a.dtype.subdtype[1])
+    if a.dtype.byteorder not in ('=', '|'):
+        a = a.astype(native(a.dtype))
+    a = np.ascontiguousarray(a)
+    if a.size:
+        h.update(memoryview(a.reshape(-1).view(np.uint8)))
 
 
 def _bytes(x):
-    return _canonical_array(x).tobytes()
+    """An array's or scalar's values as bytes: native byte order, compound
+    fields one after another (all points of a field, then the next), no
+    padding."""
+    a = np.asarray(x)
+    if a.dtype.names:
+        return b''.join(_bytes(a[n]) for n in a.dtype.names)
+    if a.dtype.byteorder not in ('=', '|'):
+        a = a.astype(native(a.dtype))
+    return np.ascontiguousarray(a).tobytes()
 
 
 def canon(x, loose=False):
@@ -152,6 +165,13 @@ def canon_sha(x, loose=False):
                                      separators=(',', ':')).encode()).hexdigest()
 
 
+def type_name(x):
+    """The Python type of a result, the same under numpy 1 and 2: numpy
+    scalars as 'np.float32', 'np.bool' (numpy 1 calls it bool_), 'np.bytes'."""
+    name = type(x).__name__
+    return 'np.' + name.rstrip('_') if isinstance(x, np.generic) else name
+
+
 def digest(x):
     """What a read returned, as a JSON-able dict: the Python type, shape,
     dtype in native-order form and the byte order the reader gave it, and
@@ -160,7 +180,7 @@ def digest(x):
     the data with masked points set to zero (what lies under a mask is not
     part of netCDF4-python's answer). Object arrays (vlen) and strings are
     digested through `canon`."""
-    out = {'type': type(x).__name__}
+    out = {'type': type_name(x)}
     if type(x).__name__ == 'Empty':                          # h5py.Empty: a null dataspace
         out['dtype'] = dtype_str(x.dtype)
         return out
@@ -172,7 +192,10 @@ def digest(x):
         out.update(_plain(data))
         out['mask_sha256'] = _sha(m.astype(np.uint8))
         out['nmasked'] = int(m.sum())
-        out['fill_value'] = encode(x.fill_value)
+        try:
+            out['fill_value'] = encode(x.fill_value)
+        except AttributeError:                               # np.ma.masked (a fully masked scalar) has none
+            out['fill_value'] = None
         return out
     if isinstance(x, (str, bytes, list, tuple)) or x is None:
         out['sha256'] = canon_sha(x)
@@ -239,7 +262,7 @@ def encode(x):
     their exact bytes (hex, native byte order); `repr` is for people and
     not compared."""
     if isinstance(x, np.generic):                            # before bytes/str: np.bytes_ is a bytes too
-        out = {'t': 'np', 'type': type(x).__name__, 'dtype': dtype_str(x.dtype)}
+        out = {'t': 'np', 'type': type_name(x), 'dtype': dtype_str(x.dtype)}
         if x.dtype.hasobject:                                # a compound with reference / vlen fields
             out['items'] = encode(x.item())
         else:
@@ -326,14 +349,20 @@ def jsonable(x):
 
 def selections(shape):
     """The standard selections read from every variable besides the whole:
-    a strided slice of every dimension, an integer index on the first, and
+    a strided slice of every dimension (step 2, from a third of the way
+    in, a bounded number of points), an integer index on the first, and
     a window of the last two (leading dimensions cut to their first
     element). Keys are lists of ['s', start, stop, step] / ['i', index],
     so they survive JSON; `key()` turns one back into a numpy index."""
     shape = tuple(int(n) for n in shape)
     if not shape:
         return {}
-    sel = {'strided': [['s', n // 3, None, 2] for n in shape]}
+    strided = []
+    for i, n in enumerate(shape):                            # at most 3 x 3 x 32 x 32 points: netCDF4-python
+        a = n // 3                                           # reads strided slices point by point (~9 us each)
+        cap = 32 if i >= len(shape) - 2 else 3
+        strided.append(['s', a, min(n, a + 2 * cap), 2])
+    sel = {'strided': strided}
     if shape[0] > 0:
         sel['index0'] = [['i', shape[0] // 2]] + [['s', None, None, 1] for _ in shape[1:]]
     win = [['s', 0, 1, 1] for _ in shape[:-2]]
