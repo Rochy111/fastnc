@@ -478,6 +478,26 @@ def _huf4(src, p, end, ws, o, n, log):
     o2 = o + 2 * seg
     o3 = o + 3 * seg
     k = 0
+    if log <= 11:                               # five symbols a refill (55 bits)
+        while k + 5 <= n3:
+            q0, b0, c0, d0 = _refill(src, a0, q0, b0, c0, d0)
+            q1, b1, c1, d1 = _refill(src, a1, q1, b1, c1, d1)
+            q2, b2, c2, d2 = _refill(src, a2, q2, b2, c2, d2)
+            q3, b3, c3, d3 = _refill(src, a3, q3, b3, c3, d3)
+            for j in range(5):
+                e0 = np.int64(huf[np.int64((b0 >> np.uint64(c0 - log)) & M)])
+                e1 = np.int64(huf[np.int64((b1 >> np.uint64(c1 - log)) & M)])
+                e2 = np.int64(huf[np.int64((b2 >> np.uint64(c2 - log)) & M)])
+                e3 = np.int64(huf[np.int64((b3 >> np.uint64(c3 - log)) & M)])
+                c0 -= e0 >> 8
+                c1 -= e1 >> 8
+                c2 -= e2 >> 8
+                c3 -= e3 >> 8
+                ws[o0 + k + j] = e0 & 255
+                ws[o1 + k + j] = e1 & 255
+                ws[o2 + k + j] = e2 & 255
+                ws[o3 + k + j] = e3 & 255
+            k += 5
     while k + 4 <= n3:
         q0, b0, c0, d0 = _refill(src, a0, q0, b0, c0, d0)
         q1, b1, c1, d1 = _refill(src, a1, q1, b1, c1, d1)
