@@ -220,7 +220,7 @@ class NC4File:
                     children.append((lname, target, h))
                 continue
             ds = _hdf5.Dataset(f, target, lname, h)
-            attrs = ds.attributes()
+            attrs = _Lazy(f, h)
             cls = attrs.get('CLASS')
             is_scale = cls is not None and _bytes(cls) == b'DIMENSION_SCALE'
             if is_scale:
@@ -288,14 +288,9 @@ class NC4File:
         if any(d is None for d in dims):
             dl = attrs.get('DIMENSION_LIST')
             if dl is not None:
-                vals = dl.value().ravel()
-                for k in range(min(rank, len(vals))):
-                    refs = vals[k]
-                    if refs is None or len(refs) == 0 or dims[k] is not None:
-                        continue
-                    addr = int(np.frombuffer(np.asarray(refs).tobytes()[:f.O], '<u8' if f.O == 8 else '<u4')[0]) \
-                        if np.asarray(refs).dtype.kind == 'V' else int(np.asarray(refs).ravel()[0])
-                    dims[k] = self.by_scale.get(addr)
+                for k, addr in enumerate(f.vlen_refs(dl)[:rank]):
+                    if addr is not None and dims[k] is None:
+                        dims[k] = self.by_scale.get(addr)
         if dims[0] is None and ds.address in self.by_scale:
             dims[0] = self.by_scale[ds.address]
         if any(d is None for d in dims):
@@ -333,6 +328,23 @@ class NC4File:
                     d.size = v.ds.shape[k]
         for sub in g.groups.values():
             self._fix_unlimited(sub)
+
+
+class _Lazy:
+    """A dataset's attributes decoded one by one, as asked for."""
+    __slots__ = ('f', 'h', 'refs')
+
+    def __init__(self, f, h):
+        self.f, self.h = f, h
+        self.refs = f.attribute_refs(h)
+
+    def get(self, name):
+        if name not in self.refs:
+            return None
+        return self.f.attribute(self.h, name)
+
+    def __contains__(self, name):
+        return name in self.refs
 
 
 def _bytes(a):

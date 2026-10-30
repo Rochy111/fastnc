@@ -301,7 +301,112 @@ def inflate(src, p, pend, dst, o0, oend, ostop, tab, iws):
                 return ERR_DATA
         else:
             return ERR_DATA
-        # -- the block's symbols
+        # -- the block's symbols. First a fast loop, while at least 16 input
+        # bytes and 274 output bytes remain: no bounds checks per symbol,
+        # up to three literals per refill (a literal from the main table is
+        # at most 11 bits), matches copied 16 bytes at a time with slack.
+        eob = False
+        while p + 16 <= pend and o + 274 <= oend and o < ostop:
+            buf |= ld64(src, p) << u(bc)
+            p += (63 - bc) >> 3
+            bc |= 56
+            e = np.int64(tab[np.int64(buf & LM)])
+            if ((e >> 5) & 7) == K_LIT:
+                cl = e & 31
+                buf >>= u(cl)
+                bc -= cl
+                dst[o] = e >> 16
+                o += 1
+                e = np.int64(tab[np.int64(buf & LM)])
+                if ((e >> 5) & 7) == K_LIT:
+                    cl = e & 31
+                    buf >>= u(cl)
+                    bc -= cl
+                    dst[o] = e >> 16
+                    o += 1
+                    e = np.int64(tab[np.int64(buf & LM)])
+                    if ((e >> 5) & 7) == K_LIT:
+                        cl = e & 31
+                        buf >>= u(cl)
+                        bc -= cl
+                        dst[o] = e >> 16
+                        o += 1
+                        continue
+                # room for a whole length/distance pair again (the low bits,
+                # and so e, are unchanged by a refill)
+                buf |= ld64(src, p) << u(bc)
+                p += (63 - bc) >> 3
+                bc |= 56
+            kind = (e >> 5) & 7
+            if kind == K_SUB:
+                buf >>= u(LBITS)
+                bc -= LBITS
+                e = np.int64(tab[(e >> 16) + np.int64(buf & u((1 << ((e >> 8) & 31)) - 1))])
+                kind = (e >> 5) & 7
+            cl = e & 31
+            buf >>= u(cl)
+            bc -= cl
+            if kind == K_LIT:
+                dst[o] = e >> 16
+                o += 1
+                continue
+            if kind != K_LEN:
+                if kind == K_EOB:
+                    eob = True
+                    break
+                return ERR_DATA
+            ex = (e >> 8) & 31
+            length = (e >> 16) + np.int64(buf & u((1 << ex) - 1))
+            buf >>= u(ex)
+            bc -= ex
+            e = np.int64(tab[LSIZE + np.int64(buf & DM)])
+            kind = (e >> 5) & 7
+            if kind == K_SUB:
+                buf >>= u(DBITS)
+                bc -= DBITS
+                e = np.int64(tab[LSIZE + (e >> 16)
+                                 + np.int64(buf & u((1 << ((e >> 8) & 31)) - 1))])
+                kind = (e >> 5) & 7
+            if kind != K_LEN:
+                return ERR_DATA
+            cl = e & 31
+            buf >>= u(cl)
+            bc -= cl
+            ex = (e >> 8) & 31
+            dist = (e >> 16) + np.int64(buf & u((1 << ex) - 1))
+            buf >>= u(ex)
+            bc -= ex
+            s = o - dist
+            if s < o0:
+                return ERR_DATA
+            if dist >= 16:
+                st64(dst, o, ld64(dst, s))
+                st64(dst, o + 8, ld64(dst, s + 8))
+                k = 16
+                while k < length:
+                    st64(dst, o + k, ld64(dst, s + k))
+                    st64(dst, o + k + 8, ld64(dst, s + k + 8))
+                    k += 16
+            elif dist >= 8:
+                k = 0
+                while k < length:
+                    st64(dst, o + k, ld64(dst, s + k))
+                    k += 8
+            elif dist == 1:
+                w = u(dst[s]) * u(0x0101010101010101)
+                k = 0
+                while k < length:
+                    st64(dst, o + k, w)
+                    k += 8
+            else:
+                for k in range(length):
+                    dst[o + k] = dst[s + k]
+            o += length
+        if eob:
+            continue
+        if o >= ostop:
+            return o
+        # then symbol by symbol, checking every bound, to the block's end
         while True:
             if p + 8 <= pend:
                 buf |= ld64(src, p) << u(bc)

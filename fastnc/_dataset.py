@@ -65,15 +65,10 @@ class Variable:
     turned off, exactly as netCDF4-python would."""
 
     def __init__(self, group, bv):
-        self._group = group
-        self._bv = bv
-        self.name = bv.name
         ds = group._dataset
-        self._mask = ds._auto_mask
-        self._scale = ds._auto_scale
-        self._always_mask = ds._always_mask
-        self._chartostring = ds._chartostring
-        self._device = ds._device
+        self.__dict__.update(_group=group, _bv=bv, name=bv.name, _mask=ds._auto_mask,
+                             _scale=ds._auto_scale, _always_mask=ds._always_mask,
+                             _chartostring=ds._chartostring, _device=ds._device)
 
     # -- metadata
     @property

@@ -411,7 +411,10 @@ def read_batch(items, src, buf, threads=None):
         cstart, count, ostart = cstart[order], count[order], ostart[order]
     counter = np.zeros(1, np.int64)
     status = np.zeros(n, np.int64)
-    nthreads = min(threads or _pool.threads(), n)
+    # a thread for each ~32 kB of output at most: handing tiny reads to the
+    # pool costs more than it saves
+    outbytes = int(sum(int(np.prod(it.out.shape)) * it.ds.type.size for it in items))
+    nthreads = max(1, min(threads or _pool.threads(), n, outbytes >> 15))
 
     def work():
         sc, tab, iws = _scratch(cmax + 8)

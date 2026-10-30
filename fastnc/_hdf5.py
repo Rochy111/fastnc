@@ -370,13 +370,31 @@ class Dataset:
         if m is None:
             raise FormatError('dataset without a datatype')
         self.type = f.message_datatype(m)
-        self.layout = f.parse_layout(h.first(8))
-        m = h.first(11)
-        self.filters = _parse_filters(b, m[2]) if m else []
-        self.fill = f.parse_fill(h, self.type)
+        self._layout = self._filters = self._fill = None
         self.null = self.shape is None                  # a null dataspace: no values at all
         if self.null:
             self.shape = self.maxshape = ()
+
+    # layout, filters and fill value are parsed when first wanted: opening a
+    # file of hundreds of variables needs only their shapes and types
+    @property
+    def layout(self):
+        if self._layout is None:
+            self._layout = self.file.parse_layout(self.header.first(8))
+        return self._layout
+
+    @property
+    def filters(self):
+        if self._filters is None:
+            m = self.header.first(11)
+            self._filters = _parse_filters(self.file.b, m[2]) if m else []
+        return self._filters
+
+    @property
+    def fill(self):
+        if self._fill is None:
+            self._fill = (self.file.parse_fill(self.header, self.type),)
+        return self._fill[0]
 
     @property
     def dtype(self):
@@ -424,6 +442,7 @@ class H5File:
         v = b[sb + 8]
         self.sb_version = v
         self._headers = {}
+        self._attr_refs = {}
         self._fheaps = {}
         self._gheaps = {}
         if v in (0, 1):
@@ -772,8 +791,54 @@ class H5File:
         return out
 
     # -- attributes
+    def attribute_refs(self, h):
+        """{name: (buffer, position, creation order)} for every attribute,
+        values not decoded; in creation order where tracked, else header
+        order (cached per header)."""
+        refs = self._attr_refs.get(h.address)
+        if refs is not None:
+            return refs
+        out = []
+        b = self.b
+        for i, m in enumerate(h.all(0x0C)):
+            p = m[2]
+            out.append((self._attr_name(b, p), b, p, m[4] if m[4] is not None else i))
+        ai = h.first(0x15)
+        if ai is not None:
+            p = ai[2]
+            flags = b[p + 1]
+            p += 2 + (2 if flags & 1 else 0)
+            fheap = self.offset(p)
+            name_bt = self.offset(p + self.O)
+            if fheap != self.undef:
+                heap = self.fractal_heap(fheap)
+                base = len(out)
+                for k, rec in enumerate(self.btree2_records(name_bt)):
+                    obj = heap.object(rec[:8])
+                    corder = _u32(rec, 9)[0] if flags & 1 else base + k
+                    out.append((self._attr_name(obj, 0), obj, 0, corder))
+        out.sort(key=lambda r: r[3])
+        refs = {r[0]: r[1:] for r in out}
+        self._attr_refs[h.address] = refs
+        return refs
+
+    @staticmethod
+    def _attr_name(b, p):
+        version = b[p]
+        nlen = _u16(b, p + 2)[0]
+        q = p + 8 + (1 if version == 3 else 0)
+        return bytes(b[q:q + nlen]).split(b'\0')[0].decode('utf-8', 'replace')
+
+    def attribute(self, h, name):
+        """One attribute (decoded), or None."""
+        r = self.attribute_refs(h).get(name)
+        return None if r is None else self._attribute(r[0], r[1], r[2])
+
     def attributes(self, h):
         """{name: Attribute} in creation order where tracked, else header order."""
+        return {k: self._attribute(b, p, co) for k, (b, p, co) in self.attribute_refs(h).items()}
+
+    def _attributes_full(self, h):
         out = []
         for i, m in enumerate(h.all(0x0C)):
             a = self._attribute(self.b, m[2], m[4] if m[4] is not None else i)
@@ -850,6 +915,26 @@ class H5File:
             raise FormatError('cannot decode datatype class %d' % t.cls)
         a = np.frombuffer(raw, t.dtype, n).reshape(shape)
         return a
+
+    def vlen_refs(self, a):
+        """For an attribute of variable-length sequences of object references
+        (DIMENSION_LIST): the first referenced address of each element, or
+        None for an empty one -- without building numpy arrays."""
+        t = a.dtype
+        O = self.O
+        out = []
+        raw = a.raw
+        n = len(raw) // t.size if t.size else 0
+        for i in range(n):
+            q = i * t.size
+            ln = _u32(raw, q)[0]
+            coll = _uint(raw, q + 4, O)
+            if not ln or not coll:
+                out.append(None)
+                continue
+            data = self.global_heap_object(coll, _u32(raw, q + 4 + O)[0])
+            out.append(_uint(data, 0, O))
+        return out
 
     def global_heap_object(self, coll, idx):
         objs = self._gheaps.get(coll)
