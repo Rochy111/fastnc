@@ -16,6 +16,7 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 | `_hdf4`, `_hdf4_codecs` | HDF4 SD files as netCDF-c's HDF4 dispatch presents them; RLE, N-bit and skipping-Huffman decoders |
 | `_hdf5` | HDF5 from its bytes: superblocks, object headers, groups (symbol tables, compact and dense links), attributes, datatypes, fill values, filter pipelines, every chunk index |
 | `_h5read` | Raw values of one HDF5 dataset for an index (chunked, contiguous as virtual chunks, compact, vlen, reduced-precision types) and `read_many` |
+| `_vds` | HDF5 virtual datasets (mapping lists v0/v1, every selection type, same-file and cross-file sources, unlimited mappings, printf-style names) and external-file storage |
 | `_chunks` | The chunk engine: planning a selection over a chunk table (plans cached per box), the batch kernel, big chunks on many threads, the zlib path used until numba is loaded |
 | `_staged`, `_codecs` | Filter pipelines beyond deflate / shuffle / fletcher32: stage by stage over all chunks, one small batch kernel per codec |
 | `_select` | numpy / netCDF4 indexes reduced to boxes, then post-indexing |
@@ -264,5 +265,5 @@ netCDF-c errors.
 
 ## Not supported (yet)
 
-HDF5 virtual datasets; external-file storage in HDF5; HDF4 szip; zstd
-dictionaries; blosc2 variable-length blocks and dictionaries; writing.
+HDF4 szip; zstd dictionaries; blosc2 variable-length blocks and
+dictionaries; external storage next to a remote file; writing.

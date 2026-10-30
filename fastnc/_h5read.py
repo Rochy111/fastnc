@@ -1,6 +1,7 @@
 """Raw values of an HDF5 dataset for an index: chunked through `_chunks`,
 contiguous and compact straight from the mapped file, special types
-(variable-length strings and sequences, references) through the parser.
+(variable-length strings and sequences, references) through the parser,
+virtual datasets and external storage through `_vds`.
 
 Values come back in native byte order (as netCDF4-python returns them;
 h5py keeps the stored order -- the values are the same).
@@ -141,6 +142,9 @@ class Reader:
         t = ds.type
         if ds.null:
             return None
+        if ds.layout.cls == 3:                          # virtual: its sources' values
+            from . import _vds
+            return _vds.read(self, key, out, threads, scalars)
         box, post, drop = _select.normalize(key, ds.shape)
         shape = _select.box_shape(box)
         if t.cls == _hdf5.Datatype.FLOAT and t.dtype is None and t.fields is not None and t.size <= 8:
@@ -194,6 +198,12 @@ class Reader:
             _chunks.read(ds, self.index, self.src, box, res, swap=swap, threads=threads)
             return
         if lay.cls == 1:
+            if ds.external:                             # in raw files of their own
+                from . import _vds
+                _vds.read_external(ds, box, res)
+                if swap:
+                    _swap(res)
+                return
             if lay.address == f.undef:
                 _chunks._fill(res, ds)
                 if swap:
@@ -208,7 +218,7 @@ class Reader:
             p, n = lay.data
             whole = np.frombuffer(f.b[p:p + n], np.dtype('V%d' % esize)).reshape(ds.shape)
         else:
-            raise NotImplementedError('virtual datasets are not supported')
+            raise _hdf5.FormatError('layout class %d read as raw bytes' % lay.cls)
         sl = tuple(slice(s, e, k) for s, e, k in box)
         res.reshape(-1).view(np.dtype('V%d' % esize))[:] = whole[sl].reshape(-1)
         if swap:

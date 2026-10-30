@@ -285,8 +285,9 @@ references.
 | `fastnc.release()` | free the memory kept between reads |
 | `storage_options={...}` | remote: `region`, `endpoint_url`, `headers`, `timeout`, ... |
 
-Not supported yet: HDF5 virtual datasets and external storage, szip in
-HDF4, zstd dictionaries, blosc2 variable-length blocks; writing.
+HDF5 virtual datasets (same-file, cross-file, unlimited, %b names) and
+external storage read too. Not supported yet: szip in HDF4, zstd
+dictionaries, blosc2 variable-length blocks; writing.
 
 ## More
 

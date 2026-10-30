@@ -416,9 +416,20 @@ class Dataset(HLObject):
     def is_virtual(self):
         return self._ds.layout.cls == 3
 
+    def virtual_sources(self):
+        """[VDSmap(vspace, file_name, dset_name, src_space)] of a virtual
+        dataset, as h5py (the spaces: fastnc._vds.SelectionSpace, with the
+        h5py SpaceID methods for reading a selection)."""
+        if not self.is_virtual:
+            raise RuntimeError('Not a virtual dataset')
+        from . import _vds
+        return _vds.virtual_sources(self._ds)
+
     @property
     def external(self):
-        return None
+        """[(file name, offset, size)] of external storage, or None."""
+        ext = self._ds.external
+        return list(ext) if ext else None
 
     @property
     def fillvalue(self):
