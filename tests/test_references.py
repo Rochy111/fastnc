@@ -34,12 +34,18 @@ def expected(ref):
     return ref
 
 
-def to_host(x):
-    """A GPU result as numpy: cupy arrays copied back; a masked result
-    (data and mask on the card) as a numpy masked array."""
+def to_host(x, scalar=True):
+    """A GPU result as numpy: cupy arrays copied back (a 0-d one -- every
+    dimension indexed -- as the numpy scalar the CPU gives, unless the CPU
+    gives a 0-d array: a scalar variable read whole); a masked result
+    (data and mask on the card) through its .get(), the exact CPU
+    MaskedArray, else rebuilt from .data and .mask."""
     if type(x).__module__.startswith('cupy'):
-        return x.get()
+        h = x.get()
+        return h[()] if scalar and isinstance(h, np.ndarray) and h.ndim == 0 else h
     if hasattr(x, 'mask') and hasattr(x, 'data') and not isinstance(x, np.ndarray):
+        if hasattr(x, 'get'):
+            return x.get()
         data, mask = to_host(x.data), to_host(x.mask)
         return np.ma.MaskedArray(data, mask=mask, fill_value=getattr(x, 'fill_value', None))
     return x
@@ -89,7 +95,7 @@ def check_reads(reads, read, device='cpu'):
             bad.append('%s %r: fastnc raised %s: %s' % (s, k, type(e).__name__, e))
             continue
         if device == 'gpu':
-            got = to_host(got)
+            got = to_host(got, scalar=k not in (Ellipsis, ()))
         ok, msg = same_values(digest(got), expected(ref))
         if not ok:
             bad.append('%s %r: %s' % (s, k, msg))

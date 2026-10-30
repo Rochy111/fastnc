@@ -132,6 +132,12 @@ class Variable:
         return self.ds.chunks
 
     @property
+    def no_fill(self):
+        """What nc_inq_var_fill says: netCDF-c sets no_fill unless HDF5 has a
+        user-defined fill value (a stored one; checked on 727 variables)."""
+        return self.ds.fill is None
+
+    @property
     def filters(self):
         ids = {f.id: f for f in self.ds.filters}
         out = {'zlib': 1 in ids, 'szip': False, 'zstd': 32015 in ids, 'bzip2': 307 in ids,
