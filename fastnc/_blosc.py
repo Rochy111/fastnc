@@ -25,7 +25,7 @@ multiple of 8.
 import numpy as np
 
 from ._bitshuffle import bitunshuffle, _bytes8
-from ._inflate import ERR_DATA, ERR_INPUT, ERR_SPACE, IWS_SIZE, TAB_SIZE, zlib_inflate
+from ._inflate import ERR_DATA, ERR_INPUT, ERR_SPACE, FIXED, IWS_SIZE, TAB_SIZE, zlib_inflate
 from ._intrin import ld64, st64
 from ._jit import njit
 from ._lz4 import copy_bytes, copy_match, lz4_block
@@ -268,8 +268,9 @@ def _codec(fmt, src, p, pend, dst, o, n, ws):
     elif fmt == 2:
         r = snappy(src, p, pend, dst, o, o + n)
     elif fmt == 3:
-        r = zlib_inflate(src, p, pend, dst, o, o + n, o + n,
-                         ws[W_TAB:W_TAB + TAB_SIZE * 4].view(np.uint32),
+        tab = ws[W_TAB:W_TAB + TAB_SIZE * 4].view(np.uint32)
+        tab[FIXED] = 0                  # (ws is not zeroed: no fixed tables cached in it)
+        r = zlib_inflate(src, p, pend, dst, o, o + n, o + n, tab,
                          ws[W_IWS:W_IWS + IWS_SIZE * 8].view(np.int64))
     elif fmt == 4:
         r = zstd_decompress(src, p, pend, dst, o, o + n, ws[W_Z:W_Z + ZWS])

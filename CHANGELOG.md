@@ -40,6 +40,13 @@ a bug.
   load, loops over `variables`): 1.8-3x.
 - **Mask/scale fused with decoding** for big scaled variables; **GPU
   reads pipelined** (one decode, each band uploaded as soon as it is in).
+- **xarray decoding by lookup table** for 8 / 16-bit data, fused with
+  decoding (GOES-19 C02 `.load()` 810 -> 160 ms).
+- Word-at-a-time unshuffle, a decoded-chunk cache for repeated small reads
+  of shuffled data, fixed-Huffman tables kept between blocks and
+  libdeflate-style table builds, faster whole-dataset plans; without the
+  kernels, per-chunk work vectorized and many small deflated chunks
+  staged (Ku-band 199 -> 32 ms).
 - Packaging (`pyproject.toml`), MIT license, a CI workflow for Linux /
   Windows / macOS, Python 3.9-3.13, numpy 1 and 2, with and without the
   kernels. (Its runs so far: Windows green throughout; Linux and macOS
