@@ -1,0 +1,8700 @@
+{
+ "files": {
+  "ext.h5": {
+   "/ext2": {
+    "chunks": null,
+    "dtype": "<f4",
+    "external": [
+     [
+      "ext_a.bin",
+      100,
+      48
+     ],
+     [
+      "ext_b.bin",
+      0,
+      72
+     ]
+    ],
+    "fillvalue": {
+     "dtype": "<f4",
+     "hex": "00000000",
+     "repr": "0.0",
+     "t": "np",
+     "type": "np.float32"
+    },
+    "is_virtual": false,
+    "maxshape": [
+     6,
+     5
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": ">",
+       "dtype": "<f4",
+       "sha256": "c29a7038cf6b0092a5d23ca6e3d20f9b83c690f4672149c74335b6a0c4abc6ca",
+       "shape": [
+        2,
+        1
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        5,
+        3
+       ],
+       [
+        "s",
+        1,
+        4,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": ">",
+       "dtype": "<f4",
+       "sha256": "6894ba7b33726c710989a716c9ab78ffbd102f37c5cde7c54069764980b8b2cc",
+       "shape": [
+        6,
+        5
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": ">",
+       "dtype": "<f4",
+       "sha256": "1b4159aaf7601a16ac9e8d31b80dd704d1ec67a89641c7618fc250bea02f4d03",
+       "shape": [
+        5
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        3
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": ">",
+       "dtype": "<f4",
+       "sha256": "11f6a1b10e04b67c7853082ea9464cea51fd68a9cb4b6d21b3a257791abc09c5",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": ">",
+       "dtype": "<f4",
+       "sha256": "fb4c516a1eb750e1c3fe4685d7404ef5b4d78ffe0f58921000842b0d2b2b132d",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        2
+       ],
+       [
+        "s",
+        1,
+        5,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": ">",
+       "dtype": "<f4",
+       "sha256": "c605d4e21b1d68ed854b89585c565c155075d7b5c5f45cde5bddd3e22da1b44b",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        1
+       ],
+       [
+        "s",
+        1,
+        3,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     6,
+     5
+    ]
+   },
+   "/ext_short": {
+    "chunks": null,
+    "dtype": "<i8",
+    "external": [
+     [
+      "ext_c.bin",
+      0,
+      80
+     ]
+    ],
+    "fillvalue": {
+     "dtype": "<i8",
+     "hex": "0000000000000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int64"
+    },
+    "is_virtual": false,
+    "maxshape": [
+     10
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i8",
+       "sha256": "b1535c7783ea8829b6b0cf67704539798b4d16c39bf0bfe09494c5d9f12eee30",
+       "shape": [
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        8,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i8",
+       "sha256": "4623efe42db59c15aaf87a0ce9afca0314a25fd62e1d82ecb62fcb2431cd77d1",
+       "shape": [
+        10
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i8",
+       "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+       "shape": [],
+       "type": "np.int64"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i8",
+       "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+       "shape": [],
+       "type": "np.int64"
+      },
+      "key": [
+       [
+        "i",
+        9
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i8",
+       "sha256": "91d3827f052f5a4b44d5fe2bed657c752247365d94f80a33cb09c1436a16b125",
+       "shape": [
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        10,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i8",
+       "sha256": "5028b92e5067886c4bb10836fdcd64d19210e50adff5acf41beffda6bd5485a9",
+       "shape": [
+        5
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        7,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     10
+    ]
+   },
+   "/ext_unlim": {
+    "chunks": null,
+    "dtype": "<u2",
+    "external": [
+     [
+      "ext_a.bin",
+      3,
+      18446744073709551615
+     ]
+    ],
+    "fillvalue": {
+     "dtype": "<u2",
+     "hex": "0000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.uint16"
+    },
+    "is_virtual": false,
+    "maxshape": [
+     8
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<u2",
+       "sha256": "be0d0af05fb784e5f4aca4a0535f3909507381741b1b5b0bffde62dc3be03420",
+       "shape": [
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        7,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<u2",
+       "sha256": "b77d084fab3050b9672de0756fa7cb579f6beec5e34c6b99f81bb602e1c9e398",
+       "shape": [
+        8
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<u2",
+       "sha256": "1b47e3acf9cd496936430df42e017269c3bb14f54dda91b41a90fd265960f124",
+       "shape": [],
+       "type": "np.uint16"
+      },
+      "key": [
+       [
+        "i",
+        4
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<u2",
+       "sha256": "c979d5f872609b04c5d8f05f95a4bd0694a914bc3d84231ff2d79f8fa6ea3ad4",
+       "shape": [],
+       "type": "np.uint16"
+      },
+      "key": [
+       [
+        "i",
+        7
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<u2",
+       "sha256": "1f55416256ea5714570002de8f829aa5d3d83fce06cdce952d539ef31458e4f1",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        8,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<u2",
+       "sha256": "186910699e1058c751c2942e0521cf37932d2121ede323c4ad789947314d6832",
+       "shape": [
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     8
+    ]
+   }
+  },
+  "vds_cross.h5": {
+   "/blocks": {
+    "chunks": null,
+    "dtype": "<f4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<f4",
+     "hex": "00000000",
+     "repr": "0.0",
+     "t": "np",
+     "type": "np.float32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     20,
+     30
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "b4b208ac1b2a9b3a9584ad060acef3d5bb4e0194145be612f82eb4b12f324515",
+       "shape": [
+        4,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        5,
+        16,
+        3
+       ],
+       [
+        "s",
+        7,
+        24,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "5e8d1256eb5ced8c6a80f95c0272ef9e303201a36f6a17eb8fb41c797479a9a8",
+       "shape": [
+        20,
+        30
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "6edd9f6f9cc92cded36e6c4a580933f9c9f1b90562b46903b806f21902a1a54f",
+       "shape": [
+        30
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        10
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "5dcc1b5872dd9ff1c234501f1fefda01f664164e1583c3e1bb3dbea47588ab31",
+       "shape": [
+        15
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        19
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "97b08349af885dd86ae3896cc6ab4c7eee47f1fce8c9dfaee1550318522ceafb",
+       "shape": [
+        7,
+        10
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        6,
+        20,
+        2
+       ],
+       [
+        "s",
+        10,
+        30,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "804fd4f60c1254285feb37cdcbcb1c9815b216517cbffc89d310fb3152205c6c",
+       "shape": [
+        10,
+        15
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        5,
+        15,
+        1
+       ],
+       [
+        "s",
+        7,
+        22,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     20,
+     30
+    ],
+    "sources": [
+     [
+      "src_b.h5",
+      "data",
+      {
+       "bounds": [
+        [
+         1,
+         0
+        ],
+        [
+         18,
+         29
+        ]
+       ],
+       "npoints": 360,
+       "points": null,
+       "regular": [
+        [
+         1,
+         0
+        ],
+        [
+         5,
+         1
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         3,
+         30
+        ]
+       ],
+       "shape": [
+        20,
+        30
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/blocks_both": {
+    "chunks": null,
+    "dtype": "<f4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<f4",
+     "hex": "00000000",
+     "repr": "0.0",
+     "t": "np",
+     "type": "np.float32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     10,
+     30
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "17b0761f87b081d5cf10757ccc89f12be355c70e2e29df288b65b30710dcbcd1",
+       "shape": [
+        2,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        7,
+        24,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "2af9c1b7fa54caf2f8e7e0df67783f06fb57a482ca4bb706d78e7272d18c79a4",
+       "shape": [
+        10,
+        30
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "7ec87fb96762a74903589762b8f1dca029a772c60f02a80482634c3b489dc353",
+       "shape": [
+        30
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "82dbca8a4e41f538b2cd5a5b8125a15dc6da28d482d45d0456be28ea12d8b9a2",
+       "shape": [
+        15
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        9
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "e54fc84800d81df7adc81cf151ecab0a59cec0fbbb37938ee36e0e649d33da39",
+       "shape": [
+        4,
+        10
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        10,
+        2
+       ],
+       [
+        "s",
+        10,
+        30,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "864af72d550d7bf93eb19ffced7689811b37906eb95bf557154d46ea7b5d0a2a",
+       "shape": [
+        5,
+        15
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        7,
+        22,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     10,
+     30
+    ],
+    "sources": [
+     [
+      "src_b.h5",
+      "data",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         9,
+         27
+        ]
+       ],
+       "npoints": 100,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         1,
+         10
+        ],
+        [
+         10,
+         1
+        ]
+       ],
+       "shape": [
+        10,
+        30
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         10,
+         9
+        ]
+       ],
+       "npoints": 100,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         6,
+         1
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         5,
+         10
+        ]
+       ],
+       "shape": [
+        11,
+        10
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/deep": {
+    "chunks": null,
+    "dtype": "|u1",
+    "external": null,
+    "fillvalue": {
+     "dtype": "|u1",
+     "hex": "ff",
+     "repr": "255",
+     "t": "np",
+     "type": "np.uint8"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "|",
+       "dtype": "|u1",
+       "sha256": "baf4a3d44436ab37273a43f43bfe24f5831969a3ffacce0dfcfe201761038e04",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "|",
+       "dtype": "|u1",
+       "sha256": "1a48f9a845caf6e6b8c08b4c75d5d7e3d77239e49d6e048ca9cbbdd56e094bd0",
+       "shape": [
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "|",
+       "dtype": "|u1",
+       "sha256": "dc0e9c3658a1a3ed1ec94274d8b19925c93e1abb7ddba294923ad9bde30f8cb8",
+       "shape": [],
+       "type": "np.uint8"
+      },
+      "key": [
+       [
+        "i",
+        6
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "|",
+       "dtype": "|u1",
+       "sha256": "a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89",
+       "shape": [],
+       "type": "np.uint8"
+      },
+      "key": [
+       [
+        "i",
+        11
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "|",
+       "dtype": "|u1",
+       "sha256": "abaf299c9a4cf1cc225bd5bc6b1a70349795c9889d1129c6d21ac4980360e815",
+       "shape": [
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "|",
+       "dtype": "|u1",
+       "sha256": "53f2caa3e9e8f7d53013e1a2166d5fad3e4c3e5e1f8948b9ebb3d9f907d892ee",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     12
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "/link_to_deep",
+      {
+       "bounds": [
+        [
+         1
+        ],
+        [
+         10
+        ]
+       ],
+       "npoints": 10,
+       "points": null,
+       "regular": [
+        [
+         1
+        ],
+        [
+         1
+        ],
+        [
+         1
+        ],
+        [
+         10
+        ]
+       ],
+       "shape": [
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/nested": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     2,
+     10,
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a49e58ba4eaae29f1ff329cb13fb16d61074015e4616845cbe28c5e5488924c5",
+       "shape": [
+        1,
+        2,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        3
+       ],
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "53bea679fe4614db3910ca7ec5b9e5783548ce61f364395ce90a792a63327b6f",
+       "shape": [
+        2,
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "b2708c25dfc7ef41f27c4a746d3bc329aeb97c13b25257946a4f796ca4c33ae5",
+       "shape": [
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "7ff9c7f9a59daecb109f8af347fa45a437fba06bba1144ca4a0b61a48fd9fa51",
+       "shape": [
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "78fd03b1cca8c14802cc6704581a80e9514362675c9a68a30052c6d10ec0cd5e",
+       "shape": [
+        1,
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        2
+       ],
+       [
+        "s",
+        3,
+        10,
+        2
+       ],
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "e59784af9f4f341bc9047aa617ae66cbce68353c764ff172cc0523599d78f931",
+       "shape": [
+        1,
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ],
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     2,
+     10,
+     12
+    ],
+    "sources": [
+     [
+      "vds_same.h5",
+      "stack",
+      {
+       "bounds": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         1,
+         9,
+         11
+        ]
+       ],
+       "npoints": 240,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         2,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        2,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/reshape": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     6,
+     10
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "523eb6b15415483faf291012608b397a00f52125ece96cfd3e0b97e1e60080df",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        5,
+        3
+       ],
+       [
+        "s",
+        2,
+        8,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "79ece4398bbd50210b16868c38fe5643f01514e7311d8163415cedfe31cc877c",
+       "shape": [
+        6,
+        10
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4328ffbef3df54259c75acdf8436889a98e41582ea4cc9b372228fc808e883c9",
+       "shape": [
+        10
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        3
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "7b230884007a12cebd83e9576284f5a22f326594f764e676cc6c894909287419",
+       "shape": [
+        5
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "88926c02bef14c55c18ba8a436d37cdb33487f1b824dd02deea2e521fab67280",
+       "shape": [
+        2,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        2
+       ],
+       [
+        "s",
+        3,
+        10,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "8d1d5ecdcbe100dca7c8ded5ffc79ee6f106c1e91f8d71c41af45796690a4146",
+       "shape": [
+        3,
+        5
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        1
+       ],
+       [
+        "s",
+        2,
+        7,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     6,
+     10
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "big_endian",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         5,
+         9
+        ]
+       ],
+       "npoints": 60,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         6,
+         10
+        ]
+       ],
+       "shape": [
+        6,
+        10
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/scalar_map": {
+    "chunks": null,
+    "dtype": "<f8",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<f8",
+     "hex": "0000000000000000",
+     "repr": "0.0",
+     "t": "np",
+     "type": "np.float64"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     3
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+       "shape": [
+        1
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        3,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "a301670247f2b911ab9c53e7b2095506e48930ebc6f29baa78613ad03c922fc6",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "54ab4c3ee2ba75e86d1d29245bc915f582f4b2f6520bf57ce7dbc3ad5a07a435",
+       "shape": [],
+       "type": "np.float64"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+       "shape": [],
+       "type": "np.float64"
+      },
+      "key": [
+       [
+        "i",
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "54ab4c3ee2ba75e86d1d29245bc915f582f4b2f6520bf57ce7dbc3ad5a07a435",
+       "shape": [
+        1
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        3,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+       "shape": [
+        1
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     3
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "scalar",
+      {
+       "bounds": [
+        [
+         1
+        ],
+        [
+         1
+        ]
+       ],
+       "npoints": 1,
+       "points": null,
+       "regular": [
+        [
+         1
+        ],
+        [
+         1
+        ],
+        [
+         1
+        ],
+        [
+         1
+        ]
+       ],
+       "shape": [
+        3
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/src_strided": {
+    "chunks": null,
+    "dtype": "<f4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<f4",
+     "hex": "00000000",
+     "repr": "0.0",
+     "t": "np",
+     "type": "np.float32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     4,
+     4
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "33945cb40280440d40bd6511cfac9d657da47c6637f3c34e4b2076c0b7596729",
+       "shape": [
+        1,
+        1
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        3
+       ],
+       [
+        "s",
+        1,
+        4,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "9838105a8aaa8412885dfa3bcd40075998ef555d9ab81dd4f651e56f886e09b4",
+       "shape": [
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "d1430aae24ed6d7c3b54ac4c0858c594414e112a79275c48aff5971850db9f6f",
+       "shape": [
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "edfec20a40e729b4425860ee086d4616e46d111f6ac03acb0fe9a655eb21575b",
+       "shape": [
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        3
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "3fd38feaa862fdcf60d8dff79b5b57e691ef5b94f7559c885b6e8a863ae5c602",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        2
+       ],
+       [
+        "s",
+        1,
+        4,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "cc0caa33b2b64511ca28fc7a3abac631bf02d3b807fe705fceb4127e7e8d16bc",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        3,
+        1
+       ],
+       [
+        "s",
+        1,
+        3,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     4,
+     4
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "chunked",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         3,
+         3
+        ]
+       ],
+       "npoints": 16,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         4,
+         4
+        ]
+       ],
+       "shape": [
+        4,
+        4
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         3,
+         20
+        ],
+        [
+         9,
+         23
+        ]
+       ],
+       "npoints": 16,
+       "points": null,
+       "regular": [
+        [
+         3,
+         20
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         1,
+         4
+        ]
+       ],
+       "shape": [
+        10,
+        24
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/stack3": {
+    "chunks": null,
+    "dtype": "<f4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<f4",
+     "hex": "0000c0bf",
+     "repr": "-1.5",
+     "t": "np",
+     "type": "np.float32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     3,
+     24,
+     30
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "55d76c312a3e7fc81c436df4e8b91f7bcd9cd1f62930df206b367a50ff8aa824",
+       "shape": [
+        1,
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        3,
+        3
+       ],
+       [
+        "s",
+        6,
+        20,
+        3
+       ],
+       [
+        "s",
+        7,
+        24,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "64a7b7d6b8e99ea24ac751e0e573b67eeebcac698a7dd90550362383861b128d",
+       "shape": [
+        3,
+        24,
+        30
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "f60a885e085735eff79fdeca929526331e7848df393c67153b21f2794918597a",
+       "shape": [
+        24,
+        30
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "87acbabaaf882aeb0d4671e2d6778a00df19742a317f05c909981009b470cbbd",
+       "shape": [
+        12,
+        15
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "c81175fab40e71aea6c208c147ef48732a8309588812192cc9ada31642b26880",
+       "shape": [
+        1,
+        8,
+        10
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        3,
+        2
+       ],
+       [
+        "s",
+        8,
+        24,
+        2
+       ],
+       [
+        "s",
+        10,
+        30,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "f39b7e5bcc98e87607bc7026e1db9c4b5d06321c08a55dbc89be3f99a8a617e1",
+       "shape": [
+        1,
+        12,
+        15
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ],
+       [
+        "s",
+        6,
+        18,
+        1
+       ],
+       [
+        "s",
+        7,
+        22,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     3,
+     24,
+     30
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "chunked",
+      {
+       "bounds": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         0,
+         23,
+         29
+        ]
+       ],
+       "npoints": 720,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         24,
+         30
+        ]
+       ],
+       "shape": [
+        3,
+        24,
+        30
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      "sub/src_c.h5",
+      "/data",
+      {
+       "bounds": [
+        [
+         1,
+         0,
+         0
+        ],
+        [
+         1,
+         23,
+         29
+        ]
+       ],
+       "npoints": 720,
+       "points": null,
+       "regular": [
+        [
+         1,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         24,
+         30
+        ]
+       ],
+       "shape": [
+        3,
+        24,
+        30
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      "nonexistent.h5",
+      "data",
+      {
+       "bounds": [
+        [
+         2,
+         0,
+         0
+        ],
+        [
+         2,
+         23,
+         29
+        ]
+       ],
+       "npoints": 720,
+       "points": null,
+       "regular": [
+        [
+         2,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         24,
+         30
+        ]
+       ],
+       "shape": [
+        3,
+        24,
+        30
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/strided": {
+    "chunks": null,
+    "dtype": "<f4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<f4",
+     "hex": "0000c07f",
+     "repr": "NaN",
+     "t": "np",
+     "type": "np.float32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     24,
+     30
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "bd288871b98c7d8b2129d2ca4731a919c36b6addf9e00e9afaa4de4af17ec8c4",
+       "shape": [
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        6,
+        20,
+        3
+       ],
+       [
+        "s",
+        7,
+        24,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "b62288b0592d58ddfaf4f26e74ed654b892badbe4269cad5f9bebe01b90e50f8",
+       "shape": [
+        24,
+        30
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "c36a4f89a358c180fe36326034d4396f637cb9cc2ce38da0d38be6c83a1dadb0",
+       "shape": [
+        30
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        12
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "28f407580dd471800f4eee480445c340aa601f24efe87baa3fd69a8eff52915e",
+       "shape": [
+        15
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        23
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "c64f6733a93efbc9a76aa3580ef5247cc838be1422ba62b91e293a3270a1a829",
+       "shape": [
+        8,
+        10
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        8,
+        24,
+        2
+       ],
+       [
+        "s",
+        10,
+        30,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f4",
+       "sha256": "7c5daf78904013d9e92e899c84f4e092c8941016f246faf65889174d59fd3de9",
+       "shape": [
+        12,
+        15
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        6,
+        18,
+        1
+       ],
+       [
+        "s",
+        7,
+        22,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     24,
+     30
+    ],
+    "sources": [
+     [
+      "src_b.h5",
+      "data",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         22,
+         29
+        ]
+       ],
+       "npoints": 360,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         12,
+         1
+        ],
+        [
+         1,
+         30
+        ]
+       ],
+       "shape": [
+        24,
+        30
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   }
+  },
+  "vds_lowlevel_earliest.h5": {
+   "/irregular": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     12,
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4b884eeb10a1856c4f7363014923facb373f45e2cfa179561ae40c076ba324de",
+       "shape": [
+        3,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        10,
+        3
+       ],
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4423d053ba80cdca3904df037a9e4db695e7325edfb3d7e220685f57bf25586f",
+       "shape": [
+        12,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "17b0761f87b081d5cf10757ccc89f12be355c70e2e29df288b65b30710dcbcd1",
+       "shape": [
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        6
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "9d908ecfb6b256def8b49a7c504e6c889c4b0e41fe6ce3e01863dd7b61a20aa0",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        11
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a9328f4a99d1d6019307e950da2f37b0e74e3105ea5834328dff8d25ad8bd91a",
+       "shape": [
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        4,
+        12,
+        2
+       ],
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "5cc691caa8046292afc3d4b953657201fd2476bacf1c01c6ea836dae66ac9402",
+       "shape": [
+        6,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        1
+       ],
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     12,
+     12
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         5,
+         7
+        ]
+       ],
+       "npoints": 36,
+       "points": null,
+       "regular": false,
+       "shape": [
+        12,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         5,
+         5
+        ]
+       ],
+       "npoints": 36,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         6,
+         6
+        ]
+       ],
+       "shape": [
+        6,
+        6
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/wide": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "feffffff",
+     "repr": "-2",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     2,
+     70000
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "676ddf32c1989537e3002d444a0731353ac637261d7143acb41b74402f153941",
+       "shape": [
+        1,
+        12834
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        3
+       ],
+       [
+        "s",
+        17500,
+        56000,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a170d0307eb03d01ef4d66c5442581f6bba447c8655c57b4088e9332c0f57c98",
+       "shape": [
+        2,
+        70000
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "b984d5a1fdd058c53fa620a2094149f22479a72f30398557bcd0a0645359f6cc",
+       "shape": [
+        70000
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "c1a7643aae70fdced2959d3ed929be0fbde016f571d2cd19d818c2b4ed023504",
+       "shape": [
+        35000
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "e417655bf03b98cde259269e36a5083f97afd110d6810e6be7a0bd4a9e36e7fb",
+       "shape": [
+        1,
+        32
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        2
+       ],
+       [
+        "s",
+        23333,
+        23397,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "1381238be2841a9f30c4c4d8c9b281ad759657c4096a62a33594181d3623e9b2",
+       "shape": [
+        1,
+        35000
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ],
+       [
+        "s",
+        17500,
+        52500,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     2,
+     70000
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         1,
+         69990
+        ],
+        [
+         1,
+         69999
+        ]
+       ],
+       "npoints": 10,
+       "points": null,
+       "regular": [
+        [
+         1,
+         69990
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         10
+        ]
+       ],
+       "shape": [
+        2,
+        70000
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         5,
+         3
+        ],
+        [
+         5,
+         12
+        ]
+       ],
+       "npoints": 10,
+       "points": null,
+       "regular": [
+        [
+         5,
+         3
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         10
+        ]
+       ],
+       "shape": [
+        6,
+        13
+       ],
+       "type": 2
+      }
+     ],
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         60004
+        ]
+       ],
+       "npoints": 12,
+       "points": null,
+       "regular": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         30000
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         2
+        ]
+       ],
+       "shape": [
+        2,
+        70000
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         5
+        ]
+       ],
+       "npoints": 12,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         6
+        ]
+       ],
+       "shape": [
+        2,
+        6
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   }
+  },
+  "vds_lowlevel_latest.h5": {
+   "/irregular": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     12,
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4b884eeb10a1856c4f7363014923facb373f45e2cfa179561ae40c076ba324de",
+       "shape": [
+        3,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        10,
+        3
+       ],
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4423d053ba80cdca3904df037a9e4db695e7325edfb3d7e220685f57bf25586f",
+       "shape": [
+        12,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "17b0761f87b081d5cf10757ccc89f12be355c70e2e29df288b65b30710dcbcd1",
+       "shape": [
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        6
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "9d908ecfb6b256def8b49a7c504e6c889c4b0e41fe6ce3e01863dd7b61a20aa0",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        11
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a9328f4a99d1d6019307e950da2f37b0e74e3105ea5834328dff8d25ad8bd91a",
+       "shape": [
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        4,
+        12,
+        2
+       ],
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "5cc691caa8046292afc3d4b953657201fd2476bacf1c01c6ea836dae66ac9402",
+       "shape": [
+        6,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        1
+       ],
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     12,
+     12
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         5,
+         7
+        ]
+       ],
+       "npoints": 36,
+       "points": null,
+       "regular": false,
+       "shape": [
+        12,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         5,
+         5
+        ]
+       ],
+       "npoints": 36,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         6,
+         6
+        ]
+       ],
+       "shape": [
+        6,
+        6
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/wide": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "feffffff",
+     "repr": "-2",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     2,
+     70000
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "676ddf32c1989537e3002d444a0731353ac637261d7143acb41b74402f153941",
+       "shape": [
+        1,
+        12834
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        3
+       ],
+       [
+        "s",
+        17500,
+        56000,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a170d0307eb03d01ef4d66c5442581f6bba447c8655c57b4088e9332c0f57c98",
+       "shape": [
+        2,
+        70000
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "b984d5a1fdd058c53fa620a2094149f22479a72f30398557bcd0a0645359f6cc",
+       "shape": [
+        70000
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "c1a7643aae70fdced2959d3ed929be0fbde016f571d2cd19d818c2b4ed023504",
+       "shape": [
+        35000
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "e417655bf03b98cde259269e36a5083f97afd110d6810e6be7a0bd4a9e36e7fb",
+       "shape": [
+        1,
+        32
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        2
+       ],
+       [
+        "s",
+        23333,
+        23397,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "1381238be2841a9f30c4c4d8c9b281ad759657c4096a62a33594181d3623e9b2",
+       "shape": [
+        1,
+        35000
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ],
+       [
+        "s",
+        17500,
+        52500,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     2,
+     70000
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         1,
+         69990
+        ],
+        [
+         1,
+         69999
+        ]
+       ],
+       "npoints": 10,
+       "points": null,
+       "regular": [
+        [
+         1,
+         69990
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         10
+        ]
+       ],
+       "shape": [
+        2,
+        70000
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         5,
+         3
+        ],
+        [
+         5,
+         12
+        ]
+       ],
+       "npoints": 10,
+       "points": null,
+       "regular": [
+        [
+         5,
+         3
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         10
+        ]
+       ],
+       "shape": [
+        6,
+        13
+       ],
+       "type": 2
+      }
+     ],
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         60004
+        ]
+       ],
+       "npoints": 12,
+       "points": null,
+       "regular": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         30000
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         2
+        ]
+       ],
+       "shape": [
+        2,
+        70000
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         5
+        ]
+       ],
+       "npoints": 12,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         6
+        ]
+       ],
+       "shape": [
+        2,
+        6
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   }
+  },
+  "vds_same.h5": {
+   "/overlap": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     10,
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0b6f2316e84b32aa31a1c7ceccc707ef9faf56090400fafedecd8505c30b84da",
+       "shape": [
+        2,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0995ef1dbe22ec75f452f97cbc3599b9b9307210178071599e33bd7550c7a851",
+       "shape": [
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "10cdf620ec622b9108510eda64eb4d6e76e4590c94cffff5709cbee2a699d78e",
+       "shape": [
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a43f6df13130fbf51020f19d248f2b784235e7c304e278c57a43411428cd55ec",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        9
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "e1a6303d7453386b8a6719ae395ab896ceb6f1526f6cd065a154cd8d967a8d01",
+       "shape": [
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        10,
+        2
+       ],
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "900a87e4b00bb63f24d41a85b932be9d4da2f8f8f358e01c5fb7c537b63db671",
+       "shape": [
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     10,
+     12
+    ],
+    "sources": [
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      ".",
+      "/b",
+      {
+       "bounds": [
+        [
+         2,
+         3
+        ],
+        [
+         4,
+         8
+        ]
+       ],
+       "npoints": 18,
+       "points": null,
+       "regular": [
+        [
+         2,
+         3
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         3,
+         6
+        ]
+       ],
+       "shape": [
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         2,
+         5
+        ]
+       ],
+       "npoints": 18,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         3,
+         6
+        ]
+       ],
+       "shape": [
+        3,
+        6
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/partial": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "63000000",
+     "repr": "99",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     3,
+     10,
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a0cd6bdf4fb1261a9ee7075d30391ec7219877990196237f64b36429b187721b",
+       "shape": [
+        1,
+        2,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        3,
+        3
+       ],
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "d6d1b73bea3c62c66ca47d035853d7866e0ee0e0a374579d525570385cca3a4a",
+       "shape": [
+        3,
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "7f029d8e2f46f92626827ee8daa966064970b15ee6fbdb9d44880f2372dbfd38",
+       "shape": [
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a19398d26713b4725a1d289dbab94157624b9378c8bd3aa0f20cfb78573ae8ff",
+       "shape": [
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "78fd03b1cca8c14802cc6704581a80e9514362675c9a68a30052c6d10ec0cd5e",
+       "shape": [
+        1,
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        3,
+        2
+       ],
+       [
+        "s",
+        3,
+        10,
+        2
+       ],
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a19398d26713b4725a1d289dbab94157624b9378c8bd3aa0f20cfb78573ae8ff",
+       "shape": [
+        1,
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ],
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     3,
+     10,
+     12
+    ],
+    "sources": [
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         1,
+         0,
+         0
+        ],
+        [
+         1,
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         1,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        3,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/stack": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "f9ffffff",
+     "repr": "-7",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     2,
+     10,
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "a49e58ba4eaae29f1ff329cb13fb16d61074015e4616845cbe28c5e5488924c5",
+       "shape": [
+        1,
+        2,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        3
+       ],
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "53bea679fe4614db3910ca7ec5b9e5783548ce61f364395ce90a792a63327b6f",
+       "shape": [
+        2,
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "b2708c25dfc7ef41f27c4a746d3bc329aeb97c13b25257946a4f796ca4c33ae5",
+       "shape": [
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "7ff9c7f9a59daecb109f8af347fa45a437fba06bba1144ca4a0b61a48fd9fa51",
+       "shape": [
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "78fd03b1cca8c14802cc6704581a80e9514362675c9a68a30052c6d10ec0cd5e",
+       "shape": [
+        1,
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        2
+       ],
+       [
+        "s",
+        3,
+        10,
+        2
+       ],
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "e59784af9f4f341bc9047aa617ae66cbce68353c764ff172cc0523599d78f931",
+       "shape": [
+        1,
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ],
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     2,
+     10,
+     12
+    ],
+    "sources": [
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         0,
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        2,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      ".",
+      "/b",
+      {
+       "bounds": [
+        [
+         1,
+         0,
+         0
+        ],
+        [
+         1,
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         1,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        2,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/sub": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     5,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "533e76441927d273bfa9e39ea0d3f267a66e2f907282c5f1a0caa5d6a644ec96",
+       "shape": [
+        1,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "1deed7f34cfdd071f3cc9070d0b5ba8d7b7b5d77221442c6781c0aeddf1d1952",
+       "shape": [
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "733280395410d599bb6889ba06602a770890098334d914fa0f4c629fdb2ff6e3",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "040dedca1ef0e197e48d946ee81841797a4975c8c0a6955e1e0bce3344ff84ec",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        4
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "07756716703ea22cfedd72e7864e67ae401aedd78bedaa9632daf485c5829ec2",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        5,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "07c0b52272194aae29bf1896181b57e55cd3edbd05979dd034fc97e57c4ec92d",
+       "shape": [
+        2,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        3,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     5,
+     6
+    ],
+    "sources": [
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         4,
+         5
+        ]
+       ],
+       "npoints": 30,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         5,
+         6
+        ]
+       ],
+       "shape": [
+        5,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         8,
+         10
+        ]
+       ],
+       "npoints": 30,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         5,
+         6
+        ],
+        [
+         1,
+         1
+        ]
+       ],
+       "shape": [
+        9,
+        11
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/tiles": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     20,
+     24
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "e2184498819663d210447ce1fcacf697ff38bb48363b93422086547b0edf9b3c",
+       "shape": [
+        4,
+        5
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        5,
+        16,
+        3
+       ],
+       [
+        "s",
+        6,
+        20,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "444cb890dd9d92d1e0aa5a1c0456d29d41073edd926313431223f03a08ece3fa",
+       "shape": [
+        20,
+        24
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "6c02104ca252511541f69156a45cccc5d0bb8e2f5821bb9bfe3cd27440326f4a",
+       "shape": [
+        24
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        10
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "29bbc74974b168b7668fad772d52e58a12103330b3baf09d5fc8066140520530",
+       "shape": [
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        19
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "6fc6db2d19c32c75382aebeeec75bbafd676d90f68f9638b6f00fe44487be500",
+       "shape": [
+        7,
+        8
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        6,
+        20,
+        2
+       ],
+       [
+        "s",
+        8,
+        24,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "31a452532baebde465d52357c5dcb5aedf9977ba15ebb9e62ecc3175602974ef",
+       "shape": [
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        5,
+        15,
+        1
+       ],
+       [
+        "s",
+        6,
+        18,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     20,
+     24
+    ],
+    "sources": [
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        20,
+        24
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      ".",
+      "/b",
+      {
+       "bounds": [
+        [
+         0,
+         12
+        ],
+        [
+         9,
+         23
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         0,
+         12
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        20,
+        24
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         10,
+         12
+        ],
+        [
+         19,
+         23
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         10,
+         12
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        20,
+        24
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   }
+  },
+  "vds_unlim_earliest.h5": {
+   "/block_unlim": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0875b48a352f67a50e2e35c3132577418eb45d13e178bc6d217f314a2f5ed09c",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "805586f30fc90c946f61e2f963e96608998c9c18c3ee13c0d71ac9122483cc30",
+       "shape": [
+        9,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "849b2376a6bed6746a157ddc5184a672e8ad9c3cd2ac5e8dd2942464a92227e8",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        4
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "429bb147271a69c5e1ca5043092c6193225956b5e74471c352e553f10189a331",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        8
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "24ab3d56747a91b87fb5420c89bd9d04f954915d6b16dd89b12d203c7a46d701",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "b2d6f213a9347854735e990f0cb45007612c3bf20f89a216bd9371971c8bd249",
+       "shape": [
+        4,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     9,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         2,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         6
+        ]
+       ],
+       "shape": [
+        6,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/interleave": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "f7ffffff",
+     "repr": "-9",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "3b1291069824e72661f19650c6b917dfbbac2b4ecfcd62555f5850fda9ff7abc",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        11,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "f60ee95d708c88f038e668527c5e148d0d4ff7cdf44daf03073a1075a571fa0d",
+       "shape": [
+        13,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "9c01fb7319d2463245acb943d473bc259c167c29768822fee622a71e004d6a62",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        6
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "429bb147271a69c5e1ca5043092c6193225956b5e74471c352e553f10189a331",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        12
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "2a6551dbc422e2aa9d363a6e12d7372a9cde9c80dc19309e8bf05a55c36d186b",
+       "shape": [
+        5,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        4,
+        13,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "e7c8db0ba91dfac158fa69fb81138378392607a38d4dea222e1d365a97db3469",
+       "shape": [
+        6,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     13,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        7,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ],
+     [
+      "src_a.h5",
+      "grow2",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         1,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        7,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/min_dims": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "db65b84d990041e6504f3027bf2719fd6dd16c78fa0316d379353f77507a0e59",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        9,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "70fd4f346f8b06366da442fc7ace7f29a4aee3b013d9da9c7c9ff8fed8c8f4f7",
+       "shape": [
+        11,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "94ddc2cfc023c26b26b1194e79e0470fbe7418e1c904b39f2f11008e9b6c90cd",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "24562bfc460afc2b5499478267b5026c6e8fce27c382bcaa574ee6f437f71583",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        10
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0e9015b2017f7614f5a3e249573b4f9bbe841704c40bce02ea57a4a886fc9d59",
+       "shape": [
+        4,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        11,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "c105c0c3a3b4b8f5508abd99ab4bca7eb34d625c857ca4094e176cc995fc9acc",
+       "shape": [
+        5,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     11,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        11,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ],
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         9,
+         0
+        ],
+        [
+         10,
+         5
+        ]
+       ],
+       "npoints": 12,
+       "points": null,
+       "regular": [
+        [
+         9,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         6
+        ]
+       ],
+       "shape": [
+        11,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         5
+        ]
+       ],
+       "npoints": 12,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         6
+        ]
+       ],
+       "shape": [
+        2,
+        6
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/partial_block": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "fbffffff",
+     "repr": "-5",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "938c462cf9ba65c798529f367c3e3b3d14be6d258f87b94e540f6d441f42a109",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        5,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0c04d858ae0167d5eb145e46f67920a7fce054e25a911dd13cc0148764820f07",
+       "shape": [
+        6,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4d197bfebe06f031fffe6f338316ab95d88f31ac71cfdcb3820e13b94c883652",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        3
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "ea13357eea54b9a4c2054f296d66c6a47de1d1bb2f4d4432e6bc198e3adb8853",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "1c23d6279b31c84963affa3f9ff21646abd843ce1a2783cda3431525189a7243",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0f8740d51f7f2c2373fb95df7254d2931370f8f52dc5337ea0d8eb8abc0e7c54",
+       "shape": [
+        3,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     6,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow2",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         3,
+         6
+        ]
+       ],
+       "shape": [
+        3,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/printf": {
+    "chunks": null,
+    "dtype": "<i2",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i2",
+     "hex": "0700",
+     "repr": "7",
+     "t": "np",
+     "type": "np.int16"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     4
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "2ca13f324a2f68b78ccfdcf6885904085fe1ddf97c3b61d6a44dec472919ec69",
+       "shape": [
+        2,
+        1
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        1,
+        4,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "b46bdaf7f658ca781d9a590d7df37e37da7b8b868c289670eadebd0053ac30a9",
+       "shape": [
+        9,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "fe78f3ebf8f923a5e979ebf2384619aeef4d169d617cc3986b75665c8cf3bc08",
+       "shape": [
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        4
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "02e8a255fee50546b35834f42befa20111635885cc462454596a426b44a4b297",
+       "shape": [
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        8
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "7809a63605ca1ad7a4585a4797f580a4b9e943f1d3c63912ad2ac44730e9c193",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        2
+       ],
+       [
+        "s",
+        1,
+        4,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "c50d7de5881a50491d37233e6f89078329ac40e2624fe665d9fb9079ab12fe62",
+       "shape": [
+        4,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        1
+       ],
+       [
+        "s",
+        1,
+        3,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     9,
+     4
+    ],
+    "sources": [
+     [
+      "blk_%b.h5",
+      "x",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         3,
+         4
+        ]
+       ],
+       "shape": [
+        0,
+        4
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/rows": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "de0389f58eac4b84f304d62be178a2469209fe9199bc3b1b7bce44f61beb1828",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        6,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "3099f3955627d555c6e99a9e7c634ae0350b05fe8dcfaf17cb189af236ded925",
+       "shape": [
+        7,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "9c01fb7319d2463245acb943d473bc259c167c29768822fee622a71e004d6a62",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        3
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "429bb147271a69c5e1ca5043092c6193225956b5e74471c352e553f10189a331",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        6
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "b944c8b12eed26800aee1d682c6dad04430cb1fd3fb46a7ff0e1c908692c6a69",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        7,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4b00eb30aefa3be09257ceba755ad4cf4e25d26206ae273db5b875e1a23abeed",
+       "shape": [
+        3,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     7,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        4,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   }
+  },
+  "vds_unlim_latest.h5": {
+   "/block_unlim": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0875b48a352f67a50e2e35c3132577418eb45d13e178bc6d217f314a2f5ed09c",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "805586f30fc90c946f61e2f963e96608998c9c18c3ee13c0d71ac9122483cc30",
+       "shape": [
+        9,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "849b2376a6bed6746a157ddc5184a672e8ad9c3cd2ac5e8dd2942464a92227e8",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        4
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "429bb147271a69c5e1ca5043092c6193225956b5e74471c352e553f10189a331",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        8
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "24ab3d56747a91b87fb5420c89bd9d04f954915d6b16dd89b12d203c7a46d701",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "b2d6f213a9347854735e990f0cb45007612c3bf20f89a216bd9371971c8bd249",
+       "shape": [
+        4,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     9,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         2,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         6
+        ]
+       ],
+       "shape": [
+        6,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/interleave": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "f7ffffff",
+     "repr": "-9",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "3b1291069824e72661f19650c6b917dfbbac2b4ecfcd62555f5850fda9ff7abc",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        11,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "f60ee95d708c88f038e668527c5e148d0d4ff7cdf44daf03073a1075a571fa0d",
+       "shape": [
+        13,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "9c01fb7319d2463245acb943d473bc259c167c29768822fee622a71e004d6a62",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        6
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "429bb147271a69c5e1ca5043092c6193225956b5e74471c352e553f10189a331",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        12
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "2a6551dbc422e2aa9d363a6e12d7372a9cde9c80dc19309e8bf05a55c36d186b",
+       "shape": [
+        5,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        4,
+        13,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "e7c8db0ba91dfac158fa69fb81138378392607a38d4dea222e1d365a97db3469",
+       "shape": [
+        6,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     13,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        7,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ],
+     [
+      "src_a.h5",
+      "grow2",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         1,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        7,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/min_dims": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "db65b84d990041e6504f3027bf2719fd6dd16c78fa0316d379353f77507a0e59",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        9,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "70fd4f346f8b06366da442fc7ace7f29a4aee3b013d9da9c7c9ff8fed8c8f4f7",
+       "shape": [
+        11,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "94ddc2cfc023c26b26b1194e79e0470fbe7418e1c904b39f2f11008e9b6c90cd",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "24562bfc460afc2b5499478267b5026c6e8fce27c382bcaa574ee6f437f71583",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        10
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0e9015b2017f7614f5a3e249573b4f9bbe841704c40bce02ea57a4a886fc9d59",
+       "shape": [
+        4,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        11,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "c105c0c3a3b4b8f5508abd99ab4bca7eb34d625c857ca4094e176cc995fc9acc",
+       "shape": [
+        5,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     11,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        11,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ],
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         9,
+         0
+        ],
+        [
+         10,
+         5
+        ]
+       ],
+       "npoints": 12,
+       "points": null,
+       "regular": [
+        [
+         9,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         6
+        ]
+       ],
+       "shape": [
+        11,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         5
+        ]
+       ],
+       "npoints": 12,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         6
+        ]
+       ],
+       "shape": [
+        2,
+        6
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/partial_block": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "fbffffff",
+     "repr": "-5",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "938c462cf9ba65c798529f367c3e3b3d14be6d258f87b94e540f6d441f42a109",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        5,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0c04d858ae0167d5eb145e46f67920a7fce054e25a911dd13cc0148764820f07",
+       "shape": [
+        6,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4d197bfebe06f031fffe6f338316ab95d88f31ac71cfdcb3820e13b94c883652",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        3
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "ea13357eea54b9a4c2054f296d66c6a47de1d1bb2f4d4432e6bc198e3adb8853",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        5
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "1c23d6279b31c84963affa3f9ff21646abd843ce1a2783cda3431525189a7243",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "0f8740d51f7f2c2373fb95df7254d2931370f8f52dc5337ea0d8eb8abc0e7c54",
+       "shape": [
+        3,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     6,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow2",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         3,
+         6
+        ]
+       ],
+       "shape": [
+        3,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/printf": {
+    "chunks": null,
+    "dtype": "<i2",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i2",
+     "hex": "0700",
+     "repr": "7",
+     "t": "np",
+     "type": "np.int16"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     4
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "2ca13f324a2f68b78ccfdcf6885904085fe1ddf97c3b61d6a44dec472919ec69",
+       "shape": [
+        2,
+        1
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        1,
+        4,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "b46bdaf7f658ca781d9a590d7df37e37da7b8b868c289670eadebd0053ac30a9",
+       "shape": [
+        9,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "fe78f3ebf8f923a5e979ebf2384619aeef4d169d617cc3986b75665c8cf3bc08",
+       "shape": [
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        4
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "02e8a255fee50546b35834f42befa20111635885cc462454596a426b44a4b297",
+       "shape": [
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        8
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "7809a63605ca1ad7a4585a4797f580a4b9e943f1d3c63912ad2ac44730e9c193",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        3,
+        9,
+        2
+       ],
+       [
+        "s",
+        1,
+        4,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i2",
+       "sha256": "c50d7de5881a50491d37233e6f89078329ac40e2624fe665d9fb9079ab12fe62",
+       "shape": [
+        4,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        6,
+        1
+       ],
+       [
+        "s",
+        1,
+        3,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     9,
+     4
+    ],
+    "sources": [
+     [
+      "blk_%b.h5",
+      "x",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         3,
+         4
+        ]
+       ],
+       "shape": [
+        0,
+        4
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ]
+    ]
+   },
+   "/rows": {
+    "chunks": null,
+    "dtype": "<i4",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<i4",
+     "hex": "00000000",
+     "repr": "0",
+     "t": "np",
+     "type": "np.int32"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     null,
+     6
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "de0389f58eac4b84f304d62be178a2469209fe9199bc3b1b7bce44f61beb1828",
+       "shape": [
+        2,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        6,
+        3
+       ],
+       [
+        "s",
+        1,
+        5,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "3099f3955627d555c6e99a9e7c634ae0350b05fe8dcfaf17cb189af236ded925",
+       "shape": [
+        7,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "9c01fb7319d2463245acb943d473bc259c167c29768822fee622a71e004d6a62",
+       "shape": [
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        3
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "429bb147271a69c5e1ca5043092c6193225956b5e74471c352e553f10189a331",
+       "shape": [
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        6
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "b944c8b12eed26800aee1d682c6dad04430cb1fd3fb46a7ff0e1c908692c6a69",
+       "shape": [
+        3,
+        2
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        2,
+        7,
+        2
+       ],
+       [
+        "s",
+        2,
+        6,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<i4",
+       "sha256": "4b00eb30aefa3be09257ceba755ad4cf4e25d26206ae273db5b875e1a23abeed",
+       "shape": [
+        3,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        1
+       ],
+       [
+        "s",
+        1,
+        4,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     7,
+     6
+    ],
+    "sources": [
+     [
+      "src_a.h5",
+      "grow",
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        4,
+        6
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": "error",
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         18446744073709551615,
+         1
+        ],
+        [
+         1,
+         6
+        ]
+       ],
+       "shape": [
+        0,
+        0
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   }
+  },
+  "vds_v2.h5": {
+   "/mixed": {
+    "chunks": null,
+    "dtype": "<f8",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<f8",
+     "hex": "000000000000e03f",
+     "repr": "0.5",
+     "t": "np",
+     "type": "np.float64"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     4,
+     10,
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "e54aefd2a713e9701082ef64f3e72841ac438445e64319266ea9c1702cedb270",
+       "shape": [
+        1,
+        2,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        3
+       ],
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "915fc3075a5d083b16005cf0af5dba2148158d7bab37e86688d4b9dc3aaac0b3",
+       "shape": [
+        4,
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "7b054bf34d7a93629261c48e5ad80f66ed216b8fa3724cf78ba3cfc12c0c6d30",
+       "shape": [
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "02cd87f257ee8a24ae1ac498ccc2601567b201aa2b8cb0d0d0e51db8871f970f",
+       "shape": [
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        3
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "0903a931f7574f87b5a917e7fd29c73359904d831e777ea26696c3b7c52c84e4",
+       "shape": [
+        2,
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        1,
+        4,
+        2
+       ],
+       [
+        "s",
+        3,
+        10,
+        2
+       ],
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "3739411713a25a364fbee6046bfec226b1817a9cf5f5bde9ebe6dec1fbfcd10c",
+       "shape": [
+        1,
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ],
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     4,
+     10,
+     12
+    ],
+    "sources": [
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         0,
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        4,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      ".",
+      "/b",
+      {
+       "bounds": [
+        [
+         1,
+         0,
+         0
+        ],
+        [
+         1,
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         1,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        4,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         2,
+         0,
+         0
+        ],
+        [
+         2,
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         2,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        4,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      "src_a.h5",
+      "ints",
+      {
+       "bounds": [
+        [
+         3,
+         0,
+         0
+        ],
+        [
+         3,
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         3,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        4,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         0,
+         0
+        ],
+        [
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        10,
+        12
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   },
+   "/same": {
+    "chunks": null,
+    "dtype": "<f8",
+    "external": null,
+    "fillvalue": {
+     "dtype": "<f8",
+     "hex": "000000000000d0bf",
+     "repr": "-0.25",
+     "t": "np",
+     "type": "np.float64"
+    },
+    "is_virtual": true,
+    "maxshape": [
+     2,
+     10,
+     12
+    ],
+    "reads": {
+     "cross": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "e54aefd2a713e9701082ef64f3e72841ac438445e64319266ea9c1702cedb270",
+       "shape": [
+        1,
+        2,
+        3
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        3
+       ],
+       [
+        "s",
+        2,
+        8,
+        3
+       ],
+       [
+        "s",
+        3,
+        10,
+        3
+       ]
+      ]
+     },
+     "full": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "82ae9da940943ced887ede5ac5980c33d21bf9d9d7891f2e79e5e0cc7a3cc8c7",
+       "shape": [
+        2,
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": null
+     },
+     "index0": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "12d6f0d37a51764aaeea2b060a98d5bdd0f46357249a5cc5e9bfb24f0017a288",
+       "shape": [
+        10,
+        12
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        1
+       ]
+      ]
+     },
+     "last": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "2b006e8ed5ce48cd6072dacc2aa7ce288e70de59074460641c6a851fe049020e",
+       "shape": [
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "i",
+        1
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ],
+       [
+        "s",
+        null,
+        null,
+        2
+       ]
+      ]
+     },
+     "strided": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "90bad272ca6b66c01e346aaa063cb37d9d6297d5c6109805fd7aa22f02aa89b2",
+       "shape": [
+        1,
+        4,
+        4
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        2,
+        2
+       ],
+       [
+        "s",
+        3,
+        10,
+        2
+       ],
+       [
+        "s",
+        4,
+        12,
+        2
+       ]
+      ]
+     },
+     "window": {
+      "digest": {
+       "byteorder": "<",
+       "dtype": "<f8",
+       "sha256": "bc1a38f72e94b2a2440030f6d4b6274a307533f4514e32337b5ff796682cb861",
+       "shape": [
+        1,
+        5,
+        6
+       ],
+       "type": "ndarray"
+      },
+      "key": [
+       [
+        "s",
+        0,
+        1,
+        1
+       ],
+       [
+        "s",
+        2,
+        7,
+        1
+       ],
+       [
+        "s",
+        3,
+        9,
+        1
+       ]
+      ]
+     }
+    },
+    "shape": [
+     2,
+     10,
+     12
+    ],
+    "sources": [
+     [
+      ".",
+      "/b",
+      {
+       "bounds": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         0,
+         9,
+         11
+        ]
+       ],
+       "npoints": 120,
+       "points": null,
+       "regular": [
+        [
+         0,
+         0,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         10,
+         12
+        ]
+       ],
+       "shape": [
+        2,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": "error",
+       "npoints": 1,
+       "points": null,
+       "regular": "error",
+       "shape": [],
+       "type": 3
+      }
+     ],
+     [
+      ".",
+      "/a",
+      {
+       "bounds": [
+        [
+         1,
+         2,
+         0
+        ],
+        [
+         1,
+         7,
+         11
+        ]
+       ],
+       "npoints": 72,
+       "points": null,
+       "regular": [
+        [
+         1,
+         2,
+         0
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         1,
+         1
+        ],
+        [
+         1,
+         6,
+         12
+        ]
+       ],
+       "shape": [
+        2,
+        10,
+        12
+       ],
+       "type": 2
+      },
+      {
+       "bounds": [
+        [
+         1,
+         0
+        ],
+        [
+         6,
+         11
+        ]
+       ],
+       "npoints": 72,
+       "points": null,
+       "regular": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         6,
+         12
+        ]
+       ],
+       "shape": [
+        7,
+        12
+       ],
+       "type": 2
+      }
+     ]
+    ]
+   }
+  }
+ },
+ "hdf5": {
+  "ext.h5": "1.14.6",
+  "vds_cross.h5": "1.14.6",
+  "vds_lowlevel_earliest.h5": "1.14.6",
+  "vds_lowlevel_latest.h5": "1.14.6",
+  "vds_same.h5": "1.14.6",
+  "vds_unlim_earliest.h5": "1.14.6",
+  "vds_unlim_latest.h5": "1.14.6",
+  "vds_v2.h5": "2.0.0"
+ }
+}
