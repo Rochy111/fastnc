@@ -27,8 +27,8 @@ import threading
 import numpy as np
 
 from ._jit import njit
-from ._intrin import ld64, st64
-from . import _pool
+from ._intrin import ld64, st64, take
+from . import _jit, _pool
 
 
 class FormatError(ValueError):
@@ -54,7 +54,11 @@ _HEAD = 1 << 16                 # first read of the header; grown when it is lon
 PIECE = 1 << 20                 # bytes per positional read on the pool
 RUN_MIN = 1 << 16               # runs at least this long are read, not gathered
 PAR_MIN = 1 << 21               # requests this big go on the pool
-SWAP_NUMPY = 1 << 16            # smaller reads swap with numpy (no numba import)
+SWAP_NUMPY = 1 << 16            # smaller reads swap with numpy
+GATHER_PAR = 1 << 20            # strided requests this big go on the pool (with numba)
+GATHER_BLOCK = 1 << 20          # output bytes per block a gathering thread takes (smaller:
+#                               page faults on the fresh output contend, 64 kB is 3x slower)
+KERNELS = None                  # numba kernels: None = once numba is loaded; True; False
 
 _u32 = struct.Struct('>I').unpack_from
 _u64 = struct.Struct('>Q').unpack_from
@@ -266,9 +270,7 @@ class NC3File:
         self.data_model = _DATA_MODEL[ver]
         self.file_format = self.data_model
         self.disk_format = 'NETCDF3'
-        self._handles = []              # spare per-thread handles (no pread)
-        self._hlock = threading.Lock()
-        self._all_handles = []
+        self._rd = None                 # the positional reader
         self._mm = None
         self._src = None
         self._mlock = threading.Lock()
@@ -322,45 +324,29 @@ class NC3File:
 
     # -- I/O
 
-    def _handle(self):
-        """A file handle of this thread's own for seek + readinto (where there
-        is no pread: synchronous handles on Windows serialize their reads)."""
-        try:
-            return self._handles.pop()
-        except IndexError:
-            fh = open(self.path, 'rb', buffering=0)
-            with self._hlock:
-                self._all_handles.append(fh)
-            return fh
+    def _reader(self):
+        """The positional reader, made on first need."""
+        r = self._rd
+        if r is None:
+            with self._mlock:
+                if self._rd is None:
+                    self._rd = _IO(self)
+                r = self._rd
+        return r
 
-    def _readinto(self, h, mv, off):
-        """mv filled from the file at off; bytes past the end are zeros."""
-        n = len(mv)
+    def _readinto(self, u8, addr, o, n, off):
+        """u8[o:o + n] (at address addr + o) filled from the file at off;
+        bytes past the end of the file are zeros."""
         avail = self._size - off
         if avail < n:
             if avail <= 0:
-                mv[:] = b'\0' * n if n < 4096 else bytes(n)
+                u8[o:o + n] = 0
                 return
-            mv[avail:] = bytes(n - avail)
-            mv = mv[:avail]
+            u8[o + avail:o + n] = 0
             n = avail
-        got = 0
-        if _PREADV:
-            fd = self._fh.fileno()
-            while got < n:
-                k = os.preadv(fd, [mv[got:]], off + got)
-                if k <= 0:
-                    break
-                got += k
-        else:
-            h.seek(off)
-            while got < n:
-                k = h.readinto(mv[got:])
-                if not k:
-                    break
-                got += k
+        got = self._reader().read(u8, addr, o, n, off)
         if got < n:                             # the file shrank since it was opened
-            mv[got:] = bytes(n - got)
+            u8[o + got:o + n] = 0
 
     def _source(self):
         """The whole file as a read-only uint8 array (a mapping, made once)."""
@@ -388,10 +374,9 @@ class NC3File:
             except BufferError:                 # a view is still out there: left to the GC
                 pass
             self._mm = None
-        for fh in self._all_handles:
-            fh.close()
-        self._all_handles = []
-        self._handles = []
+        if self._rd is not None:
+            self._rd.close()
+            self._rd = None
         self._fh.close()
 
     def __enter__(self):
@@ -404,7 +389,166 @@ class NC3File:
         return '<NC3File %r %s>' % (self.path, self.data_model)
 
 
-_PREADV = hasattr(os, 'preadv') and sys.platform != 'win32'
+class _Handles:
+    """Positional reads anywhere: seek + readinto on a file handle of the
+    reading thread's own (several threads on one handle would race)."""
+
+    def __init__(self, f):
+        self.path = f.path
+        self.free = []                  # handles not in use
+        self.all = []
+        self.lock = threading.Lock()
+
+    def read(self, u8, addr, o, n, off):
+        try:
+            h = self.free.pop()
+        except IndexError:
+            h = open(self.path, 'rb', buffering=0)
+            with self.lock:
+                self.all.append(h)
+        try:
+            h.seek(off)
+            mv = memoryview(u8)[o:o + n]
+            got = 0
+            while got < n:
+                k = h.readinto(mv[got:])
+                if not k:
+                    break
+                got += k
+            return got
+        finally:
+            self.free.append(h)
+
+    def close(self):
+        for h in self.all:
+            h.close()
+        self.all = self.free = []
+
+
+class _Preadv:
+    """Positional reads with preadv(2) on the file's descriptor (POSIX):
+    thread-safe, no file position."""
+
+    def __init__(self, f):
+        self.fd = f._fh.fileno()
+
+    def read(self, u8, addr, o, n, off):
+        mv = memoryview(u8)[o:o + n]
+        got = 0
+        while got < n:
+            k = os.preadv(self.fd, [mv[got:]], off + got)
+            if k <= 0:
+                break
+            got += k
+        return got
+
+    def close(self):
+        pass
+
+
+class _Overlapped:
+    """Positional reads on Windows: ReadFile with the offset in an OVERLAPPED,
+    on one handle opened for overlapped I/O that any number of threads read
+    at once. (A handle opened the usual way serializes its reads; a handle
+    per thread costs an open per thread and file, ~10% of a 30 MB read.)
+    Each read waits on an event of its own, taken from a free list."""
+
+    def __init__(self, f):
+        k, OVL = _win32()
+        self.k, self.OVL = k, OVL
+        import ctypes
+        h = k.CreateFileW(f.path, 0x80000000, 7, None, 3, 0x40000000, None)  # GENERIC_READ,
+        # share read/write/delete, OPEN_EXISTING, FILE_FLAG_OVERLAPPED
+        if h is None or h == ctypes.c_void_p(-1).value:
+            e = ctypes.get_last_error()
+            raise OSError(None, ctypes.FormatError(e), f.path, e)
+        self.h = h
+        self.events = []
+        self.all = []
+        self.lock = threading.Lock()
+
+    def read(self, u8, addr, o, n, off):
+        import ctypes
+        k = self.k
+        try:
+            ev = self.events.pop()
+        except IndexError:
+            ev = k.CreateEventW(None, True, False, None)
+            with self.lock:
+                self.all.append(ev)
+        try:
+            ov = self.OVL()
+            got = ctypes.c_uint32()
+            done = 0
+            while done < n:
+                p = off + done
+                ov.Offset, ov.OffsetHigh, ov.hEvent = p & 0xFFFFFFFF, p >> 32, ev
+                ov.Internal = ov.InternalHigh = 0
+                m = min(n - done, 1 << 30)
+                if not k.ReadFile(self.h, addr + o + done, m, ctypes.byref(got), ctypes.byref(ov)):
+                    e = ctypes.get_last_error()
+                    if e == 38:                 # ERROR_HANDLE_EOF
+                        break
+                    if e != 997:                # ERROR_IO_PENDING
+                        raise OSError(None, ctypes.FormatError(e), None, e)
+                if not k.GetOverlappedResult(self.h, ctypes.byref(ov), ctypes.byref(got), True):
+                    e = ctypes.get_last_error()
+                    if e == 38:
+                        break
+                    raise OSError(None, ctypes.FormatError(e), None, e)
+                if got.value == 0:
+                    break
+                done += got.value
+            return done
+        finally:
+            self.events.append(ev)
+
+    def close(self):
+        for ev in self.all:
+            self.k.CloseHandle(ev)
+        self.all = self.events = []
+        if self.h is not None:
+            self.k.CloseHandle(self.h)
+            self.h = None
+
+
+_WIN32 = None
+
+
+def _win32():
+    """kernel32's file functions through ctypes (they release the GIL)."""
+    global _WIN32
+    if _WIN32 is None:
+        import ctypes
+        from ctypes import wintypes as w
+
+        class OVL(ctypes.Structure):
+            _fields_ = [('Internal', ctypes.c_size_t), ('InternalHigh', ctypes.c_size_t),
+                        ('Offset', w.DWORD), ('OffsetHigh', w.DWORD), ('hEvent', w.HANDLE)]
+        k = ctypes.WinDLL('kernel32', use_last_error=True)
+        k.CreateFileW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, ctypes.c_void_p, w.DWORD,
+                                  w.DWORD, w.HANDLE]
+        k.CreateFileW.restype = w.HANDLE
+        k.ReadFile.argtypes = [w.HANDLE, ctypes.c_void_p, w.DWORD, ctypes.POINTER(ctypes.c_uint32),
+                               ctypes.POINTER(OVL)]
+        k.ReadFile.restype = w.BOOL
+        k.GetOverlappedResult.argtypes = [w.HANDLE, ctypes.POINTER(OVL),
+                                          ctypes.POINTER(ctypes.c_uint32), w.BOOL]
+        k.GetOverlappedResult.restype = w.BOOL
+        k.CreateEventW.argtypes = [ctypes.c_void_p, w.BOOL, w.BOOL, ctypes.c_void_p]
+        k.CreateEventW.restype = w.HANDLE
+        k.CloseHandle.argtypes = [w.HANDLE]
+        k.CloseHandle.restype = w.BOOL
+        _WIN32 = k, OVL
+    return _WIN32
+
+
+if sys.platform == 'win32':
+    _IO = _Overlapped
+elif hasattr(os, 'preadv'):
+    _IO = _Preadv
+else:
+    _IO = _Handles
 
 
 class NC3Group:
@@ -552,21 +696,18 @@ def _read_runs(f, big, es, base, outer, run, nruns, res):
     """Contiguous runs of `run` bytes, at base + the outer dims' offsets, read
     straight into res one after another, then swapped."""
     total = run * nruns
-    u8 = res.reshape(-1).view(np.uint8)
-    mv = memoryview(u8)
+    flat = res.reshape(-1)
+    u8 = flat.view(np.uint8)
+    addr = u8.ctypes.data
     swap = es > 1
+    kern = _kernels()
     if nruns == 1 and total <= PAR_MIN:
-        h = None if _PREADV else f._handle()
-        try:
-            f._readinto(h, mv, base)
-        finally:
-            if h is not None:
-                f._handles.append(h)
+        f._readinto(u8, addr, 0, total, base)
         if swap:
-            if total <= SWAP_NUMPY:
-                res.view(res.dtype.newbyteorder()).byteswap(inplace=True)
-            else:
+            if kern and total > SWAP_NUMPY:
                 _swap(u8, 0, total, es)
+            else:
+                res.byteswap(inplace=True)
         return
     offs = np.array([base], np.int64)
     for c, s in outer:
@@ -584,57 +725,73 @@ def _read_runs(f, big, es, base, outer, run, nruns, res):
         nb = np.full(nruns, run, np.int64)
     fo, oo, nb = offs.tolist(), oo.tolist(), nb.tolist()
     npieces = len(fo)
-    small = total <= SWAP_NUMPY
+    small = total <= SWAP_NUMPY or not swap
+    # swapped in place by the kernel; without numba, read into this thread's
+    # own (cache-warm) buffer and swapped on the way out by numpy's copy
+    mode = 0 if small else (1 if kern else 2)
     ctr = iter(range(npieces))
     lock = threading.Lock()
 
     def work():
-        h = None if _PREADV else f._handle()
-        try:
-            while True:
-                with lock:
-                    i = next(ctr, -1)
-                if i < 0:
-                    return
-                o, n = oo[i], nb[i]
-                f._readinto(h, mv[o:o + n], fo[i])
-                if swap and not small:
+        if mode == 2:
+            buf = np.empty(max(nb) // es, big)
+            b8 = buf.view(np.uint8)
+            baddr = b8.ctypes.data
+        while True:
+            with lock:
+                i = next(ctr, -1)
+            if i < 0:
+                return
+            o, n = oo[i], nb[i]
+            if mode == 2:
+                f._readinto(b8, baddr, 0, n, fo[i])
+                np.copyto(flat[o // es:(o + n) // es], buf[:n // es])
+            else:
+                f._readinto(u8, addr, o, n, fo[i])
+                if mode == 1:
                     _swap(u8, o, o + n, es)
-        finally:
-            if h is not None:
-                f._handles.append(h)
 
     nt = 1 if total <= PAR_MIN else min(npieces, _pool.threads())
     _pool.share(work, nt)
     if swap and small:
-        res.view(res.dtype.newbyteorder()).byteswap(inplace=True)
+        res.byteswap(inplace=True)
 
 
 def _gather(f, big, es, base, dims, res):
-    """Strided elements copied (and swapped) out of the file's mapping by
-    numpy; on the pool, cut along the first dimension, when there are many."""
+    """Strided elements copied (and swapped) out of the file's mapping: by
+    numpy's strided copy, or, for big requests once numba is loaded, by a
+    kernel on the pool taking blocks of rows off a counter."""
     counts = tuple(c for c, _ in dims)
     strides = tuple(s for _, s in dims)
     last = base + sum((c - 1) * s for c, s in dims) + es
     src = f._source()
-    if last <= src.size:
-        view = np.ndarray(counts, big, buffer=src, offset=base, strides=strides)
-    else:                                       # past the end of the file: zeros there
+    if last > src.size:                         # past the end of the file: zeros there
         tmp = np.zeros(last - base, np.uint8)
         if base < f._size:
             n = min(last, f._size) - base
             tmp[:n] = src[base:base + n]
-        view = np.ndarray(counts, big, buffer=tmp, offset=0, strides=strides)
-    dst = res.reshape(counts)
+        src, base = tmp, 0
     total = res.nbytes
-    c0 = counts[0]
-    if total <= PAR_MIN or c0 == 1 or _pool.threads() == 1:
-        np.copyto(dst, view)
+    if total > GATHER_PAR and _kernels():
+        nrows = total // (counts[-1] * es)
+        rpb = max(1, GATHER_BLOCK // (counts[-1] * es))
+        ctr = np.zeros(1, np.int64)
+        c = np.array(counts, np.int64)
+        s = np.array(strides, np.int64)
+        dst = res.reshape(-1).view(np.uint8)
+        _pool.share(lambda: _gather_rows(src, base, c, s, es, dst, ctr, nrows, rpb),
+                    -(-nrows // rpb))
         return
-    nparts = min(c0, 4 * _pool.threads())
-    edges = [c0 * i // nparts for i in range(nparts + 1)]
-    _pool.map_items(lambda i: np.copyto(dst[edges[i]:edges[i + 1]], view[edges[i]:edges[i + 1]]),
-                    range(nparts))
+    view = np.ndarray(counts, big, buffer=src, offset=base, strides=strides)
+    np.copyto(res.reshape(counts), view)
+
+
+def _kernels():
+    """Whether to use the numba kernels: KERNELS, or (None) whether numba is
+    loaded already -- reading netCDF3 then never pays numba's import itself
+    (most of a second in a fresh process), only gains once something did."""
+    k = KERNELS
+    return _jit._numba is not None if k is None else k
 
 
 # ---------------------------------------------------------------- kernels
@@ -679,4 +836,83 @@ def _swap(a, lo, hi, es):
             a[i + j] = a[i + es - 1 - j]
             a[i + es - 1 - j] = t
         i += es
+    return 0
+
+
+@njit(cache=True, nogil=True)
+def _gather_rows(src, base, counts, strides, es, dst, ctr, nrows, rpb):
+    """dst (uint8, C order) = the es-byte big-endian elements of src at base +
+    sum(i_d * strides[d]), i_d < counts[d], byte-reversed. Work is shared out
+    in blocks of rpb rows (all dimensions but the last) taken off ctr[0]:
+    each thread writes only the rows of the blocks it took."""
+    nd = counts.size
+    n = counts[nd - 1]
+    step = strides[nd - 1]
+    rowbytes = n * es
+    idx = np.zeros(nd, np.int64)
+    while True:
+        r0 = take(ctr, 0) * rpb
+        if r0 >= nrows:
+            return 0
+        r1 = min(nrows, r0 + rpb)
+        rem = r0
+        addr = base
+        for d in range(nd - 2, -1, -1):         # the block's first row's position
+            idx[d] = rem % counts[d]
+            rem //= counts[d]
+            addr += idx[d] * strides[d]
+        for r in range(r0, r1):
+            o = r * rowbytes
+            a = addr
+            if step == es and es > 1:           # a contiguous row: words, then the tail
+                n8 = rowbytes // 8
+                for k in range(n8):
+                    x = ld64(src, a + k * 8)
+                    if es == 2:
+                        x = ((x & _M8) << _S8) | ((x >> _S8) & _M8)
+                    elif es == 4:
+                        x = ((x & _M8) << _S8) | ((x >> _S8) & _M8)
+                        x = ((x & _M16) << _S16) | ((x >> _S16) & _M16)
+                    else:
+                        x = ((x & _M8) << _S8) | ((x >> _S8) & _M8)
+                        x = ((x & _M16) << _S16) | ((x >> _S16) & _M16)
+                        x = (x << _S32) | (x >> _S32)
+                    st64(dst, o + k * 8, x)
+                for t in range(n8 * 8, rowbytes, es):
+                    for k in range(es):
+                        dst[o + t + k] = src[a + t + es - 1 - k]
+            elif es == 4:
+                for j in range(n):
+                    dst[o] = src[a + 3]
+                    dst[o + 1] = src[a + 2]
+                    dst[o + 2] = src[a + 1]
+                    dst[o + 3] = src[a]
+                    o += 4
+                    a += step
+            elif es == 8:
+                for j in range(n):
+                    for k in range(8):
+                        dst[o + k] = src[a + 7 - k]
+                    o += 8
+                    a += step
+            elif es == 2:
+                for j in range(n):
+                    dst[o] = src[a + 1]
+                    dst[o + 1] = src[a]
+                    o += 2
+                    a += step
+            else:
+                for j in range(n):
+                    dst[o] = src[a]
+                    o += 1
+                    a += step
+            d = nd - 2
+            while d >= 0:                       # next row
+                idx[d] += 1
+                addr += strides[d]
+                if idx[d] < counts[d]:
+                    break
+                addr -= counts[d] * strides[d]
+                idx[d] = 0
+                d -= 1
     return 0

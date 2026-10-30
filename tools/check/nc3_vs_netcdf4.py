@@ -145,28 +145,34 @@ def main():
              for p in files] + nc3_make_edge.streaming_files(tmp)
     stats = {'reads': 0, 'bytes': 0}
     bad = 0
-    thresholds = [None]
+    # (settings of _nc3 to run everything under: the defaults, numba's
+    # kernels on, every path taken on tiny requests, the plain-handle reader)
+    small = dict(PIECE=4096, RUN_MIN=256, PAR_MIN=8192, SWAP_NUMPY=512, GATHER_PAR=1024,
+                 GATHER_BLOCK=300)
+    settings = [('defaults', {}), ('kernels', dict(KERNELS=True))]
     if '--small-thresholds' in sys.argv or big:
-        thresholds.append((4096, 256, 8192, 512))
-    saved = (_nc3.PIECE, _nc3.RUN_MIN, _nc3.PAR_MIN, _nc3.SWAP_NUMPY)
-    for th in thresholds:
-        if th:
-            _nc3.PIECE, _nc3.RUN_MIN, _nc3.PAR_MIN, _nc3.SWAP_NUMPY = th
+        settings += [('small, numpy', dict(small, KERNELS=False)),
+                     ('small, kernels', dict(small, KERNELS=True)),
+                     ('small, kernels, handles', dict(small, KERNELS=True, _IO=_nc3._Handles))]
+    for label, st in settings:
+        saved = {k: getattr(_nc3, k) for k in st}
+        for k, v in st.items():
+            setattr(_nc3, k, v)
         for p, ref in pairs:
             try:
                 errs = compare(p, nkeys, ref, stats)
             except Exception as e:
                 errs = ['%s: %s' % (type(e).__name__, e)]
             status = 'ok' if not errs else 'FAIL'
-            print('%-4s %s%s %s' % (status, os.path.basename(p),
-                                    ' (vs %s)' % os.path.basename(ref) if ref else '',
-                                    'small thresholds' if th else ''))
+            print('%-4s %s%s [%s]' % (status, os.path.basename(p),
+                                      ' (vs %s)' % os.path.basename(ref) if ref else '', label))
             for e in errs[:10]:
                 print('      ', e)
             bad += bool(errs)
-        _nc3.PIECE, _nc3.RUN_MIN, _nc3.PAR_MIN, _nc3.SWAP_NUMPY = saved
-    print('%d files x %d threshold sets, %d failing; %d reads, %.1f MB compared' % (
-        len(pairs), len(thresholds), bad, stats['reads'], stats['bytes'] / 1e6))
+        for k, v in saved.items():
+            setattr(_nc3, k, v)
+    print('%d files x %d settings, %d failing; %d reads, %.1f MB compared' % (
+        len(pairs), len(settings), bad, stats['reads'], stats['bytes'] / 1e6))
     return 1 if bad else 0
 
 
