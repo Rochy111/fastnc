@@ -35,7 +35,7 @@ import warnings
 import numpy
 
 from ._jit import njit
-from ._intrin import take
+from ._intrin import ld64, take
 
 ma = numpy.ma
 
@@ -407,9 +407,11 @@ def _set_viewdtype(dt):
 # the fast path: a plan made from the attributes, one kernel pass
 
 MODE_NONE, MODE_ASTYPE, MODE_MUL, MODE_ADD, MODE_MULADD = 0, 1, 2, 3, 4
-# opts[] slots
-O_MASK, O_MVNAN, O_FV, O_FVNAN, O_DV, O_VMIN, O_VMAX, O_MODE, O_L1F4, O_L2F4, O_NMV, O_NOPTS = \
-    range(12)
+# opts[] slots: mask at all, NaN is a missing value, NaN is the fill value,
+# the scaling, its two float types (float32 or not)
+O_MASK, O_MVNAN, O_FVNAN, O_MODE, O_L1F4, O_L2F4, O_NOPTS = range(7)
+# what an equality test stands for (the kernel's eqcat, its stats columns)
+CAT_MISSING, CAT_FILL, CAT_DEFAULT = 1, 2, 4
 
 
 class Plan:
@@ -451,13 +453,17 @@ def _plan(self, dtype, warn):
     opts = numpy.zeros(O_NOPTS, numpy.int64)
     p.mask = bool(self.mask)
     opts[O_MASK] = p.mask
-    mvals = []
+    eqs = []                                    # (value, CAT_*): the equality tests
     p.mval_fill = None                          # fill_value if a missing value is hit
     p.fval_fill = None                          # ... if the _FillValue is hit
     p.fval_always = False                       # (a NaN _FillValue: set even if not hit)
     p.dval_fill = None                          # ... if the default fill value is hit
     p.fval_last = None
-    fv = dv = vmin = vmax = 0
+    # valid range bounds no value is outside of, unless given
+    if xdt.kind == 'f':
+        vmin, vmax = -numpy.inf, numpy.inf
+    else:
+        vmin, vmax = numpy.iinfo(xdt).min, numpy.iinfo(xdt).max
     if p.mask:
         if _check_safecast(self, 'missing_value', warn):
             mval = numpy.array(self.attrs['missing_value'], self.dtype)
@@ -473,7 +479,7 @@ def _plan(self, dtype, warn):
                 if isnan:
                     opts[O_MVNAN] = 1
                 else:
-                    mvals.append(m)
+                    eqs.append((m, CAT_MISSING))
             p.mval_fill = mval[0]
         safe_fillval = _check_safecast(self, '_FillValue', warn)
         if safe_fillval:
@@ -484,11 +490,11 @@ def _plan(self, dtype, warn):
                 fvalisnan = bool(numpy.isnan(fval))
             except Exception:
                 fvalisnan = False
-            opts[O_FV] = 1
             if fvalisnan:
                 opts[O_FVNAN] = 1
                 p.fval_always = True
-            fv = fval
+            else:
+                eqs.append((fval, CAT_FILL))
             p.fval_fill = fval
         else:
             nf = 1 if self.no_fill else 0
@@ -498,8 +504,7 @@ def _plan(self, dtype, warn):
                 # numpy compares a signed default with unsigned data in a wider
                 # type, where it never matches (the defaults are negative)
                 if p.view is None:
-                    opts[O_DV] = 1
-                    dv = fillval
+                    eqs.append((fillval, CAT_DEFAULT))
                 p.dval_fill = fillval
         validmin = validmax = None
         safe_validrange = _check_safecast(self, 'valid_range', warn)
@@ -518,10 +523,8 @@ def _plan(self, dtype, warn):
         if validmax is not None and p.view is not None:
             validmax = validmax.view(p.view)
         if validmin is not None:
-            opts[O_VMIN] = 1
             vmin = validmin
         if validmax is not None:
-            opts[O_VMAX] = 1
             vmax = validmax
         byte_type = self.dtype.str[1:] in ['u1', 'i1']
         if safe_fillval:
@@ -530,10 +533,14 @@ def _plan(self, dtype, warn):
             p.fval_last = numpy.array(DEFAULT_FILLVALS[self.dtype.str[1:]], self.dtype)
             if byte_type:
                 p.fval_last = None
-    # the thresholds, in the dtype the values are compared in
-    p.mv = numpy.array(mvals, xdt).reshape(-1) if mvals else numpy.zeros(1, xdt)
-    opts[O_NMV] = len(mvals)
-    p.th = numpy.array([numpy.asarray(t).astype(xdt) for t in (fv, dv, vmin, vmax)], xdt)
+    # the tests, in the dtype the values are compared in (at least four
+    # equality slots, the last repeated: the kernel tests four at once)
+    p.neq = len(eqs)
+    while eqs and len(eqs) < 4:
+        eqs.append(eqs[-1])
+    p.eq = numpy.array([numpy.asarray(v).astype(xdt) for v, c in eqs] or [0] * 4, xdt)
+    p.eqcat = numpy.array([c for v, c in eqs] or [0] * 4, numpy.int64)
+    p.lohi = numpy.array([numpy.asarray(vmin).astype(xdt), numpy.asarray(vmax).astype(xdt)], xdt)
     # the scaling
     p.mode = MODE_NONE
     sf = off = None
@@ -577,6 +584,7 @@ def _plan(self, dtype, warn):
         p.out_dtype = l2
     p.sf, p.off = sf, off
     p.opts, p.sc, p.xdt = opts, sc, xdt
+    p.sc32 = sc.astype(numpy.float32)           # (exact where used: float32 values)
     return p
 
 
@@ -638,8 +646,8 @@ def run_plan(p, raw, always_mask, threads=None):
     ctr = numpy.zeros(2, numpy.int64)
     nthr = min(nblk, threads or _pool.threads())
     if p.mask or out is not None:
-        _pool.share(lambda: maskscale_blocks(x, o, m, p.mv, p.th, p.opts, p.sc, stats,
-                                             ctr, BLOCK), nthr)
+        _pool.share(lambda: maskscale_blocks(x, o, m, p.eq, p.eqcat, p.neq, p.lohi, p.opts,
+                                             p.sc, p.sc32, stats, ctr, BLOCK), nthr)
     tot = stats.sum(axis=0)
     if p.mask and tot[3] and (stats[:, 3] == 0).any():
         _pool.share(lambda: zero_clean_blocks(m, stats, ctr, BLOCK), nthr)
@@ -650,114 +658,178 @@ def run_plan(p, raw, always_mask, threads=None):
 # kernels
 
 @njit(cache=True, nogil=True)
-def _hits(v, mv, th, opts):
-    """Which tests value v hits: bit 0 missing_value, 1 _FillValue, 2 the
-    default fill value, 3 the valid range."""
-    h = 0
-    if opts[1] != 0 and v != v:                 # a NaN missing_value
-        h = 1
-    for k in range(opts[10]):                  # the other missing values
-        if v == mv[k]:
-            h = 1
-    if opts[2] != 0:
-        if opts[3] != 0:
-            if v != v:
-                h |= 2
-        elif v == th[0]:
-            h |= 2
-    if opts[4] != 0 and v == th[1]:
-        h |= 4
-    if opts[5] != 0 and v < th[2]:
-        h |= 8
-    if opts[6] != 0 and v > th[3]:
-        h |= 8
-    return h
-
-
-@njit(cache=True, nogil=True)
-def _scaled(v, sc, mode, l1f4, l2f4):
-    """numpy's data * scale_factor + add_offset (or the part of it the
-    attributes ask for) for one value, in float64 holding the result of
-    numpy's float32 / float64 operations exactly."""
-    if l1f4:
-        a = numpy.float64(numpy.float32(v))     # one rounding, as numpy's cast
+def _flag_hits(x, eq, neq, lo, hi, nan_on, s):
+    """s[k] = 1 where x[k] is masked (equal to one of the neq values
+    eq -- four at once when there are at most four, the rest repeats --,
+    outside [lo, hi] -- the type's own range when no valid range is given
+    --, or NaN when nan_on), else 0; returns how many. Branch-free loops
+    over a block in cache, indexed from 0 (no negative index to wrap):
+    they vectorize."""
+    n = x.size
+    if neq > 4:
+        for k in range(n):
+            v = x[k]
+            h = (v < lo) | (v > hi) | (nan_on & (v != v))
+            for e in range(neq):
+                h |= v == eq[e]
+            s[k] = h
+    elif neq > 0:
+        e0, e1, e2, e3 = eq[0], eq[1], eq[2], eq[3]
+        if nan_on:
+            for k in range(n):
+                v = x[k]
+                s[k] = (v < lo) | (v > hi) | (v == e0) | (v == e1) | (v == e2) | (v == e3) | (v != v)
+        else:
+            for k in range(n):
+                v = x[k]
+                s[k] = (v < lo) | (v > hi) | (v == e0) | (v == e1) | (v == e2) | (v == e3)
+    elif nan_on:
+        for k in range(n):
+            v = x[k]
+            s[k] = (v < lo) | (v > hi) | (v != v)
     else:
-        a = numpy.float64(v)
-    if mode == 2:                               # data * scale_factor
-        a = a * sc[0]
-        if l1f4:
-            a = numpy.float64(numpy.float32(a))
-    elif mode == 3:                             # data + add_offset
-        a = a + sc[1]
-        if l1f4:
-            a = numpy.float64(numpy.float32(a))
-    elif mode == 4:                             # data * scale_factor + add_offset
-        a = a * sc[0]
-        if l1f4:
-            a = numpy.float64(numpy.float32(a))
-        a = a + sc[2]
-        if l2f4:
-            a = numpy.float64(numpy.float32(a))
-    return a
+        for k in range(n):
+            v = x[k]
+            s[k] = (v < lo) | (v > hi)
+    c = 0
+    for k in range(n):
+        c += s[k]
+    return c
 
 
 @njit(cache=True, nogil=True)
-def maskscale_blocks(x, out, msk, mv, th, opts, sc, stats, ctr, block):
-    """Mask and scale x into out / msk, BLOCK values at a time taken off
-    ctr[0] (one caller per thread). stats[b] = hits in block b of
-    [missing_value, _FillValue, default fill, any]; the mask is written
-    only for blocks with something masked (the rest is left for
-    zero_clean_blocks, and never touched when nothing is masked)."""
+def _scale_block(x, out, mode, l1f4, l2f4, sc, sc32):
+    """out = numpy's data * scale_factor + add_offset (or the part
+    of it the attributes ask for), each operation in the float type numpy
+    does it in (l1f4: the first in float32, l2f4: the second), so each
+    rounds as numpy's does. sc / sc32: scale_factor in the first type,
+    add_offset in the first and in the second."""
+    if mode == 1:                               # data.astype(scale_factor.dtype)
+        if l1f4:
+            for i in range(x.size):
+                out[i] = numpy.float32(x[i])
+        else:
+            for i in range(x.size):
+                out[i] = numpy.float64(x[i])
+    elif mode == 2:                             # data * scale_factor
+        if l1f4:
+            s32 = sc32[0]
+            for i in range(x.size):
+                out[i] = numpy.float32(x[i]) * s32
+        else:
+            s = sc[0]
+            for i in range(x.size):
+                out[i] = numpy.float64(x[i]) * s
+    elif mode == 3:                             # data + add_offset
+        if l1f4:
+            o32 = sc32[1]
+            for i in range(x.size):
+                out[i] = numpy.float32(x[i]) + o32
+        else:
+            o = sc[1]
+            for i in range(x.size):
+                out[i] = numpy.float64(x[i]) + o
+    elif mode == 4:                             # data * scale_factor + add_offset
+        if l2f4:
+            s32 = sc32[0]
+            o32 = sc32[2]
+            for i in range(x.size):
+                out[i] = numpy.float32(x[i]) * s32 + o32
+        elif l1f4:
+            s32 = sc32[0]
+            o = sc[2]
+            for i in range(x.size):
+                out[i] = numpy.float64(numpy.float32(x[i]) * s32) + o
+        else:
+            s = sc[0]
+            o = sc[2]
+            for i in range(x.size):
+                out[i] = numpy.float64(x[i]) * s + o
+
+
+@njit(cache=True, nogil=True)
+def _fix_block(x, out, msk, s, eq, eqcat, neq, nan_mv, nan_fv, doscale, l1f4, l2f4, cnt):
+    """For a block with masked values (flagged in s by _flag_hits): the
+    mask written, and at each masked value the unscaled value cast to the
+    result type (as numpy's masked arithmetic leaves it). cnt[0:3]: values
+    seen equal to a missing value, the fill value, the default fill -- only
+    whether any is wanted, so each is counted only until one is seen. All
+    loops branch-free over the block in cache (masked values can be a
+    third of an image)."""
+    n = x.size
+    for k in range(n):
+        msk[k] = s[k] != 0
+    if doscale:
+        if l2f4:
+            for k in range(n):
+                out[k] = numpy.float32(x[k]) if s[k] else out[k]
+        elif l1f4:
+            for k in range(n):
+                out[k] = numpy.float64(numpy.float32(x[k])) if s[k] else out[k]
+        else:
+            for k in range(n):
+                out[k] = numpy.float64(x[k]) if s[k] else out[k]
+    for c in range(3):
+        if cnt[c] != 0:
+            continue
+        cat = 1 << c
+        h = 0
+        for e in range(neq):
+            if eqcat[e] == cat and (e == 0 or eq[e] != eq[e - 1] or eqcat[e - 1] != cat):
+                ev = eq[e]
+                for k in range(n):
+                    h += x[k] == ev
+        if (c == 0 and nan_mv) or (c == 1 and nan_fv):
+            for k in range(n):
+                h += x[k] != x[k]
+        cnt[c] = h
+
+
+@njit(cache=True, nogil=True)
+def maskscale_blocks(x, out, msk, eq, eqcat, neq, lohi, opts, sc, sc32, stats, ctr, block):
+    """Mask and scale x into out / msk, `block` values at a time taken off
+    ctr[0] (one caller per thread). Per block, still in cache: the scaled
+    values, the masked ones flagged (in this thread's scratch) and counted,
+    and only if there are some the mask and the values under it.
+    stats[b, 3] = values masked in block b; stats[b, 0:3] > 0 if a
+    missing_value / _FillValue / default fill was hit (in it or an
+    earlier block of the same thread). Blocks with nothing masked leave msk untouched (zero_clean_blocks
+    clears them if another block has a mask; else the mask is dropped,
+    never paged in)."""
     n = x.size
     nblk = stats.shape[0]
     domask = opts[0] != 0
-    mode = opts[7]
-    l1f4 = opts[8] != 0
-    l2f4 = opts[9] != 0
+    nan_mv = opts[1] != 0
+    nan_fv = opts[2] != 0
+    nan_on = nan_mv or nan_fv
+    mode = opts[3]
+    l1f4 = opts[4] != 0
+    l2f4 = opts[5] != 0
     doscale = mode != 0
+    lo = lohi[0]
+    hi = lohi[1]
+    cnt = numpy.zeros(3, numpy.int64)
+    s = numpy.empty(block + 8 if domask else 8, numpy.uint8)
     while True:
         b = take(ctr, 0)
         if b >= nblk:
             break
         i0 = b * block
         i1 = min(i0 + block, n)
-        c_mv = 0
-        c_fv = 0
-        c_dv = 0
-        c_any = 0
-        if domask and doscale:
-            for i in range(i0, i1):
-                v = x[i]
-                h = _hits(v, mv, th, opts)
-                if h != 0:
-                    c_mv += h & 1
-                    c_fv += (h >> 1) & 1
-                    c_dv += (h >> 2) & 1
-                    c_any += 1
-                    if l2f4:                    # numpy puts the unscaled value back
-                        out[i] = numpy.float32(v) if l1f4 else numpy.float64(v)
-                    else:
-                        out[i] = numpy.float64(numpy.float32(v)) if l1f4 else numpy.float64(v)
-                else:
-                    out[i] = _scaled(v, sc, mode, l1f4, l2f4)
-        elif domask:
-            for i in range(i0, i1):
-                h = _hits(x[i], mv, th, opts)
-                if h != 0:
-                    c_mv += h & 1
-                    c_fv += (h >> 1) & 1
-                    c_dv += (h >> 2) & 1
-                    c_any += 1
-        else:
-            for i in range(i0, i1):
-                out[i] = _scaled(x[i], sc, mode, l1f4, l2f4)
-        if c_any:
-            for i in range(i0, i1):
-                msk[i] = _hits(x[i], mv, th, opts) != 0
-        stats[b, 0] = c_mv
-        stats[b, 1] = c_fv
-        stats[b, 2] = c_dv
-        stats[b, 3] = c_any
+        xb = x[i0:i1]
+        ob = out[i0:i1] if doscale else out
+        if doscale:
+            _scale_block(xb, ob, mode, l1f4, l2f4, sc, sc32)
+        c = 0
+        if domask:
+            c = _flag_hits(xb, eq, neq, lo, hi, nan_on, s)
+        if c:
+            _fix_block(xb, ob, msk[i0:i1], s, eq, eqcat, neq, nan_mv, nan_fv, doscale,
+                       l1f4, l2f4, cnt)
+            stats[b, 0] = cnt[0]                # (this thread's so far: only > 0 counts)
+            stats[b, 1] = cnt[1]
+            stats[b, 2] = cnt[2]
+        stats[b, 3] = c
 
 
 @njit(cache=True, nogil=True)
