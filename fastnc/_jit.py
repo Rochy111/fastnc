@@ -15,8 +15,11 @@ import sys
 import threading
 
 _PENDING = []                   # stand-ins not yet made
+_MADE = []                      # every stand-in
 _LOCK = threading.RLock()
 _numba = None                   # the numba module, once imported
+_IMAGE = None                   # _image.Image the stand-ins call through, if any
+_NO = None                      # _image.NO
 
 
 class _Kernel:
@@ -24,6 +27,7 @@ class _Kernel:
 
     def __init__(self, fn, opts, kind):
         self.fn, self.opts, self.kind, self.real = fn, opts, kind, None
+        self.fast = {}                          # (the image) Python types of the arguments -> unit
         self.__wrapped__, self.__name__ = fn, fn.__name__
         self.__doc__ = fn.__doc__
 
@@ -35,6 +39,18 @@ class _Kernel:
 
     def __call__(self, *args, **kwargs):
         if self.real is None:
+            if _IMAGE is None:                  # (a first read that came by no other way to it)
+                from . import _chunks
+                _chunks.loaded()
+            if _IMAGE is not None and not kwargs:
+                r = _IMAGE.call(self, args)
+                if r is not _NO:
+                    return r
+                load()
+                r = self.real(*args)
+                from . import _image                # (numba's cache may now hold more)
+                _image.build_later()
+                return r
             load()
         return self.real(*args, **kwargs)
 
@@ -79,7 +95,118 @@ def _defer(fn, opts, kind):
         if _numba is not None:                  # numba up already: made at once
             return k.make(_numba)
         _PENDING.append(k)
+        _MADE.append(k)
         return k
+
+
+def image():
+    return _IMAGE
+
+
+def use_image(im):
+    """Kernels not yet made go through im (an _image.Image) where it can."""
+    global _IMAGE, _NO
+    from . import _image
+    _NO = _image.NO
+    _IMAGE = im
+
+
+def every_kernel():
+    """Every stand-in made (each keeps its numba kernel in .real once made)."""
+    return list(_MADE)
+
+
+def bind(kernel, args, late):
+    """A function calling kernel(*args), the arguments at the places `late`
+    (a tuple) given anew each call: for threads sharing out one call of a
+    kernel, each with its own scratch."""
+    base = list(args)
+
+    def call(*vals):
+        a = base[:]
+        for k, v in zip(late, vals):
+            a[k] = v
+        return kernel(*a)
+    return call
+
+
+KERNEL_FILES = ('_bitshuffle', '_blosc', '_blosc2', '_bzip2', '_chunks', '_codecs', '_fletcher32',
+                '_fused', '_hdf4_codecs', '_inflate', '_intrin', '_lz4', '_lzf', '_maskscale',
+                '_nbit', '_nc3', '_pinflate', '_scaleoffset', '_shuffle', '_szip', '_tree', '_tune',
+                '_xarray', '_zfp', '_zstd')     # what compiled kernels can depend on
+_KERNEL_STAMP = []
+
+
+def kernel_stamp():
+    """A stamp of what compiled kernels are made from: the kernels of
+    KERNEL_FILES and everything at the top level beside them (constants), not
+    the plain Python functions and classes those files also hold, nor line
+    numbers. An edit of those then compiles nothing again, which numba's own
+    stamp, the file's time and size, cannot tell. _intrin counts whole: its
+    plain functions write code."""
+    if not _KERNEL_STAMP:
+        import os
+        import re
+        import zlib
+        here = os.path.dirname(os.path.abspath(__file__))
+        h = 0
+        for n in KERNEL_FILES:
+            with open(os.path.join(here, n + '.py'), encoding='utf-8') as f:
+                text = f.read()
+            decorated = False
+            for part in re.split(r'(?m)^(?=[^\s#)\]}])', text):
+                plain = part.startswith(('def ', 'class ')) and not decorated
+                decorated = part.startswith('@')
+                if not plain or n == '_intrin':
+                    h = zlib.crc32(part.encode(), h)
+        _KERNEL_STAMP.append('%08x' % h)
+    return _KERNEL_STAMP[0]
+
+
+def _locate_by_kernels():
+    """numba's cache for fastnc's kernels kept by kernel_stamp, in the same
+    place. (numba's private API, renamed in its time: where it differs, numba's
+    own stamp holds, and any edit of these files compiles again. True if
+    installed: a test holds this to the numba in use.)"""
+    import os
+    try:
+        from numba.core import caching
+        here = os.path.dirname(os.path.abspath(__file__))
+        tree = getattr(caching, 'InTreeCacheLocator', None) or caching._InTreeCacheLocator
+        impl = getattr(caching, 'CacheImpl', None) or caching._CacheImpl
+        if any(c.__name__ == 'Locator' for c in impl._locator_classes):
+            return True
+
+        class Locator(tree):
+            def get_source_stamp(self):
+                return kernel_stamp()
+
+            def get_disambiguator(self):
+                return '0'
+
+            @classmethod
+            def from_function(cls, py_func, py_file):
+                if os.path.dirname(os.path.abspath(py_file)) != here:
+                    return None
+                return super().from_function(py_func, py_file)
+        impl._locator_classes.insert(1, Locator)                # (after NUMBA_CACHE_DIR's)
+        return True
+    except (ImportError, AttributeError, TypeError):
+        return False
+
+
+def source_stamp():
+    """A stamp of the source files with kernels: name, size, modification
+    time. (Not the others: an edit of the front end compiles nothing again.)"""
+    import os
+    import zlib                                     # (hashlib: 4 ms of a fresh read)
+    here = os.path.dirname(os.path.abspath(__file__))
+    h = 0
+    for n in KERNEL_FILES:
+        n += '.py'
+        st = os.stat(os.path.join(here, n))
+        h = zlib.crc32(('%s %d %d;' % (n, st.st_size, st.st_mtime_ns)).encode(), h)
+    return '%08x' % h
 
 
 def _clear_stale_cache():
@@ -88,19 +215,12 @@ def _clear_stale_cache():
     numba's cache checks only the source file of the kernel itself, not of
     the kernels it calls in other modules: after an edit of _inflate.py (or
     an upgrade -- pip does not remove .nbi/.nbc files), the engine kernel in
-    _chunks.py kept running the old inflate from its cache. So a stamp of
-    every fastnc source file (name, size, modification time) is kept next
-    to the cache; when it differs, the whole cache goes."""
-    import hashlib
+    _chunks.py kept running the old inflate from its cache. So kernel_stamp()
+    is kept next to the cache; when it differs, the whole cache goes."""
     import os
     here = os.path.dirname(os.path.abspath(__file__))
     try:
-        names = sorted(n for n in os.listdir(here) if n.endswith('.py'))
-        h = hashlib.sha1()
-        for n in names:
-            st = os.stat(os.path.join(here, n))
-            h.update(('%s %d %d;' % (n, st.st_size, st.st_mtime_ns)).encode())
-        stamp = h.hexdigest()
+        stamp = kernel_stamp()
         cache = os.path.join(here, '__pycache__')
         path = os.path.join(cache, 'fastnc_kernels.stamp')
         try:
@@ -131,6 +251,7 @@ def load():
         if _numba is None:
             _clear_stale_cache()
             import numba
+            _locate_by_kernels()
             for k in _PENDING:
                 k.real = k.make(numba)
             _numba = numba

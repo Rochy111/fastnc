@@ -52,7 +52,10 @@ class FastncArray(BackendArray):
         v.set_auto_maskandscale(False)
         v.set_auto_chartostring(False)
         try:
-            return v[key]
+            res = v[key]
+            if res is None:                         # (a null dataspace: xarray wants an array all the same)
+                return np.full((), np.nan if self.dtype.kind in 'fc' else 0, self.dtype)
+            return res
         except IndexError as err:
             raise IndexError('The indexing operation you are attempting to perform is not valid on '
                              'a fastnc.Variable. Try loading your data into memory first by calling '
@@ -115,7 +118,7 @@ class DecodedArray(BackendArray):
     def _getitem(self, key):
         var = getattr(self.raw, 'var', None)
         if var is not None and getattr(self.raw, '_values', None) is None \
-                and isinstance(var.dtype, np.dtype) and var.dtype.isnative:
+                and isinstance(var.dtype, np.dtype) and var.dtype.isnative and not var._short():
             lut = self._lut(np.dtype(var.dtype))
             if lut is not None:
                 # looked up as each chunk is decoded: the raw array never
@@ -140,6 +143,9 @@ class DecodedArray(BackendArray):
                 x = f(x)
             return np.asarray(x, self.dtype)
         from . import _arena, _pool
+        mask = _only_mask(funcs, raw.dtype)
+        if mask is not None and raw.flags.writeable and getattr(self.raw, '_values', None) is None:
+            return _masked_in_place(raw, mask[0], mask[1], self.BLOCK)
         out = _arena.empty(raw.shape, self.dtype)
         src, dst = raw.reshape(-1), out.reshape(-1)
         n = src.size
@@ -152,6 +158,34 @@ class DecodedArray(BackendArray):
             dst[i * blk:(i + 1) * blk] = x
         _pool.map_items(one, range(-(-n // blk)))
         return out
+
+
+def _only_mask(funcs, dtype):
+    """(the values to mask, what goes in their place) if xarray's functions do
+    only that to values already of this type, else None."""
+    if len(funcs) != 1 or getattr(getattr(funcs[0], 'func', None), '__name__', '') != '_apply_mask':
+        return None
+    k = funcs[0].keywords
+    if not k['encoded_fill_values'] or np.dtype(k['dtype']) != dtype:
+        return None
+    return list(k['encoded_fill_values']), k['decoded_fill_value']
+
+
+def _masked_in_place(raw, values, fill, blk):
+    """xarray's _apply_mask on an array nothing else holds, on every thread:
+    its copy of each block, and the one out of it into a result, were most of
+    a masked float read through xarray (OISST: 140 ms on a 140 ms read)."""
+    from . import _pool
+    flat = raw.reshape(-1)
+
+    def one(i):
+        x = flat[i * blk:(i + 1) * blk]
+        hit = x == values[0]
+        for v in values[1:]:
+            hit |= x == v
+        x[hit] = fill
+    _pool.map_items(one, range(-(-flat.size // blk)))
+    return raw
 
 
 def _lookup(raw, lut):
@@ -169,7 +203,7 @@ def _lookup(raw, lut):
     n = idx.size
     blk = 1 << 18
     nb = -(-n // blk)
-    if _chunks._READY.is_set():
+    if _chunks.loaded():
         ctr = np.zeros(1, np.int64)
         _pool.share(lambda: _gather(idx, tab, dst, ctr, blk), nb)
     else:
@@ -269,16 +303,17 @@ class FastncDataStore(AbstractDataStore):
         return {'unlimited_dims': {k for k, v in self.group.dimensions.items() if v.isunlimited()}}
 
     def open_store_variable(self, name, var):
-        attributes = {k: var.getncattr(k) for k in var.ncattrs()}
+        attrs = var._bv.attrs
+        whole = getattr(attrs, 'whole', None)
+        attributes = whole() if whole is not None else {k: var.getncattr(k) for k in var.ncattrs()}
         data = indexing.LazilyIndexedArray(FastncArray(var, self._preloaded.get(name)))
         encoding = {'dtype': var.dtype}
-        if isinstance(var.dtype, np.dtype) and var.dtype.kind in 'iuf' and '_FillValue' in attributes:
-            pass
         _ensure_fill_value_valid(data, attributes)
         filters = var.filters()
         if filters is not None:
             encoding.update(filters)
         chunking = var.chunking()
+        dims = var.dimensions
         if chunking is not None:
             if chunking == 'contiguous':
                 encoding['contiguous'] = True
@@ -286,16 +321,16 @@ class FastncDataStore(AbstractDataStore):
             else:
                 encoding['contiguous'] = False
                 encoding['chunksizes'] = tuple(chunking)
-                encoding['preferred_chunks'] = dict(zip(var.dimensions, chunking))
+                encoding['preferred_chunks'] = dict(zip(dims, chunking))
         if 'least_significant_digit' in attributes:
             encoding['least_significant_digit'] = attributes.pop('least_significant_digit')
         encoding['source'] = self.ds.filepath()
         encoding['original_shape'] = data.shape
         if self.decode_mask_scale:
-            v = _decoded(name, var.dimensions, data, attributes, encoding)
+            v = _decoded(name, dims, data, attributes, encoding)
             if v is not None:
                 return v
-        return Variable(var.dimensions, data, attributes, encoding)
+        return Variable(dims, data, attributes, encoding)
 
     def close(self, **kwargs):
         self.ds.close()

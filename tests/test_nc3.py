@@ -8,6 +8,7 @@ default settings and with every read path forced on tiny requests.
 import hashlib
 import json
 import os
+import struct
 import subprocess
 import sys
 import threading
@@ -15,6 +16,7 @@ import threading
 import numpy as np
 import pytest
 
+import fastnc
 from fastnc import _nc3, _pool
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -32,7 +34,6 @@ SETTINGS = {
     'tiny-kernels': dict(TINY, KERNELS=True),
     'tiny-kernels-handles': dict(TINY, KERNELS=True, _IO=_nc3._Handles),
     'tiny-1-thread': dict(TINY, KERNELS=True, threads=1),
-    'out-of-the-mapping': dict(TINY, KERNELS=True, PAR_MIN=16, RUN_MIN=4, MAP_MAX=2, SWAP_NUMPY=2),
 }
 
 
@@ -299,6 +300,195 @@ def test_no_numba_for_metadata_and_small_reads():
     assert r.stdout.strip() == 'False'
 
 
+def explicit_key(rng, shape):
+    """Slices as Dataset hands them to a backend: every part a number."""
+    key = []
+    for n in shape:
+        if n == 0:
+            key.append(slice(0, 0, 1))
+            continue
+        a = int(rng.integers(0, n))
+        b = int(rng.integers(a + 1, n + 1))
+        key.append(slice(a, b, int(rng.choice([1, 1, 2, 3, max(1, n // 3)]))))
+    return tuple(key)
+
+
+@pytest.mark.parametrize('name', sorted(INDEX['edge']))
+def test_slices_as_dataset_gives_them(name, settings, edge_dir):
+    """Keys the closure takes, small and big, on every record layout; each
+    read twice over, the second through what the first left."""
+    rng = np.random.default_rng(9)
+    with _nc3.NC3File(str(edge_dir / name)) as f:
+        for v in f.root.variables.values():
+            whole = v.read(())
+            for _ in range(25):
+                key = explicit_key(rng, v.shape)
+                want = whole[key + (Ellipsis,)]
+                for _ in range(2):
+                    got = v.read(key)
+                    assert got.dtype == want.dtype and got.shape == want.shape, (v.name, key)
+                    assert got.tobytes() == np.ascontiguousarray(want).tobytes(), (v.name, key)
+
+
+def test_slices_past_the_end_of_a_truncated_file(edge_dir):
+    with _nc3.NC3File(str(edge_dir / 'c1_trunc13.nc')) as f:
+        v = f.root.variables['r_int']
+        whole = v.read(())
+        f._source()                                 # (the mapping there: the closure has it to use)
+        n = v.shape[0]
+        for a, b in ((n - 1, n), (n - 3, n), (0, n)):
+            key = (slice(a, b, 1),) + tuple(slice(0, m, 1) for m in v.shape[1:])
+            assert v.read(key).tobytes() == whole[a:b].tobytes()
+
+
+def test_a_strided_read_spans_once(edge_dir, monkeypatch):
+    """The first selection of a form reads the bytes among its elements; the
+    next goes through the mapping. Both give the values, past a block too."""
+    monkeypatch.setattr(_nc3, 'RUN_MIN', 16)
+    monkeypatch.setattr(_nc3, 'MAP_MAX', 8)
+    monkeypatch.setattr(_nc3, 'PIECE', 256)
+    calls = []
+    span = _nc3._span
+    monkeypatch.setattr(_nc3, '_span', lambda *a: (calls.append(a[4:6]), span(*a))[1])
+    with _nc3.NC3File(str(edge_dir / 'c1_records.nc')) as f:
+        v = f.root.variables['r_double']
+        whole = v.read(())
+        for j, k in ((0, 0), (1, 2), (0, 1)):
+            key = (slice(0, v.shape[0], 1), slice(j, j + 1, 1), slice(k, k + 1, 1))
+            assert v.read(key).tobytes() == whole[:, j:j + 1, k:k + 1].tobytes()
+        assert len(calls) == 1
+        assert f._src is not None                   # (the mapping, from the second on)
+        key = (slice(0, v.shape[0], 2), slice(0, 2, 1), slice(1, 2, 1))
+        assert v.read(key).tobytes() == whole[::2, 0:2, 1:2].tobytes()
+        assert len(calls) == 2
+
+
+def test_no_mapping_for_a_first_strided_read(edge_dir, monkeypatch):
+    monkeypatch.setattr(_nc3, 'RUN_MIN', 16)
+    monkeypatch.setattr(_nc3, 'MAP_MAX', 8)
+    with _nc3.NC3File(str(edge_dir / 'c5_records.nc')) as f:
+        v = f.root.variables['r_double']
+        v.read((slice(0, v.shape[0], 1), slice(0, 1, 1), slice(0, 1, 1)))
+        assert f._src is None and f._mm is None
+
+
+def test_variables_made_when_asked(edge_dir):
+    with _nc3.NC3File(str(edge_dir / 'c1_records.nc')) as f:
+        g = f.root
+        names = list(g._rows)
+        v = g.peek(names[1])
+        assert list(g._made) == [names[1]] and g.peek(names[1]) is v
+        with pytest.raises(KeyError):
+            g.peek('no such')
+        assert not g.holds_no_data()
+        assert list(g.variables) == names and g.variables[names[1]] is v
+
+
+def test_dataset_makes_one_variable(edge_dir):
+    with fastnc.Dataset(str(edge_dir / 'c1_records.nc')) as d:
+        g = d._backend.root
+        d.variables['r_int'][0]
+        assert list(g._made) == ['r_int']
+        assert list(d.variables) == list(g._rows)
+
+
+def classic(title, units='K', begin=512):
+    """A netCDF-3 classic file of one variable, by hand: its global attribute
+    decides where the variable list starts. Values at `begin`: netCDF-C pads a
+    header to its chunk size, so that files of a run keep them in one place."""
+    def name(s):
+        return struct.pack('>I', len(s)) + s + bytes(-len(s) & 3)
+    t = title.encode()
+    gatt = struct.pack('>II', 12, 1) + name(b'title') + struct.pack('>II', 2, len(t)) + t + bytes(-len(t) & 3)
+    u = units.encode()
+    att = struct.pack('>II', 12, 1) + name(b'units') + struct.pack('>II', 2, len(u)) + u + bytes(-len(u) & 3)
+    head = b'CDF\x01' + struct.pack('>I', 0) + struct.pack('>II', 10, 1) + name(b'x') + struct.pack('>I', 4) + gatt
+    tail = struct.pack('>II', 11, 1) + name(b'v') + struct.pack('>II', 1, 0) + att + struct.pack('>II', 5, 16)
+    header = head + tail + struct.pack('>I', begin)
+    return header + bytes(begin - len(header)) + struct.pack('>4f', 1, 2, 3, 4)
+
+
+def test_a_header_like_the_last(tmp_path, monkeypatch):
+    """A variable list as the last file's, moved by its global attributes: its
+    attributes and values are found where this file has them."""
+    paths = []
+    for i, (title, units) in enumerate((('a', 'K'), ('a longer title', 'K'), ('a longer title', 'm/s'))):
+        p = tmp_path / ('f%d.nc' % i)
+        p.write_bytes(classic(title, units))
+        paths.append(str(p))
+    monkeypatch.setattr(_nc3._Last, 'list', None)
+    with _nc3.NC3File(paths[0]) as f:
+        first = _nc3._Last.list
+        assert f.root.variables['v'].attrs['units'] == 'K'
+    with _nc3.NC3File(paths[1]) as f:
+        assert _nc3._Last.list is first             # (nothing walked)
+        assert f.root.attrs['title'] == 'a longer title'
+        v = f.root.variables['v']
+        assert v.attrs['units'] == 'K'
+        assert v.read(()).tolist() == [1, 2, 3, 4]
+        again = _nc3._parse(f._header, f._size)
+        monkeypatch.setattr(_nc3._Last, 'list', None)
+        assert again == _nc3._parse(f._header, f._size)  # (as a walk finds it)
+    with _nc3.NC3File(paths[0]):
+        first = _nc3._Last.list
+    with _nc3.NC3File(paths[2]) as f:
+        assert _nc3._Last.list is not first         # (other bytes: read)
+        assert f.root.variables['v'].attrs['units'] == 'm/s'
+
+
+def test_a_header_with_values_elsewhere_is_read(tmp_path, monkeypatch):
+    """`begin` is in the list: values elsewhere, other bytes, the file's own place."""
+    a, b = tmp_path / 'a.nc', tmp_path / 'b.nc'
+    a.write_bytes(classic('t', begin=512))
+    b.write_bytes(classic('t', begin=1024))
+    monkeypatch.setattr(_nc3._Last, 'list', None)
+    with _nc3.NC3File(str(a)) as f:
+        assert f.root.variables['v'].read(()).tolist() == [1, 2, 3, 4]
+    with _nc3.NC3File(str(b)) as f:
+        v = f.root.variables['v']
+        assert v.begin == 1024 and v.read(()).tolist() == [1, 2, 3, 4]
+
+
+def test_a_closed_file_raises(edge_dir, monkeypatch):
+    """Every way of reading, and no handle made anew behind the caller's back."""
+    f = _nc3.NC3File(str(edge_dir / 'c1_records.nc'))
+    v = f.root.variables['r_double']
+    small = (slice(0, 1, 1), slice(0, 1, 1), slice(0, 1, 1))
+    big = tuple(slice(0, n, 1) for n in v.shape)
+    v.read(small)
+    v.read(big)
+    f.close()
+    monkeypatch.setattr(_nc3, 'MAP_MAX', 8)
+    for key in (small, big, ()):
+        with pytest.raises(ValueError):
+            v.read(key)
+    assert f._rd is None
+
+
+def test_a_header_with_other_dimensions_is_read(tmp_path, monkeypatch):
+    """The same bytes of variables mean nothing with another count of dimensions."""
+    a = bytearray(classic('a'))
+    p = tmp_path / 'a.nc'
+    p.write_bytes(bytes(a))
+    monkeypatch.setattr(_nc3._Last, 'list', None)
+    with _nc3.NC3File(str(p)):
+        pass
+    ver, ndim, raw, start, rows = _nc3._Last.list
+    monkeypatch.setattr(_nc3._Last, 'list', (ver, ndim + 1, raw, start, []))
+    with _nc3.NC3File(str(p)) as f:
+        assert list(f.root.variables) == ['v']
+
+
+def test_attributes_remembered():
+    with fastnc.Dataset(os.path.join(DATA, 'nc3_classic.nc')) as d:
+        for v in d.variables.values():
+            if len(v.shape):
+                a = v[0]
+                assert np.array_equal(np.ma.getmaskarray(v[0]), np.ma.getmaskarray(a))
+                assert v._bv.attrs is v._bv.attrs and isinstance(v._bv.attrs, dict)
+                assert isinstance(v._bv.attrs, _nc3.Attrs)
+
+
 def test_swap_kernel():
     rng = np.random.default_rng(1)
     a = rng.integers(0, 256, 1000, dtype=np.uint8)
@@ -312,42 +502,3 @@ def test_swap_kernel():
                 if es > 1:
                     want[lo:hi] = a[lo:hi].reshape(-1, es)[:, ::-1].reshape(-1)
                 assert (b == want).all(), (es, lo, n)
-
-
-def test_swap_copy_kernel():
-    """Copied and swapped in one pass: the same bytes as a copy, then a swap."""
-    rng = np.random.default_rng(2)
-    a = rng.integers(0, 256, 1000, dtype=np.uint8)
-    for es in (1, 2, 4, 8):
-        for lo, o in ((0, 0), (1, 3), (3, 8), (8, 5)):
-            for n in (0, 1, 7, 13, 100):
-                nb = np.array([n * es, 3 * es], np.int64)
-                fo = np.array([lo, lo + n * es], np.int64)
-                oo = np.array([o, o + n * es], np.int64)
-                got = np.zeros(1100, np.uint8)
-                ctr = np.zeros(1, np.int64)
-                _nc3._swap_copy(a, fo, got, oo, nb, es, ctr)
-                want = np.zeros(1100, np.uint8)
-                m = int(nb.sum())
-                want[o:o + m] = a[lo:lo + m]
-                if es > 1:
-                    want[o:o + m] = want[o:o + m].reshape(-1, es)[:, ::-1].reshape(-1)
-                assert got.tobytes() == want.tobytes(), (es, lo, o, n)
-
-
-def test_big_runs_come_out_of_the_mapping(edge_dir, monkeypatch):
-    """A big contiguous read with the kernels takes the fused path."""
-    import glob
-    calls = []
-    real = _nc3._swap_copy
-    monkeypatch.setattr(_nc3, '_swap_copy', lambda *a: (calls.append(1), real(*a))[1])
-    for k, v in SETTINGS['out-of-the-mapping'].items():
-        monkeypatch.setattr(_nc3, k, v)
-    import fastnc
-    fastnc.warm()
-    for path in sorted(glob.glob(os.path.join(DATA, 'nc3_*.nc'))):
-        with fastnc.Dataset(path) as d:
-            d.set_auto_maskandscale(False)
-            for v in d.variables.values():
-                v[...]
-    assert calls

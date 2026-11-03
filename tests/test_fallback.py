@@ -82,6 +82,7 @@ def test_without_kernels_same_values(name, split, monkeypatch):
     fastnc.warm()
     want = _reads(path)                             # (the kernels: checked against the references)
     monkeypatch.setattr(_chunks, '_READY', __import__('threading').Event())
+    monkeypatch.setattr(_chunks, 'IMAGE', False)
     monkeypatch.setattr(_chunks, 'LOAD_AFTER', float('inf'))
     monkeypatch.setattr(_chunks, 'GRID_MIN', 1)
     if split:

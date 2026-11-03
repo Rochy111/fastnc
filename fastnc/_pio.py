@@ -14,8 +14,20 @@ moved into it. The kernels then decode from that buffer as from the file.
 The readers are _nc3's: one overlapped handle shared by every thread on
 Windows (a handle opened the usual way serializes its readers), preadv
 elsewhere.
+
+Compressed chunks go through the mapping: with a decompressor at work the
+faults hide behind it, and even a file not in the OS cache reads best that
+way from flash, each thread faulting in its own chunks (VIIRS, cold, from
+NVMe: 91 ms, 106 staged). But each of those faults is a request for about
+64 kB: 4,750 for that file where h5py makes 640, and storage that pays per
+request -- a disk head's seek, a network round trip -- would pay for all of
+them. So a big batch first touches a few bytes of the mapping, timed (`slow`):
+what comes back in a microsecond is in memory; what takes longer than staging
+would cost is storage to spare requests on, and the batch is staged: 160
+requests of a MB.
 """
 import threading
+import time
 
 import numpy as np
 
@@ -24,6 +36,26 @@ from . import _arena, _pool
 STAGE_MIN = 1 << 20             # batches smaller than this read through the mapping
 GAP = 256 << 10                 # merge ranges closer than this (read the gap too)
 PIECE = 4 << 20                 # one positional read at most this big
+FAULT_BYTES = 64 << 10          # what one fault of a mapped file reads ahead
+COPY_RATE = 10e9                # bytes a second a staged byte's extra copy costs (a low
+                                # memory bandwidth: the choice moves little with it)
+
+
+def slow(src, addr, threads):
+    """Whether reading these ranges of the mapped file src through it would
+    cost more than staging them. One byte touched at three of them: a page in
+    memory comes back in a microsecond or two, and a fault that goes to the
+    storage takes what a fault takes there. Each of `threads` faulting at once
+    costs that (the middle of three: one can be an outlier), against a copy
+    of FAULT_BYTES per fault for staging."""
+    n = len(addr)
+    got = []
+    for a in (int(addr[n // 6]), int(addr[n // 2]), int(addr[5 * n // 6])):
+        t = time.perf_counter()
+        src[a]
+        got.append(time.perf_counter() - t)
+    got.sort()
+    return got[1] > threads * FAULT_BYTES / COPY_RATE
 
 
 class _Shim:

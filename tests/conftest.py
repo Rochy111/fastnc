@@ -14,9 +14,11 @@ from helpers import REFERENCE_SETS, locate, references
 def pytest_addoption(parser):
     parser.addoption('--gpu', action='store_true', default=False,
                      help="also compare every read with fastnc.Dataset(path, device='gpu')")
-    parser.addoption('--kernels', default='on', choices=('on', 'off'),
-                     help="on: numba's kernels loaded first (default); off: never loaded -- "
-                          "every read as a fresh process does it (libdeflate / zlib, numpy)")
+    parser.addoption('--kernels', default='on', choices=('on', 'numba', 'off'),
+                     help="on: the kernels loaded first, from this machine's image if it has one "
+                          "(default); numba: from numba, the image left alone; off: never loaded "
+                          "-- every read as a process with no image does it (libdeflate / zlib, "
+                          "numpy)")
     parser.addoption('--refs', default=','.join(REFERENCE_SETS),
                      help='reference sets to test, of %s (default: all whose files are here)'
                           % ','.join(REFERENCE_SETS))
@@ -24,7 +26,12 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     config.addinivalue_line('markers', 'gpu: runs on the GPU (only with --gpu)')
+    # (processes the tests start have caches of their own: each would start a
+    # build of its own, minutes of compiling that no test wants)
+    os.environ['FASTNC_IMAGE_BUILD'] = '0'
     from fastnc import _chunks
+    if config.getoption('--kernels') != 'on':
+        _chunks.IMAGE = False
     if config.getoption('--kernels') == 'off':
         _chunks.LOAD_AFTER = float('inf')
     else:
@@ -49,6 +56,14 @@ def sets_here():
         refs = references(which)
         out[which] = sum(locate(which, n) is not None for n in refs['files']) if refs else 0
     return out
+
+
+def pytest_collection_modifyitems(config, items):
+    """FASTNC_SPLIT=i/n: every n-th test from the i-th, for n processes (tools/check.py)."""
+    split = os.environ.get('FASTNC_SPLIT')
+    if split:
+        i, n = (int(x) for x in split.split('/'))
+        items[:] = items[i::n]
 
 
 def pytest_report_header(config):

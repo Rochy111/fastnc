@@ -143,8 +143,23 @@ FIRST = r'''
 import sys, time
 t = time.perf_counter()
 lib, p, v = sys.argv[1:4]
-masked = len(sys.argv) > 4
-if lib == 'fastnc':
+masked = 'masked' in sys.argv
+whole = 'whole' in sys.argv
+def walk(g):
+    for x in g.variables.values():
+        try:
+            x[...]
+        except Exception:
+            pass
+    for s in g.groups.values():
+        walk(s)
+if lib == 'fastnc' and whole:
+    import fastnc
+    d = fastnc.Dataset(p); d.load(recursive=True)
+elif lib == 'netCDF4' and whole:
+    import netCDF4
+    d = netCDF4.Dataset(p); walk(d)
+elif lib == 'fastnc':
     import fastnc
     d = fastnc.Dataset(p); x = d[v]; x.set_auto_maskandscale(masked); x[...]
 elif lib == 'netCDF4':
@@ -160,13 +175,14 @@ print((time.perf_counter() - t) * 1e3)
 '''
 
 
-def first_call(lib, p, v, masked=False):
+def first_call(lib, p, v, masked=False, whole=False):
     """Best of three fresh processes."""
     env = dict(os.environ)
     env.pop('PYTHONDONTWRITEBYTECODE', None)
     got = []
+    args = (['masked'] if masked else []) + (['whole'] if whole else [])
     for _ in range(3):
-        out = subprocess.run([sys.executable, '-c', FIRST, lib, p, v] + (['masked'] if masked else []),
+        out = subprocess.run([sys.executable, '-c', FIRST, lib, p, v] + args,
                              capture_output=True, text=True, cwd=ROOT, env=env)
         try:
             got.append(float(out.stdout.strip().splitlines()[-1]))
@@ -218,18 +234,18 @@ def main():
             h5_all(p)
         # whole file
         fns = [lambda: fn_all(p, False), lambda: nc4_all(p, False)] + ([lambda: h5_all(p)] if hdf5 else [])
-        t = best(fns, max(2, n // 2))
+        t = best(fns, n)
         r['all_raw'] = dict(zip(['fastnc', 'netCDF4', 'h5py'], t))
         try:
-            t = best([lambda: fn_all(p, True), lambda: nc4_all(p, True)], max(2, n // 2))
+            t = best([lambda: fn_all(p, True), lambda: nc4_all(p, True)], n)
             r['all_masked'] = dict(zip(['fastnc', 'netCDF4'], t))
         except Exception as e:
             r['all_masked'] = {'error': repr(e)[:100]}
-        r['all_raw']['fastnc loop'] = best([lambda: fn_loop(p, False)], max(2, n // 2))[0]
+        r['all_raw']['fastnc loop'] = best([lambda: fn_loop(p, False)], n)[0]
         if 'error' not in r['all_masked']:
-            r['all_masked']['fastnc loop'] = best([lambda: fn_loop(p, True)], max(2, n // 2))[0]
+            r['all_masked']['fastnc loop'] = best([lambda: fn_loop(p, True)], n)[0]
         fastnc.set_threads(1)
-        r['all_raw_1thread'] = best([lambda: fn_all(p, False)], max(2, n // 2))[0]
+        r['all_raw_1thread'] = best([lambda: fn_all(p, False)], n)[0]
         fastnc.set_threads(None)
         engines = ['netcdf4'] + (['h5netcdf'] if hdf5 else ['scipy'])
         try:
@@ -251,6 +267,7 @@ def main():
         fastnc.set_threads(None)
         r['first_call'] = {l: first_call(l, p, v) for l in libs}
         r['first_call_masked'] = {l: first_call(l, p, v, True) for l in ('fastnc', 'netCDF4')}
+        r['first_whole'] = {l: first_call(l, p, v, True, True) for l in ('fastnc', 'netCDF4')}
         if a.gpu:
             import cupy as cp
 
@@ -265,6 +282,8 @@ def main():
             def cpu_up(lib, masked):
                 vals = one(lib, p, v, Ellipsis, masked)
                 cp.asarray(np.ma.getdata(vals))
+                if masked:                          # (what a masked GPU read gives: both)
+                    cp.asarray(np.ma.getmaskarray(vals))
                 cp.cuda.Device().synchronize()
             gpu(False)
             r['gpu_raw'] = dict(zip(['fastnc gpu', 'fastnc cpu+upload', 'netCDF4+upload'],

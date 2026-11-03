@@ -25,7 +25,8 @@ pytest
 
 Python 3.9+, numpy 1.22+ (1.x and 2.x), numba 0.57+. The first `pytest`
 run compiles the numba kernels; later runs load them from numba's cache in
-`fastnc/__pycache__`. The tests need neither h5py nor netCDF4-python:
+`fastnc/__pycache__`, or, once one is built, from this machine's kernel image
+(`docs/internals.md`). The tests need neither h5py nor netCDF4-python:
 those are only for regenerating the test data (below).
 
 ## Tests
@@ -71,6 +72,15 @@ pytest --gpu                             # also compare fastnc.Dataset(path, dev
 python tools/run_tests_numpy1.py         # the same suite under numpy 1.26 (bench-wrf env)
 python tools/run_tests_numpy1.py --nep50 # ... and warn wherever numpy 2 would compute differently
 ```
+
+After any change, `python tools/check.py` says in about a minute whether it broke
+or slowed anything: this machine's kernel image built from these sources, the
+tests in parallel, then, if `FASTNC_CORPUS` names folders of
+files, every dataset against answers saved from h5py and netCDF4, and 20 kinds of
+read against `HEAD`, processes taking turns. The reference libraries run once,
+with `--save`, which is why it is quick. Files from elsewhere are worth having
+there: they found what no test made here did. `--full` adds the suite under
+numba and with no kernels at all, before anything is merged.
 
 CI runs `pytest --refs corpus` on Linux, Windows and macOS (Apple
 Silicon), Python 3.9-3.13, numpy 1 and 2, and one job with xarray. No CI
@@ -147,7 +157,18 @@ on fastnc's own thread pool. What has been measured to matter (see
 
 - **Import `njit` from `fastnc._jit`, not from numba.** It defers
   importing numba until the first kernel runs, so listing a file never
-  pays for it.
+  pays for it, and it is what lets a kernel run from the image, without numba.
+- **Timing a change to Python around the kernels takes seconds:** those edits
+  compile nothing (`_jit.kernel_stamp`). Set `FASTNC_IMAGE_FILE` to the image and
+  run `tools/profile/quick.py`. Compare versions with `tools/profile/ab.py`, which
+  alternates processes, not from two benchmark runs: from run to run those
+  differ by more than most changes.
+- **A new module with kernels goes in `_jit.KERNEL_FILES`** (a test checks), and
+  a kernel with new argument types in `fastnc/_signatures.py`: after a full
+  test run and `_image.build()`, `python tools/make_signatures.py`.
+- **A kernel Python calls takes arrays, integers, bools, None and tuples of
+  those.** Floats, or a return of an array, keep it out of the image, and a
+  call of it then loads numba.
 - **No `parallel=True` / `prange`.** numba's threads spin after each loop.
   Spread work with fastnc's pool (`fastnc/_pool.py`): the caller and pool
   threads take items off a shared atomic counter until none is left.
@@ -190,14 +211,18 @@ one run. Things that will mislead you:
 
 - **Hybrid CPUs on Windows** (Intel 12th gen and later): a script started
   from a terminal counts as background work and Windows parks its main
-  thread on an efficiency core -- single-core timings swing 30-50%. Call
-  `tools/profile/common.fast_thread()` on timing threads.
+  thread on an efficiency core, ~2 s in and for good -- single-core timings
+  swing 30-50%. fastnc declares any thread that opens a file or reads, so
+  reads are safe, but what runs before them is not, nor are other readers:
+  call `tools/profile/common.fast_thread()` on timing threads.
 - **CPU time on Windows** (`time.process_time()`) ticks every 15.6 ms.
 - **`PYTHONDONTWRITEBYTECODE`** makes every import recompile from source.
 - **numba's cache** can keep serving an edited kernel's old code: delete
   `fastnc/__pycache__/*.nbi` and `*.nbc` before timing an edit.
 - **The OS file cache**: a file's first read and later reads differ
-  wildly; say which you report.
+  wildly; say which you report. A file that was ever mapped stays cached
+  through `FILE_FLAG_NO_BUFFERING`: `tools/profile/cold.py` shows how to get a
+  truly cold one, and checks by counting what left the disk.
 - **Fresh memory**: time `read(..., out=array)` to see the decoder alone.
 
 ## Submitting
@@ -219,8 +244,8 @@ explain. Add a line to `CHANGELOG.md`'s Unreleased section.
   short body saying why. Measurements and rejected alternatives go in
   `docs/measurements.md`, not in commit messages.
 - **Before it lands**: the suite passes under numpy 2 and numpy 1
-  (`pytest`, `python tools/run_tests_numpy1.py`), with `--kernels off`, and
-  with `--gpu` where the GPU path is touched.
+  (`pytest`, `python tools/run_tests_numpy1.py`), with `--kernels off` and
+  `--kernels numba`, and with `--gpu` where the GPU path is touched.
 - **A pull request** where it helps: a big or risky change worth reading
   as a whole first, an outside contribution, or once CI is running again.
 - **`main` is not rewritten** once pushed, and releases are tagged on it

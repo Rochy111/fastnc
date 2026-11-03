@@ -70,6 +70,8 @@ def main():
                 'First read in a fresh process: import + open + one variable, raw (ms)'))
     print(table(rows, 'first_call_masked', ['fastnc', 'netCDF4'], 'fastnc',
                 'First read in a fresh process, masked and scaled (the default) (ms)'))
+    print(table(rows, 'first_whole', ['fastnc', 'netCDF4'], 'fastnc',
+                'A fresh process reading the whole file, masked and scaled (ms)'))
     print(table(rows, 'gpu_masked', ['fastnc gpu', 'fastnc cpu+upload', 'netCDF4+upload'],
                 'fastnc gpu', 'One variable, masked and scaled, to a cupy array (ms)'))
     t1 = ['| file | all threads | 1 thread |', '|---|---|---|']

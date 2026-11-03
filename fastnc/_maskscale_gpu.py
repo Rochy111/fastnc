@@ -279,7 +279,8 @@ def to_gpu(r):
         proto.__dict__.update({k: v for k, v in r.__dict__.items() if k != '_mask'})
         m = None if r._mask is ma.nomask else cupy.asarray(r._mask)
         return MaskedArray(cupy.asarray(r.data), m, proto)
-    if type(r) is numpy.ndarray and r.dtype.kind in 'biuf':
+    if isinstance(r, (numpy.ndarray, numpy.generic)) and type(r) is not ma.MaskedArray \
+            and r.dtype.kind in 'biuf' and r is not ma.masked:
         return cupy.asarray(r)
     return r
 

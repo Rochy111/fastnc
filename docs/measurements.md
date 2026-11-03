@@ -342,18 +342,172 @@ their symbol counts (R2 0.90) -- costs without hardware counters:
 So a match costs about 19 ns in every inflate (100 cycles), and it is
 not the copying.
 
+**A wrong result found by asking a speed question:** making GPU reads skip
+the dimension scan meant checking what `var.shape` was for, and it turned out
+to differ from what was read. A variable with fewer records than its
+unlimited dimension read 2 records where netCDF4-python gives 6 with fill;
+on the GPU `[1:5]` gave rows of uninitialized memory, unmasked. Every test
+passed, because no file of the corpus has such a variable, though it is the
+ordinary thing in a record file. `tests/test_short.py` now writes them, in
+every type, and compares every index and read path with netCDF4-python.
+Whether a variable is short takes the longest variable using its dimension,
+so a read would need every variable's metadata again; `_cannot_be_short` settles
+it from the dataspaces alone (`H5File.extent`, usually the first message of a
+header): no unlimited axis in the file reaches past this variable's unlimited
+axes, and its fixed axes have no unlimited scale behind them
+(`DIMENSION_LIST`). WRF d01 one variable stays 5.0 ms; the check cannot be
+turned off, and anything it cannot settle takes the whole scan.
+
+netCDF-C itself was no reference in two corners. Short along two unlimited
+dimensions it returns uninitialized memory, and values of other variables.
+And before 4.10 (4.9.3 here) a stepped read past the stored records drops
+stored values: `short[1::3]` of `[1, 2, fill ...]` gives `[fill, fill]`, against
+its own `short[...]`, while 4.10.1 gives `[2, fill]`, as fastnc does everywhere.
+
 **Worked:**
+- Opening reads what is asked for. `Dataset` parsed every variable's header,
+  shape, type and dimensions, and worked out unlimited lengths, to read one
+  variable: that was the gap to `File`. Now `d['T']` reads `T`'s link and
+  header alone, and the rest comes when something wants it, whole, so
+  phony dimensions keep the numbers netCDF-C gives them. Open alone goes 4.9
+  -> 0.1 ms on WRF d01, but that work is moved, not gone. What counts is open
+  + one variable: WRF d01 8.7 -> 5.0 ms (with the check for short variables
+  below), a window 7.4 -> 3.8; Ku-band 3.1 -> 1.9, RCM 1.6 -> 1.0, Metop-SG
+  5.2 -> 4.7. A file loop reading one variable of each gains the most.
+  Whole-file reads are level.
+  A variable is told from a dimension scale by searching its attribute
+  messages for the name `CLASS`, in C. The name, not the value: a value can
+  live in the global heap, a name cannot. Dense or shared attributes, or a
+  buffer that cannot be searched, fall back to the whole scan.
+- Masking many arrays in one pass, with nothing to choose. `load()` decoded
+  all variables together, then masked them one after another, waking every
+  thread for each. Giving arrays below some size a thread each helped, but
+  the size mattered: 16-64 MB was best here, and 256 MB left MODIS 250 m at
+  73 ms (49 at 32 MB). A rule from the work itself (an array alone if it
+  exceeds one thread's fair share) lost to the fixed size: equal arrays
+  all count as too big. So now no such choice exists: `_pool.walk` starts
+  threads spread over the arrays, and each goes on to the next unfinished
+  one, taking blocks off its counter. Small arrays are done by whoever
+  arrived; a big one collects every thread as the rest end. Against the best
+  fixed size: Metop-SG 38.3 / 37.3 ms, RCM 5.9 / 5.9, AVHRR 8.7 / 8.7, MODIS
+  1 km 53.9 / 53.6, MODIS 250 m 51.6 / 49.3, and level on 1, 4 and 8 threads.
+- Attributes decoded when asked for. A masked read wants eight names; each
+  variable's every attribute was decoded for them (WRF d01: 1,770).
+- One plan for variables that agree on those eight attributes (186 of WRF's
+  200), kept across files. It holds a small dict of its own, not the
+  variable's attributes: those would keep a closed file's mapping alive.
+- `FUSED_LOAD_MIN`, 32 MB, was this CPU's L3 (30 MB) in disguise: below it,
+  the raw values are still in cache when the mask pass reads them, so fusing
+  saves nothing and costs a pass of the pool (Metop-SG 35 -> 46 ms at 2 MB;
+  GOES-19 C13 22 -> 14 above it). Now it is read from the machine.
+- Masked `load()`, last commit -> now, best of 4 alternating rounds: WRF d01
+  44.5 -> 32.7 ms, in a loop 53.5 -> 41.6, WRF d02 64.5 -> 52.8, MODIS 1 km
+  60.5 -> 50.5, GOES-19 C13 14.7 -> 13.4.
+- What a fresh process pays before it reads, beyond numpy (150 ms of it, not
+  fastnc's): `threading.Thread.start()` waiting for each thread, 5 ms, gone
+  with `_thread.start_new_thread`; importing `json` for a 300-byte file, 5
+  ms, gone with `ast.literal_eval`; a global lock taken per chunk to ask
+  whether a library had been found. And one of mine, found comparing
+  against the pushed code: importing numpy.ma before noticing a read is raw.
+- A first read's Python per chunk, without numba: `_zlib.stream_inflater`
+  holds addresses instead of asking numpy for them chunk by chunk. GOES-19
+  C02 (3,616 chunks) 164 -> 148 ms. Libdeflate alone would take ~55: the rest
+  is two strided numpy copies per chunk and the GIL changing hands for each.
+- The benchmark's whole-file cells were best of 2, one round of it straight
+  after netCDF4, while the README said best of 5: the same cell gave GOES-19
+  C13 21.7 ms in one run and 69.4 in the next, and MODIS 1 km 93.6 where
+  loops gave 50. With five rounds the two runs agree (MODIS 56.7 and 53.6,
+  C13 16.1 and 14.7).
+- The thread that calls fastnc, kept off the efficiency cores. A script
+  with no focused window is background work to Windows, and about 2 s in
+  its busy main thread is moved to an E-core, for good. The pool's threads
+  had been protected from this for a long time, and so had every timing
+  script (`fast_thread`), so no benchmark ever showed what users got. WRF
+  d01 read over and over from an ordinary script:
+
+  | | read | open | plain Python | main thread on |
+  |---|---|---|---|---|
+  | first 2 s | 34 ms | 5.7 | 9.0 ms | P-cores |
+  | after 2 s, before | 55 ms | 10.7 | 14.6 ms | E-cores (16-23) |
+  | after 2 s, now | 36 ms | | 9.0 ms | P-cores |
+
+  Masked reads went 50 -> 90 ms in the same step. The step comes with no
+  file read differently, no new memory and arithmetic on all threads
+  unchanged; garbage collection was suspected and is not it (the step
+  comes with the collector off, and not on a forced collection). Now any
+  thread that opens a file or reads declares itself once. The tables do
+  not change: they were always measured this way. They now hold for
+  users too. The tradeoff: that thread stays at this QoS afterwards.
+- Proving nothing is masked while decoding, not scanning afterwards. Most
+  masked variables hold no fill value at all, yet each was read back whole
+  and a mask built. With the shuffle filter a chunk comes out of inflate as
+  byte planes, so the plane of top bytes can be tested alone: if the fill
+  value's top byte is not there, the value is nowhere in the chunk. That
+  is a quarter of a float's bytes, still in the core's cache, at 50 GB/s
+  against ~1 GB/s for inflate. A variable counts only if every one of its
+  chunks was tested and passed; anything else keeps the pass. netCDF-3 has
+  no planes: there values are tested word by word just after the swap.
+  Best of 4 rounds in alternating processes, whole file masked, ms:
+
+  | | before | check | + HDF5 proof | + netCDF-3 test |
+  |---|---|---|---|---|
+  | WRF d01 `load()` | 52.1 | 51.1 | 44.5 | 44.4 |
+  | WRF d01 loop | 61.2 | 60.5 | 53.3 | 53.8 |
+  | WRF d02 `load()` | 63.4 | 65.0 | 62.9 | 62.9 |
+  | WRF d02 loop | 90.2 | 83.2 | 82.5 | 74.2 |
+  | VIIRS `load()` | 105.3 | 105.3 | 96.8 | 95.1 |
+
+  The "check" is a lighter pass in `run_plan` for what no proof covers:
+  word tests that stop at the first hit, with no mask written. In a run of
+  its own, taking it away from the rest cost WRF d02 2 ms in `load()` (64.7
+  against 62.6) and 6 in the loop (78.1 against 72.4), nothing elsewhere.
+  MODIS and GOES-19 did not change: nothing there qualified (their variables
+  are scaled, or have ranges or values the test cannot prove).
+- HDF5 stores a whole chunk even past a variable's edge, and fills that
+  corner with the fill value. WRF's chunks run past the edge in most
+  variables, so a first version proved 10 of 202 MB. Now a hit in the plane
+  is looked at again over what the read selected: 202 of 202 MB.
 - Threads by the decoding to do, not the output: one column of VIIRS I05
   (13 kB from ~200 chunks, on one thread) 60.8 -> 3.7 ms.
-- netCDF-3 runs copied and swapped in one pass out of the mapping, not read
-  then swapped: WRF d02 open + load 56 -> 46 ms, again on the same open file
-  55 -> 31 ms. (The file's pages mapped once, the pass alone is 23 ms.)
 - libdeflate without its Adler-32 check, which fastnc's inflate never did:
   4-7% (VIIRS 539 -> 514 ms, MODIS 383 -> 355, GOES-19 C02 822 -> 800).
 - Short periods in fastnc's inflate widened to 8 bytes, not copied byte by
   byte: 1-3% (the fit made this look bigger).
 
 **Did not work:**
+- Holding threads to cores for reads after a pause. A read straight after a
+  pause is slower than one in a loop (masked, 1 s pause: MODIS 1 km 57 -> 65
+  ms, VIIRS 97 -> 102, Metop-SG 39 -> 43). Windows' core parking looked the
+  likely cause, and one run with every thread pinned seemed to remove the
+  cost entirely. It did not hold up. Holding cores for a job's length, workers
+  living on a CPU each, the caller pinned, and both: none helped in
+  alternating processes (best to worst within the pause cost itself), and
+  bound workers made some reads slower (Metop-SG +15%). The first result was
+  variation between runs: the same default setup gave MODIS 67 ms in one run,
+  91 in the next. What is left looks like the cost of waking up.
+- Lowering `FAST_MIN_SIZE`. A profile put the reference path at 115 us an
+  array; by the clock it is 8-25 us, and the two paths are within 1 us below
+  32k values (the fast one loses when values are masked). The profiler adds
+  more than the work. Timing phases by the clock changed the priorities.
+- Fusing small arrays to spare memory traffic (see `FUSED_LOAD_MIN` above).
+- Scanning was less of a masked read than it looked. With the scan removed
+  outright WRF d01 takes 41 ms, not the raw read's 30: 4.6 ms is parsing
+  every attribute of 200 variables to find the few that matter (the rest
+  of the gap was not pinned down). WRF d02's `load()` barely moved (63.4 ->
+  62.9) although 743 of its 802 MB are proved; its raw read is 48 ms and
+  dropping the pass for every array reached 53, so most of what is left
+  goes with the ~110 smaller arrays, for a reason not found. One HDF5
+  variable read alone gains nothing (WRF d01 `T` 10.8 -> 10.7 ms) and
+  takes no probe.
+- netCDF-3 runs copied and swapped in one pass out of the mapping, not read
+  then swapped. It looked like a win (WRF d02 open + load 56 -> 46 ms) and
+  was built, then taken out: unmapping 800 MB of touched pages takes 50-80 ms
+  (Windows), and a pool thread keeping the last job alive had moved that out
+  of the timing. Whole open + load + close, masked: 90 ms with reads, 118
+  with the mapping; on one thread reads win outright. Keeping the mapping
+  until later (a background unmap) would leave the file undeletable just
+  after `close()` on Windows. Benchmark tables caught this, in the masked
+  and 1-thread rows; the fast row alone would not have.
 - Copying 64 bytes a match unconditionally, to avoid a branch miss on the
   length: no change at all (1019 -> 1019 ms): the copy is not the cost.
 - Decoding several chunks at once in one thread (interleaved streams),
@@ -375,3 +529,723 @@ not the copying.
   22 -> 36 ms (again on the same file 13 -> 8): staging stays.
 - Lookup tables for netCDF4-style masked reads: at most 5-10%; in numpy,
   `np.take` is 2.3 ns a value and VIIRS went 232 -> 864 ms.
+- numba's shifts: suspected of a guard for counts of 64 or more on the
+  bit buffer's path. There is none (`shrx`). The literal path is 13
+  instructions and a dependency chain of about 7 cycles; libdeflate's lead
+  there is not numba's waste.
+- CPU and GPU decompressing together: nvCOMP 7.5-9.7 GB/s on files of many
+  chunks (0.66 on WRF), the CPU ~26 GB/s: 29% more on the inflate step, about
+  10% of a GPU read, for GPU versions of unshuffle and placement. Not built.
+
+**Where a big read's time goes now.** GOES-19 C02 Rad (897 MB): 48 ms on the
+CPU, 53 to the card with the upload hidden; masked 78 and 63. About two
+thirds of the CPU read is inflate at 99% thread efficiency, the rest writing
+the output at memory bandwidth.
+
+## Round 6 (2026-10-31): a fresh process, cold files, what kernels cost
+
+**Fresh processes run at full speed.** Importing numba was the biggest thing
+left in a process's first read. Its code is 13 MB for what reads use (48 MB
+with every codec), and all numba and LLVM do is find it and fix its addresses.
+`_image` (see internals) links it into a file and calls it with numpy and
+ctypes. Parity first, same process, best of 8: GOES-19 C02 masked 82.7 ms from
+the image, 85.2 from numba; raw 51.8 / 53.4; VIIRS load 47.1 / 46.7; WRF d01
+load 27.1 / 27.8: the same machine code. All 8,555 tests pass through it.
+
+Fresh process, import + open + read, best of 3 (ms; numpy's own import is
+~140 of each):
+
+| | netCDF4 | no image | image |
+|---|---|---|---|
+| WRF d02 all variables | 763 | 1004 (numba loaded) | 248 |
+| VIIRS all | 3602 | 539 | 399 |
+| MODIS 1 km all | 1431 | 338 | 276 |
+| Metop-SG all | 531 | 329 | 266 |
+| GOES-19 C02 `Rad` | 4605 | 517 | 353 |
+| GOES-19 C02 all | 6650 | 649 | 545 |
+| WRF d01 all | 803 | 267 | 231 |
+| WRF d01 `T` | 251 | 169 | 172 |
+| AVHRR `avhrr_ch4` | 235 | 166 | 165 |
+
+What is left above "warm read + import" is page faults on fresh output: see
+below. Opening an image takes 0.4 ms, reading what CPUID says 0.15; a unit
+0.6 ms. `hashlib` was 4 ms of this: the source stamp uses `zlib.crc32`.
+
+**numba's cache stamp** covered every source file, so an edit of the front end
+recompiled everything; now only files with kernels.
+
+**Nothing stops to compile.** A fresh install compiled for ~40 s in the middle
+of a read a second in, and a few seconds more for each new type. Now the build
+runs in a process of its own and reads go on without kernels until it is done.
+A script reading WRF d01 in a loop from empty caches: 1,042 reads in 240 s, the
+slowest 335 ms; ~280 ms each until the image appeared at 202 s, then 34 ms, in
+the same process, numba never imported there.
+
+**Metop-SG's File window** was the wrong place to look for a gain: at 1.2 ms in
+alternating processes before any of this, it was never at the 1.7 of the tables.
+In the benchmark it is 1.87 and 1.60 ms in two runs against h5py's 1.51 and 1.39,
+a loop of its own 1.15 against 1.44. That file's window still goes either way.
+
+**A path no longer scans the file.** `d['data/measurement_data/x']` scanned
+every group to find the groups in the path, and variables with attributes in
+dense storage looked like possible dimension scales. A variable with no
+unlimited axis needed a look through every dataset to know it is not short;
+what is attached to its own axes says so. Metop-SG, Dataset: window 4.6 -> 2.7
+ms, one variable 5.3 -> 2.9. xarray opening a root that holds only groups:
+4.4 -> 0.7 (h5netcdf 2.2).
+
+**GPU reads of one band** no longer start an upload thread: WRF `T` 5.5 -> 5.1
+ms, AVHRR 2.5 -> 2.1. Most of the "loss" in the tables was the benchmark: its
+CPU column uploaded a masked array's data, not its mask.
+
+**Cold files, measured at last.** The benchmark never measured them: flushing
+the OS cache takes admin rights on Windows. Two ways that do not:
+
+- Opening a file with `FILE_FLAG_NO_BUFFERING` evicts it only if it has not
+  been mapped. A first table made this way looked wonderful (VIIRS cold 45 ms)
+  and was wrong: counting bytes from the disk (`IOCTL_DISK_PERFORMANCE`, no
+  admin needed) showed 0. Mapped pages survive it.
+- A copy written with `FILE_FLAG_NO_BUFFERING` is not in the cache. Rewriting
+  it before each run gives a file that is truly cold; the counter confirms it.
+
+Whole file, raw, from an NVMe (WD SN850X), median of 5 (ms; requests are what
+reached the disk):
+
+| | warm | cold | requests | cold, staged | requests | h5py cold | requests |
+|---|---|---|---|---|---|---|---|
+| VIIRS | 45 | 93 | 4,743 | 106 | 159 | 1663 | ~640 |
+| MODIS 1 km | 45 | 75 | 2,642 | 125 | 132 | 970 | ~140 |
+| WRF d01 | 26 | 52 | 1,220 | 65 | 113 | 505 | ~320 |
+
+So from flash a cold file costs about twice a warm one and stays 10-18x ahead
+of h5py, because 24 threads faulting at once are a queue depth of 24. But
+4,743 requests of 59 kB is what a disk head or a network pays for, 7x h5py's.
+Staging takes 30x fewer and costs 10-60% from flash, so it depends on the
+storage: see `_pio.Reader.slow`. No spinning disk or network share was at hand:
+the request counts are measured, the gain on such storage is not. WRF d02's
+141 ms cold is the NVMe's limit (5.7 GB/s).
+
+**Two benchmark runs do not compare two versions.** The full benchmark's fastnc
+rows moved by up to 2x between runs of the same code. Yesterday's commit against
+today's, in alternating processes on the same machine, is what settles it, and
+it found what the tables could not: image kernels were level with numba's on
+big reads, as measured above, but slower on many small calls, MODIS 250 m window
+1.47x, WRF d02 masked 1.17x. Same code, image against numba: 1.32x and 1.18x.
+Flattening arguments in Python cost 11.6 ms of thread time in a d02 load (1,570
+calls), under the GIL, with 24 threads queuing for it. Hence the direct entry:
+a call 5.5 -> 1.8 us (numba: 16). And a per-file handle for the storage probe
+cost AVHRR 10%: it now touches the mapping instead.
+
+Current code against the code before this round, 6 rounds of alternating
+processes, median of the best of 7 reads each (ms):
+
+| | before | now | |
+|---|---|---|---|
+| WRF d01 `load()` | 25.7 | 21.9 | 0.85x |
+| WRF d01 `load()` masked | 31.4 | 27.4 | 0.87x |
+| Ku-band `load()` | 7.50 | 6.38 | 0.85x |
+| AVHRR variable, masked | 1.97 | 1.82 | 0.92x |
+| WRF d02 `load()` | 44.2 | 44.9 | 1.01x |
+| WRF d02 `load()` masked | 50.7 | 54.5 | 1.08x |
+| MODIS 250 m `load()` | 40.6 | 40.7 | 1.00x |
+| MODIS 250 m File window | 6.00 | 6.78 | 1.13x (best of the rounds 5.82, 5.47) |
+| GOES-19 C13 `load()` | 6.33 | 6.50 | 1.03x |
+| Metop-SG File window | 1.13 | 1.16 | 1.03x |
+
+Where the Python of a load went (`tools/profile/quick.py`, ms): chunk tables and
+plans, WRF 4.2 -> 0.1, Ku 2.1 -> 0. What is left is spread thin, ~15 us a variable
+in plain Python.
+
+**What the benchmark never asked.** Reading whole files and one window hid the
+biggest gaps of all. A survey of everyday patterns against the reference (`v[i]`
+in a loop, `visititems`, columns, crops, points) found:
+
+- Row by row, h5py won 3x to 8x: 1,600 rows of VIIRS 139 ms against 42, GOES-19
+  C13 132 / 35, 885 of Ku-band 98 / 13. An 80-row sample had shown a tie. Each
+  read planned over the whole chunk table (numpy over every chunk, O(chunks) a
+  read). `ChunkIndex.near` goes from a box to its chunks through a grid table,
+  `_hit` answers a read in a decoded chunk with no plan (16 us), and `_ahead`
+  decodes the chunks after one read moved into, as many as have been right so
+  far, twice over, in one pass of the kernel. 46, 45, 14 ms.
+- Uncompressed data was worse still: rows of Metop-SG's chunks 81 ms against
+  h5py's 4.5, of AWIPS's contiguous array 23 against 0.8, for what is a memory
+  copy, because each went through a plan and the batch kernel. `_chunks._plain`
+  works the place out with integers: 99 -> 6.2 us a row (h5py 4.4), 91 -> 6.3.
+- Keeping chunks from a dataset's second small read on fixed rows and cost
+  random crops 37 -> 57 ms. What tells a loop from random reads is direction: a
+  chunk next to the last one (`_beside`).
+- `fastnc.File` had no readahead: a loop took 2-3.5x `load()`. With it, WRF 79
+  -> 43 ms. The first try made things worse (80 -> 102): it read in creation
+  order and `visititems` goes by name, 395 arrays decoded and 6 used. Now
+  `visititems` says so, and a loop's first two reads settle the rest.
+- Thread rules came from inflate. Masks and copies go ~64x faster:
+
+  | scan | 1 thread | 8 | 24 |
+  |---|---|---|---|
+  | 256 kB | 17 us | 80 | 163 |
+  | 1 MB | 33 | 43 | 148 |
+  | 64 MB | 2895 | 677 | 758 |
+  | 256 MB | 12156 | 3196 | 3363 |
+
+  24 threads never win, and below ~2 MB a thread helpers only cost.
+  `_pool.memory_threads` caps at the machine's fast cores. A mask / scale pass
+  is not that fast (`PASS_SPEED`): treating it as a scan cost AVHRR 39%.
+
+**Did not work:**
+- Cutting chunks over 256 kB on many threads when a read has fewer chunks than
+  threads, to use idle threads: WRF `T` 4.56 -> 5.91 ms, AVHRR 1.25 -> 2.35. For
+  chunks this small, the search for block starts costs more than threads give.
+- A native parked pool: a share with nothing to do costs 8-80 us. What looked
+  like hand-off was too many threads for small work.
+- Trimming a fresh process's first load: beyond page faults and `numpy.ma` (8 ms,
+  masked results need it), nothing there is over 3 ms.
+- Touching fresh output on the pool before decoding. The first read of a big
+  array costs twice the next (GOES-19 C02 masked 240 ms, then 85), and at 19
+  ms per GB in parallel touching looked like it would pay. It does not: the
+  time spent touching (260 ms for that read) equals what decoding then saves.
+  That cost is the faults, not their contention.
+- Huge pages for output on Linux (`MADV_HUGEPAGE`, under WSL2): 2 GB of first
+  touches 142 ms on 24 threads with them off, 146 with them on. Zeroing the
+  memory is the cost, in either size of page.
+- `PrefetchVirtualMemory` on the mapped file before decoding: 326 requests,
+  but VIIRS 45 -> 56 ms when cached (11 ms for the call) and MODIS cold 75 ->
+  119. Staging does the job with no such cost when cached.
+
+**After a pause.** `idle_reads.py`: reads in a tight loop against reads after
+0.05-1 s of quiet: VIIRS I05 4.7 -> 6.8 ms, GOES C13 3.7 -> 5.3, MODIS 21.5
+-> 26, GOES C02 and WRF unchanged. A millisecond or two for cores to wake and
+clocks to rise, which a library cannot avoid; loop benchmarks flatter
+short reads by that much.
+
+## Round 7 (2026-11-02): reads nothing ever had to plan
+
+Small reads against h5py and netCDF4-python. One read, repeated (us):
+
+| | row | h5py | pixel | h5py |
+|---|---|---|---|---|
+| Metop-SG | 1.82 | 2.44 | 1.66 | 2.10 |
+| AWIPS | 1.50 | 2.11 | 1.39 | 1.96 |
+| VIIRS I05 | 1.35 | 2.50 | 0.98 | 2.54 |
+| Ku-band | 1.13 | 2.39 | 1.08 | 2.00 |
+| GOES-19 C13 | 1.34 | 2.51 | 0.98 | 1.98 |
+
+Loops from a fresh open, processes alternating with the last commit, best of
+three rounds (ms):
+
+| | before | now | reference |
+|---|---|---|---|
+| VIIRS, 1,600 rows | 49.3 | 13.8 | h5py 42.8 |
+| GOES-19 C13, 1,600 rows | 47.9 | 9.1 | h5py 34.1 |
+| GOES-19 C13, 2,000 points | 73.3 | 13.7 | h5py 52.9 |
+| Ku-band, 885 rows | 13.6 | 8.7 | h5py 13.1 |
+| Metop-SG, 840 rows | 6.9 | 2.7 | h5py 4.3 |
+| WRF `XLAT`, 100 rows | 10.1 | 1.02 | h5py 0.76 |
+| WRF `T2`, whole, 200 times | 33.3 | 2.8 | h5py 2.3 |
+| Metop-SG, 30 random crops | 5.4 | 4.4 | h5py 5.8 |
+| WRF `T2`, 30 random crops | 2.0 | 0.93 | |
+
+Open, one variable, close (us): WRF `T2` 399 against h5py's 555, RCM 686 / 2095,
+Ku-band 1292 / 11954, AVHRR 2948 / 54655, Metop-SG 1625 / 4492. Through
+`fastnc.Dataset`, a row (us): Metop-SG 50 / netCDF4 222, AWIPS 26 / 105, VIIRS
+50 / 161, Ku-band 19 / 144, C13 75 / 190, WRF 34 / 292.
+
+What is left behind h5py is two small variables of WRF, read many times: a
+tenth of a millisecond here or there. `T2` and `XLAT` are four 39 kB chunks.
+
+- **A surveyed case hid the biggest bug.** `qk.py` timed C13's first 1,600 rows,
+  mostly fill. Rows through the middle, and points (`mid.py`), no better than
+  h5py with every core free: 84 chunks took 112 decoding passes, about one a
+  chunk. Chunks decoded ahead were not in `index.beside`, so the first read past
+  a box looked like a jump: the run restarted, that chunk was decoded twice,
+  and the count of chunks ahead never passed one. Doubling had not worked since
+  it was written; the gain measured then was this half-working form. Now 16 passes.
+- **`_quick`.** The cost of `x[i]` was never the copy: reducing the index, an
+  output, planning, converting, for a read whose place is a sum. A closure made
+  once holds the sum's terms. Across chunks it goes piece by piece, which replaced
+  90 us of plan for a row over two chunks.
+- **A link by name.** `group_links` read all 210 of WRF's links through the
+  fractal heap to find one. `btree2_hashed` goes down the name index by
+  lookup3 hash, `_symbol_link` bisects the symbol table's B-tree, and
+  21,057 names and 380 absent ones gave what the whole list gives, in groups of
+  up to 5,000 links of either kind.
+- **Numpy's fixed cost.** `_plan` made some forty small arrays: 70 us, three times
+  over for a miss of two chunks, more than decoding them. `_few_plan` does those
+  sums in integers (391 -> 273 us for such a read). A test compares it with
+  `_many_plan` on 500 random boxes.
+- **What attributes cost.** A masked read asked ten times for attributes that do
+  not change, and cast the same five to the variable's type each time. Remembered
+  on `Attrs`, with `_quick`, a row through `Dataset` halved.
+
+**Did not work:**
+- Keeping every chunk under 256 kB from its first read: WRF crops 2.05 -> 1.25
+  ms, but Ku-band 7 -> 20. Its chunks are 2.4 kB, and what keeping costs is ~50 us
+  of Python a chunk, whatever the size, which a crop over 8 of them pays 8 times.
+  It is the count that decides, so at most four chunks a read.
+- `spread` first built all its pieces and then saw they were too many: Metop-SG
+  crops 5.5 -> 6.2 ms. Now it counts first, and takes up to 256 uncompressed
+  chunks (a copy each), which is what put those crops ahead of h5py.
+- In `qk.py` h5py's `WRF` loop (0.15 ms) has its file already open, chunk cache
+  warm. `one.py`, closing between reads, is the number to go by.
+
+## Round 8 (2026-11-02): files that were not made for this benchmark
+
+Every test so far had read our own files. So: 13 real files fetched (NOAA OISST,
+NCEP, CPC, ERSST, National Water Model, NEX-GDDP CMIP6, xarray's samples), and all
+488 of the HDF Group's and Unidata's own test files, each dataset compared with
+h5py whole and by ten kinds of small read, each file in a process of its own.
+
+**Correctness.** 59 values were wrong and 67 reads failed, all in the test files
+and none in the real ones; most were one of a few causes. Now 26,693 reads of
+3,478 datasets agree, but for one virtual dataset whose source files are not
+there. Files of a million chunks and tests of what the corpus suggested then found
+more than the corpus had. What was silently wrong:
+
+| | gave |
+|---|---|
+| a read before the one stored chunk of a dataset | that chunk's bytes, not the fill value |
+| pages of a fixed or extensible array never written | the file's own header, as values |
+| fill values of big-endian datasets | their bytes reversed |
+| fixed strings padded with spaces, or ended by a NUL | the padding, the bytes after it |
+| a dataspace in shared object header messages | a wrong shape, and an array too big to make (now a clear error) |
+
+What h5py itself does not survive: `bad_nbit_params.h5` and `bad_fletcher32.h5`
+bring the process down with an access violation; fastnc reads the one and raises an
+error on the other. Not done: VAX floats, SOHM, region references, and a filter
+that is not there, on chunks it was skipped for.
+
+**Real files.** Fresh open, ms, through `Dataset` / `File` (`real.py`):
+
+| | Dataset | File | netCDF4 | h5py |
+|---|---|---|---|---|
+| OISST, a time series | 74 | 74 | 3387 | 3453 |
+| OISST, 30 series | 199 | 177 | 103449 | 103302 |
+| OISST, all | 133 | 104 | 4323 | 3662 |
+| CMIP6, 30 series | 108 | 105 | 72534 | 71977 |
+| CMIP6, 60 time steps | 63 | 45 | 494 | 432 |
+| CMIP6, all | 93 | 73 | 3012 | 2608 |
+| NCEP, 30 series | 12 | 12 | 3203 | 4822 |
+| NCEP, one time step | 0.46 | 0.23 | 0.41 | 0.21 |
+| NWM land, one time step | 10 | 5.9 | 280 | 145 |
+| NWM channels, 3,000 rows | 111 | 6.4 | 390 | 20856 |
+
+- **`_hold`.** 30 series cost 30 times one: a chunk a time step holds every place,
+  and each series decoded them all. Two reads running that want under a quarter
+  of the same many chunks now keep that region. OISST 2115 -> 195 ms, CMIP6 983 ->
+  120, NCEP 138 -> 13. Paying once for a region costs a read at most what reading
+  it takes, and only the second read of a program that makes more.
+- **Read-ahead by machine, and handed over.** 365 steps of CMIP6 took 527 ms, a
+  whole read 75. A fixed 32 MB allowed three chunks of 3.4 MB a pass on 24 threads:
+  512 MB gave 200 ms. What was left was copying: each time step, out of a chunk
+  decoded ahead that nothing else would ever read, into a new array, page faults
+  included. Now such a chunk leaves the cache and is the result. 150 ms, and
+  no change from 32 MB to 512 MB. OISST 915 -> 230.
+
+**Many small chunks.** A million chunks of 8 by 8, ms:
+
+| | first read, was | now | h5py | row | whole | h5py whole |
+|---|---|---|---|---|---|---|
+| v1 B-tree | 61 | 0.065 | 0.098 | 7.9 | 173 | 4470 |
+| v2 B-tree | 1805 | 0.068 | 0.095 | 8.4 | 196 | 6390 |
+| fixed array | ~2300 (a row) | 0.057 | 0.096 | 3.5 | 238 | 36797 |
+| extensible array | failed | 0.107 | 0.103 | 3.0 | 128 | 43860 |
+
+No file here had shown this: the most chunks of any is some 19,000. A first read made
+the whole table, O(chunks) against the library's O(log chunks), 18,000 times
+h5py's. `LazyIndex` goes down the tree. A table costs ~60 ns a chunk and a lookup
+~6 us, so after 1/64 of the chunks in lookups it has paid for the table and makes
+it (a rule that needs no tuning to the file: what it costs is at most twice
+the better choice). Chunks that do not need the plan's machinery are decoded by
+zlib on the spot: 130 -> 12 us for a chunk a read at random.
+
+**Did not work:**
+- That rule first gave the rows one by one even once the table was made: 840
+  of them on each open, Metop-SG crops 4.2 -> 5.4 ms. All in one go now.
+- Reversing every fill value when a dataset is swapped: HDF4's are native already,
+  and its reference digests said so.
+- `VIIRS fancy rows` (3.3-4.4 ms, h5py 4.0) shows as a loss in some runs. Commits
+  from before and after overlap; it is level.
+
+## Round 9 (2026-11-02): as it is used, and a check that takes a minute
+
+**Through xarray,** against its netcdf4 engine (ms): OISST a series 78 / 3629, 30
+series 196 / 126811; CMIP6 30 series 118 / 86733; a time mean 1138 / 6497, of
+which numpy's nanmean alone is 854 and no file is touched. A month of daily files
+by `open_mfdataset`: 217 / 449, of which 160 is opening them, and of the 3.1 ms an
+open takes fastnc's part is 0.7: what is left there is xarray's, in any engine.
+dask's threads do not fight the pool: `parallel=True` 217 ms, one thread 272.
+
+**A fresh process,** from nothing to a first value, ms: `Dataset` 218, netCDF4 241;
+`File` 193, h5py 265.
+
+**Every file netCDF4 opens,** compared through `Dataset` for the first time: on
+the 21 real files, no difference in structure, attributes or values. On the HDF
+Group's, most is fastnc showing what netCDF-C hides. netCDF-C overflows its
+stack on a group inside itself, and cannot read the attributes of two NOAA SDR
+files, which fastnc and h5py read alike.
+
+**`tools/check.py`.** A check took twenty minutes, nearly all of it the reference
+libraries and processes run one after another:
+
+| | before | now |
+|---|---|---|
+| the tests | 2 min | 40 s, in 8 processes |
+| 62,282 reads against the references | 3.5 min | 24 s, on saved checksums |
+| speed against the last commit | 3 min, by eye | 15 s, 20 rows, 3 rounds |
+| all of that | 8 min | 57 s |
+| and numba, and no kernels | 4 min | 4 min 20 s |
+
+Saving the answers takes 65 s, once. Its first run found a wrong value in code
+of the same day (see below). Tried on two faults put in on purpose: the bytes of
+big-endian fill values reversed again failed 30 tests, and 1 us added to each
+read showed as 1.13x on one row and 1.09x on another, which a single run, varying
+by up to 2x, could never show. `answers` did not see the fill values: no file in
+the corpus is sparse and big-endian, so it does not replace the tests.
+
+**Did not work:**
+- Page init bits read as a bitmap a data block. The room is reserved so, but the
+  bits run on from block to block (`k * pages + page`). A million-chunk array read
+  as 467,956 chunks and rows of zeros, and tests of smaller arrays passed. The dump
+  gave it away: bytes of only 0 and 255 from blocks of two pages.
+- A check that reported `tests ok, 0 passed`: pytest's summary line was gone, with
+  two `-q`. No tests seen is now a failure.
+- The first run of `check.py` took 139 s: a process for each of 1,094 reads of a
+  file, mostly importing. Batches of files in 8 processes, 24 s.
+- Reading GLM's 48 variables faster: 4.5 -> 4.0 ms by File, 10.2 -> 8.3 by Dataset,
+  and no line left above 3%. It stops there.
+
+## Round 10 (2026-11-02): limits, and what a read costs besides time
+
+**More files.** 197 of other projects' (HDF4, PyTables, netCDF-C, netcdf4-python,
+h5py): 744 files, 104,870 reads, 21 s. They found big-endian enums reversed through
+`File`, a shuffle by a size not the type's, names ending at a NUL inside their
+count, and HDF4 szip, which had never worked: its parameters were swapped, and
+HDF5's decoder wants a length in front of the stream. A decode by hand in plain
+Python gave all 80 values, which is how the swap was found; the same file's
+gzip and skipping-Huffman variables are its reference, as netCDF-C cannot read it.
+Of 56 differences left: corrupt files, a VDS without its sources, netCDF-C
+quirks (`f03tst_open_mem.nc` gives uninitialized memory, `test.cdf` a Windows error
+message as numbers, 2-byte strings in vlens split), variables and attributes
+netCDF-C hides, a cache image.
+
+BitGroom and Granular BitRound have nothing to undo: checked against the HDF
+Group's printed output, 2,048 values to the digits printed, and "Maximum value
+in DS1 is 1.84467e+19", which looks wrong and is what their example writes.
+
+zfp (`_zfp`) was checked against the real decoder, which hdf5plugin's H5Z-ZFP
+1.1.1 with zfp 1.0.1 is, once `import hdf5plugin` has loaded it: 14,280 datasets
+(int32, int64, unsigned, float, double; ranks 1 to 6; fixed rate, precision,
+accuracy, reversible, expert; smooth data, noise, subnormals, NaN, any bit
+pattern) gave the same bytes, as did the 2,048 values of the HDF Group's file
+(H5Z-ZFP 1.0.1, zfp 0.5.5). The first comparison failed by the thousand, and most
+of that was the reference: read back on the handle that wrote it, a dataset comes
+from HDF5's chunk cache, the input and not what a reader gets (at 4 bits a value
+it was 2.35 away from the decoded data). Read a lossy filter from a reopened file.
+MB/s decoded on this machine: a whole read on one thread against the plugin
+through h5py, like for like, on all 24, and the kernel alone on the stored chunks
+(a repeated read of a small dataset times the chunk cache, not the decoder):
+
+| | h5py, 1 thread | fastnc, 1 | fastnc, 24 | kernel alone, 1 |
+|---|---|---|---|---|
+| 3D float, rate 8 | 311 | 283 | 2188 | 360 |
+| 3D float, accuracy 0.01 | 206 | 186 | 1575 | 231 |
+| 3D float, reversible | 159 | 174 | 1244 | 186 |
+| 3D double, rate 16 | 392 | 398 | 2523 | 474 |
+| 3D double, reversible | 179 | 190 | 1374 | 194 |
+| 2D float, rate 8 | 249 | 224 | 1956 | 240 |
+| 1D double, rate 16 | 265 | 197 | 1741 | 206 |
+
+**CPU.** Many threads are not more work. Total CPU, ms, against h5py:
+
+| | fastnc | h5py |
+|---|---|---|
+| CMIP6, a series | 703 | 2453 |
+| CMIP6, 30 series | 3062 | 99297 |
+| CMIP6, 365 time steps | 2141 | 2734 |
+| OISST, all of it | 3219 | 3938 |
+| VIIRS, 30 crops | 219 | 250 |
+
+CPU in the second after a read: nothing to speak of. No thread spins.
+
+**Memory.** Where h5py was ahead, by far: 1.7 to 2.2 GB in the working set after
+closing, against 43 MB. Three causes, none tracked by anything:
+
+- `close()` did not unmap. Readers, the parser's memoryview, slices of heaps in
+  attribute caches and the lookups' closures all held the mapping, so `mm.close()`
+  raised a BufferError that was passed over as "arrays still view it". The map
+  lasted until collection, and on Windows the file could not be deleted. Now
+  all of those let go, a read after close raises ValueError, and the working
+  set after a loop over OISST is 140 MB, not 605.
+- The output pool kept blocks for ever, up to 4 GB, to save 50 ms a GB. Blocks,
+  regions and chunks over budget now go after 5 s unused, on one timer that
+  runs only while something is kept.
+- Read-ahead allowed an eighth of the pool. By cores instead, peak private MB, ms:
+
+| chunks ahead a thread | 1 | 2 | 4 | 8 |
+|---|---|---|---|---|
+| CMIP6 | 372, 199 | 462, 179 | 622, 253 | 732, 258 |
+| OISST | 425, 318 | 532, 288 | 728, 250 | 861, 246 |
+
+  2 is the best of CMIP6 and within 15% of OISST's best: past a point a bigger
+  buffer costs its own faults. Peak of a loop 649 -> 379 MB.
+
+`import fastnc` is 2 MB and 12 ms. The 72 MB first blamed on it was `fastnc.warm()`,
+which loads every kernel; a program loads those it uses. Per-thread scratch stays
+(the largest chunk read, a thread), about 100 MB after a run of big chunks.
+(Both wrong: see Round 11. The 72 MB was numba, loaded because no image had
+been built for hours, and scratch now goes.)
+
+**Did not work:**
+- `from ._h5read import ...` in `h5py_dtype` and `decode_values`: the import
+  machinery on every attribute, 10 us on an open, caught by `check.py` at 1.11x.
+- Three rounds of timing flagged four rows of noise. Flagged rows now get six more.
+- The check then flagged `cmip all` at 1.23x, and it was real and harmless: close
+  went from 0.03 to 16 ms, collection from 28.7 to 12.7, the sum from 113.7 to
+  112.4. Unmapping 243 MB costs what it costs; it now comes when asked for.
+
+## Round 11 (2026-11-02): what nobody had looked at
+
+**The image.** Every build for hours had failed its self test, silently, and each
+process that fell back on numba began another. numba names a library after its
+kernel, so a cache of object code by that name held one overload a kernel, and
+the others were linked to the wrong code; which came last decided whether a build
+worked. The check missed it by reusing the last good image, which is the check's
+fault: it now builds first, fails if it cannot, and fails if any read loads numba.
+That second test found at once that `run_nbit`, `run_shuffle` and `run_inflate` were
+in no fresh install's image, and a race: the first kernels come on all threads, and
+those arriving while one opened the image went to numba.
+
+Every memory figure of Round 10 had numba in it. After import, and after a loop
+and 5 s idle, working set, MB:
+
+| | fastnc then | fastnc now | h5py |
+|---|---|---|---|
+| imported | 124 (with `warm()`) | 32 | 42 |
+| OISST time steps, then idle | 224 | 36 | 44 |
+
+**What "peak" hid.** `PeakPagefileUsage`, used for peaks here, does not count the
+output pool: an anonymous `mmap` on Windows is a section, not private memory. So
+30 series were not 116 MB but 1.3 GB, for the 5 s it stays. A region is what
+makes them hundreds of times faster, but it need not be the whole variable: around
+places near each other, a sixteenth of it, and inflating stops at its last
+byte. 30 series, ms and MB held, processes alternating:
+
+| | before | after |
+|---|---|---|
+| CMIP6, close by | 179, 1261 | 70, 79 |
+| CMIP6, in a region | 108, 1261 | 70, 79 |
+| CMIP6, all over | 107, 1261 | 106, 1261 |
+| OISST, close by | 184, 1514 | 153, 95 |
+| OISST, all over | 183, 1514 | 182, 1514 |
+
+The first version guessed "near" too easily and made one set of places in two pay
+a second pass, 1.4x. Taking everything past an eighth of the values (`_hold.MOST`), one
+set in six does (1.35x), and they pay it once. Rows keep everything: a sweep along an
+axis would pass again each time the region grew.
+
+Read-ahead at 0, 1 and 2 chunks a thread: 594, 229, 214 ms for CMIP6's time steps,
+1023, 1342, 1366 MB with their outputs kept. It stays.
+
+**Fuzzing.** Files and reads made at random, each against h5py or netCDF4: two
+rounds, 12.2 million reads in the second, 3.7 million of them threaded, with coverage
+counted (`_hold` 1.0 million copies, chunk hand-off 330,000, `_quick` 4.8 million).
+Twelve silent wrong results in all (CHANGELOG), none on those paths. No crash came
+from fastnc: 71 process deaths, the ones replayed alone in the reference libraries'
+code, and 1.8 million reads with fastnc alone in the process died of nothing. One,
+seed 70308, never came back and stays unexplained.
+
+Filters were the worst of it. `fusable` looked at ids and not their order, so
+a checksum under a shuffle read as garbage. Every order of up to three of six filters:
+1,290 datasets, 17 wrong and 151 refused before, all right now. Other orders go stage
+by stage, netCDF-C's checksum under its shuffle among them (a chunk that went without
+the deflate has no place in the one pass), so a fletcher32 variable written
+by netCDF-C loses the mask pass's proof.
+
+**netCDF-3 and HDF4** went from 18 of 355 kinds of read lost to netCDF4-python to
+none (CHANGELOG). A masked small read, with what `_toma` works out kept per
+variable: 30 -> 22 us; netCDF4 about 95. Big-endian chunks, swapped a word at a
+time, ms against h5py: `f4` whole 9.0 -> 1.35 (3.2), `f8` window 3.3 -> 0.84 (1.4).
+
+**The README's tables got slower, and nothing had.** VIIRS whole 47 -> 76 ms, GOES C02
+63 -> 94. A/B over the commits showed no change, and one thread none either. The
+benchmark alternates readers, netCDF4 takes seconds, and since Round 10 what fastnc
+keeps goes after 5 s; a whole GOES read in a loop is 61 ms, 11 s apart 134. It is what
+that trade costs, but why so much? First writes to a GB, ms:
+
+| threads | touched already | numpy, `VirtualAlloc` | `mmap(-1)` |
+|---|---|---|---|
+| 1 | 48 | 158-169 | 531 |
+| 8 | 30 | 36-40 | 95 |
+| 24 | 31 | 36-43 | 101 |
+
+A pool made to avoid page faults had been buying the dearest kind: an anonymous
+mapping on Windows is a section of the page file, and on Linux shared memory. In the
+process's own memory GOES 11 s apart is 95 ms. The rest is not found: VIIRS to the
+GPU is 8.6 ms in a loop, 37 after idling, and was 32 before any of this.
+
+**Did not work:**
+- A test build with a target of `try.img`: `_publish` tidies by the name's prefix up
+  to a dash, an empty one here, and took every file beside it.
+- Fewer threads for small windows of plain chunks: time is level from 1 to 24. The
+  0.2 ms lost to h5py on a first window is the index.
+
+## Round 12 (2026-11-02): what a benchmark of arrays cannot see
+
+Every table so far is of numbers read by slices. So: everything else a program does
+with a file, against h5py and netCDF4, in three surveys. Ms, repeated reads:
+
+| | fastnc before | after | h5py |
+|---|---|---|---|
+| 200,000 variable-length strings | 247 | 25 | 34 |
+| 2,000 of them | 3.3 | 0.50 | 0.59 |
+| 20,000 vlens of numbers | 48 | 4.8 | 13 |
+| 2,000 records one at a time | 159 | 4.6 | 72 |
+| 2,000 references | 1.3 | 0.41 | 0.32 |
+| 3,000 names of a group | 4.0 | 2.8 | 2.2 |
+| a list of 30 times, contiguous | 5.0 | 0.02 | 0.22 |
+| a list of 30 times, plain chunks | 1.7 | 0.03 | 0.26 |
+| every third time, plain chunks | 0.79 | 0.01 | 0.34 |
+| a 256 x 256 window of 256 plain chunks | 0.42 | 0.12 | 0.89 |
+
+| | fastnc before | after | netCDF4 |
+|---|---|---|---|
+| 2,000 records one at a time | 418 | 33 | 212 |
+| 100,000 rows of chars, masked | 12.3 | 1.4 | 25 |
+| 2,000 rows of chars, one at a time | 172 | 28 | 170 |
+
+Each was Python for each value, or a plan for each read. Strings went to `str` for
+Dataset and back to `bytes` for File, by way of latin-1 where they said ASCII, which
+changed bytes past 127. `vlen_pack` packs what a selection refers to in one pass, a
+collection walked once for each run of values in it, and the values are cut from one
+buffer. `_gather` copies boxes of plain chunks, steps included, with nothing to plan.
+Lists and masks read their box as small reads do.
+
+Chars masked at 8 ns a value because numpy compares `S1` as strings: `uint8` does
+not. Records through Dataset were a positional read, seven dtypes made anew and a
+copy field by field; `dtype_view`, made a property that morning, had added to it.
+A record numpy copies by fields leaves the bytes between them as they were, and the
+remote tests noticed: records are copied as bytes.
+
+**After idling.** Keeping memory is no longer what a read after a pause pays for:
+GOES whole, 7 s after the last read, is the 61 ms of a loop. VIIRS, one variable, is
+5 ms in a loop, 14 a second after, with or without what is kept, and with fewer
+threads the gap goes (4 threads: 16 and 17). Parked cores: nothing here to fix.
+
+**xarray.** WRF d01 is 21 ms open, 34 load and 6 close, with `decode_cf` and its
+`Variable`s flat across the profile. Nothing stands out to take.
+
+**Did not work:**
+- v1 B-trees' inner nodes decoded once, for `bisect`: block reads 0.33 -> 0.30 ms, and
+  random pixels on a million chunks 1.85x slower: each new node costs 200 lookups.
+  Caught by the check, taken out.
+- Sparse lists a place at a time: rows 0.11 -> 3.1 ms, each through the general path.
+  It stays for boxes over 16 MB. Reading the box the quick way was the answer.
+- Comparing lists with numpy: `x[0, a:b, [..]]` moves an axis there, not in h5py.
+
+Left: `x[3, j]` across five plain chunks, 6.8 us against h5py's 3.9; references and
+name lists by a quarter; a whole step of 20 chunks read repeatedly, which netCDF4's
+bigger cache holds (0.4 ms against 0.2).
+
+**Programs, not reads.** Read-ahead followed a read only to the chunk next to the last.
+`range(0, n, 2)` over a variable with a chunk a step got none, a chunk at a time on
+one thread, and that is every 6-hourly or monthly loop. A jump repeated along one
+dimension is now followed like a step (`_went`). CMIP6, 360 steps' worth, ms:
+
+| every | before | after | chunks decoded ahead / read |
+|---|---|---|---|
+| 1 | 175 | 175 | 351 / 360 |
+| 2 | 370 | 109 | 172 / 180 |
+| 3 | 248 | 82 | 112 / 120 |
+| 4 | 183 | 62 | 83 / 90 |
+| 6 | 124 | 46 | 53 / 60 |
+| 10 | 73 | 35 | 30 / 36 |
+
+CPU in all rises with the wall time's fall, as for every step: 344 -> 641 ms at 2.
+Nothing is decoded that is not read but the last few. Every 4th step of a year, ms:
+File 65, Dataset 99, xarray 105; netCDF4 1155, xarray on it 1201.
+
+An xarray dataset could not be pickled, so dask's distributed scheduler and
+multiprocessing failed on it: the store held a file object. `Dataset`, `File` and what
+is in them pickle by what they name and open again where unpickled, which netCDF4's
+and h5py's do not. With threads, dask's mean over time: 342 ms, netcdf4 3802, h5netcdf
+3956. Threads of a program reading steps by turns are still not worth it: 124 ms on
+one, 180 on two, 246 on four sharing a file, and 170, 139 with a file each. Probably
+two reads at once decoding the same chunks ahead, as nothing says one is under way;
+not looked into. h5py: 1830 to 2630.
+
+Over HTTP at 30 ms a request, CMIP6 of 244 MB: a pixel 9 requests and 2 MB, 20 steps
+24 requests, 30 series 37 and the whole file's bytes. Nothing to take.
+
+Masking a CMIP6 step costs 0.3 ms, and looked like 5x numpy's `==`. It is not that
+test: this variable is 69% masked, land only, and flagging it takes 376 us on a
+thread against numpy's 609. The kernel's test is 101 us for 4 MB.
+- `Datatype.h5py_dtype` and `retyped` calling each other: a stack overflow, caught by
+  the first compound read.
+- Reduced integers and float16 widened in `Variable.read` alone: `_quick` and the
+  fused path go straight to the file.
+
+## Round 13 (2026-11-02): threads sharing a file
+
+Round 12 left threads reading steps by turns from one open file slower than one thread,
+with a guess as to why. Counted: 240 steps of CMIP6, each a chunk.
+
+| threads | ms before | after | chunks decoded before | after | decoded twice before | after |
+|---|---|---|---|---|---|---|
+| 1 | 134 | 132 | 262 | 262 | 0 | 0 |
+| 2 | 179 | 148 | 360 | 295 | 39 | 17 |
+| 4 | 138 | 179 | 353 | 267 | 113 | 1 |
+| 8 | 240 | 111 | 610 | 276 | 346 | 0 |
+
+Those times are one pass each, and move by 40 ms from run to run: the counts are the
+result, and they move too (276 to 318 decoded at 8 threads, 0 to 6 twice). With each case
+alone in a process: shared by 1, 2, 4, 8, 16 threads 120, 127, 107, 121, 128 ms, against
+136, 158, 122, 114, 129 with a file each. Sharing no longer costs anything. Nor does it
+pay: a read uses every core as it is, so more threads share them. h5py: 1800 to 2630.
+
+Three things had to go together, and each alone looked like the answer:
+
+- **Claims.** A read says which chunks it is decoding (`index.coming`); others wait for
+  them and leave them out of what they decode ahead.
+- **A way each.** `beside`, `last` and `ahead` were the dataset's, so each thread's read
+  looked like a jump from the other's and read-ahead started over. They are per thread
+  (`_Way`), and a read may carry on from any thread's.
+- **What was read.** Claims made repeats worse at 4 threads, 353 -> 443 decoded, which
+  showed where they came from: a chunk handed to a read leaves the cache, and to a
+  thread behind the others looks new. `index.gone` remembers the last 16,000.
+
+One thread does none of this, and the check's rows show no cost: Ku rows 0.97x, Metop
+crops 0.99x. A claim made before a fork is ignored by the child, whose copy of it
+nobody would ever set.
+
+**Rows across chunks.** `spread` worked out the same pieces for every row of a loop.
+`pieces` keeps them. `x[i]` across five compressed chunks 5.4 -> 3.9 us, h5py 3.7.
+Crops that never repeat go on costing what they did.
+
+**The way into a kernel.** Across five plain chunks the same row took 6.1 us by the image
+and 4.4 by numba, whose call is the cheaper by some 1.7 us here: the image's exists to
+cost next to nothing, and was 2.36 us for `_gather`'s eight arguments. Of that 1.0 made
+the words, testing each argument on each call, 0.44 was the call, 0.18 the types.
+Which arguments are arrays is known from the types: 2.17 us, and the row 5.9. Under the
+GATHER of 4 nothing is to be had: the loop costs 0.75 us a chunk, and the two meet at
+about 5 chunks for rows. Columns are another matter: 5.9 by the loop against 8.6 by the
+kernel over 4 chunks, 9.4 and 11.1 over 8.
+
+**Measuring.** The check called Metop crops 1.11x slower now and then, and I took it for
+real twice: one comparison of 14 rounds by turns said 1.08x, two of 16 said 0.99x. This
+row moves by more than the check's margin. And `FASTNC_IMAGE_FILE` named the small `.img`
+file that says which image is current, which is not an image: that process went by numba
+without a word, and its 4.3 us looked like an image twice as good as itself. Print what a
+process is running on before comparing two of them.
+
+Left: a plain row across five chunks, 5.9 us against h5py's 3.7; columns by the kernel, as
+above; references and name lists by a quarter; a step of 20 chunks read repeatedly (0.4 ms
+against netCDF4's 0.2).
+
+**The image, ported.** fastgrib took the kernel image (its first decode in a fresh
+process 760 ms -> 4 ms), and porting it found what fastnc's had not met yet: a memmap
+went to a unit as `int()` of itself (an address, for a one-element one), a byte-swapped
+array had a native one's key, a failed allocation was written to, errors were all
+`RuntimeError`, growing buffers were missing, every numba helper was linked to address 0,
+the index had no CRC, and a forked child moved its parent's file position. fastgrib's
+answers are here now. Still 340 units, none left out: no kernel here needed a helper.
+Not measured: the check's speed step runs the last commit's code on the newest image,
+which a new image format turns away, so that step compared nothing this time.

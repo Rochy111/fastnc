@@ -118,7 +118,7 @@ def _pipelined(bv, box, oshape, dt, host, dev, stream, threads):
     import time
     from . import _chunks, _h5read
     r = getattr(bv, '_reader', None)
-    if not isinstance(r, _h5read.Reader) or not _chunks._READY.is_set() or not oshape:
+    if not isinstance(r, _h5read.Reader) or not _chunks.loaded() or not oshape:
         return False
     ds = r.ds
     t = ds.type
@@ -126,7 +126,7 @@ def _pipelined(bv, box, oshape, dt, host, dev, stream, threads):
         return False
     if not (ds.layout.cls == 2 or (ds.layout.cls == 1 and r.virtual)):
         return False
-    if any(f.id not in _chunks.SUPPORTED for f in ds.filters) or box[0][2] != 1:
+    if not _chunks.fusable(ds) or box[0][2] != 1:
         return False
     stored = t.dtype
     swap = _h5read._simple_swap(stored)
@@ -145,6 +145,8 @@ def _pipelined(bv, box, oshape, dt, host, dev, stream, threads):
     per = max(1, _pipe_band() // max(rowbytes * c0, 1))         # grid rows per band
     band = (grow - g0) // per
     nb = int(band.max()) + 1
+    if nb < 2:
+        return False                                # (one band: nothing to upload while decoding)
     expected = np.bincount(band, minlength=nb)
     progress = np.zeros(nb, np.int64)
     finished = []

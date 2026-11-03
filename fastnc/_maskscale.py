@@ -40,9 +40,10 @@ import warnings
 
 import numpy
 
-from . import _arena, _hw
+from . import _arena, _chunks, _hw, _pool
 
-from ._jit import njit
+from ._chunks import holds_value, value_words
+from ._jit import bind, njit
 from ._intrin import ld64, take
 
 ma = numpy.ma
@@ -66,6 +67,8 @@ DEFAULT_FILLVALS = {
 
 FAST_MIN_SIZE = 1 << 15         # below this the reference path is faster (the fast one: ~70 us fixed)
 BLOCK = _hw.block(1 << 16)      # elements a thread takes at a time (fits this machine's L2)
+SOLO_BYTES = _hw.l2_bytes() or 1 << 20      # arrays that fit a core's L2 cache are tested for
+                                            # masked values on one thread
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +76,7 @@ BLOCK = _hw.block(1 << 16)      # elements a thread takes at a time (fits this m
 
 def apply(raw, attrs, dtype, mask=True, scale=True, always_mask=True,
           chartostring=True, var_dtype=None, xp=numpy, no_fill=False,
-          var_shape=None, key=None, threads=None):
+          var_shape=None, key=None, threads=None, clean=False):
     """netCDF4-python's Variable.__getitem__ post-processing of raw values
     `raw` (what read() returned) for a variable with attributes `attrs`
     (as getncattr returns them) and stored dtype `dtype` (numpy dtype, or
@@ -96,6 +99,8 @@ def apply(raw, attrs, dtype, mask=True, scale=True, always_mask=True,
     numpy's scalar first, as netCDF4-python's indexing makes it. Missing,
     they mean the whole variable was read.
     `threads`: at most this many threads (default: fastnc's pool).
+    `clean`: the read proved (a Probe) that raw holds none of the values
+    this variable's mask-only plan looks for; no pass over raw then.
     `xp=cupy`: raw is a cupy array; see _maskscale_gpu.apply.
     """
     if xp is not numpy:
@@ -108,25 +113,31 @@ def apply(raw, attrs, dtype, mask=True, scale=True, always_mask=True,
     if isinstance(raw, numpy.ndarray) and raw.ndim == 0 and var_shape is not None \
             and len(var_shape) > 0:
         raw = raw[()]               # one value of an array variable: numpy's scalar
-    if (kind in ('primitive', 'enum') and type(raw) is numpy.ndarray
-            and raw.ndim > 0 and raw.size >= FAST_MIN_SIZE and raw.flags.c_contiguous):
-        plan = make_plan(raw.dtype, attrs, dtype, kind, mask, scale, no_fill)
-        if plan is not None:
-            if _kernels_ready():
-                return run_plan(plan, raw, always_mask, threads)
-            from . import _chunks
-            t = time.perf_counter()
-            r = run_plan_numpy(plan, raw, always_mask, threads)
-            _chunks.slow(time.perf_counter() - t)
-            return r
+    plan = fast_plan(raw, attrs, dtype, kind, mask, scale, no_fill)
+    if plan is not None:
+        if clean and plan.few is not None:
+            return finish(plan, raw, None, None, (0, 0, 0, 0), always_mask)
+        if _kernels_ready():
+            return run_plan(plan, raw, always_mask, threads)
+        t = time.perf_counter()
+        r = run_plan_numpy(plan, raw, always_mask, threads)
+        _chunks.slow(time.perf_counter() - t)
+        return r
     return _reference(raw, attrs, dtype, kind, mask, scale, always_mask, chartostring,
                       no_fill, var_shape, key, var_dtype)
+
+
+def fast_plan(raw, attrs, dtype, kind, mask, scale, no_fill):
+    """The Plan raw goes through the kernels by, or None for the reference path."""
+    if (kind in ('primitive', 'enum') and type(raw) is numpy.ndarray
+            and raw.ndim > 0 and raw.size >= FAST_MIN_SIZE and raw.flags.c_contiguous):
+        return make_plan(raw.dtype, attrs, dtype, kind, mask, scale, no_fill)
+    return None
 
 
 def _kernels_ready():
     """Whether to use the kernels (until they are loaded -- see
     _chunks.LOAD_AFTER -- run_plan_numpy does the work)."""
-    from . import _chunks
     return _chunks.ready()
 
 
@@ -192,6 +203,9 @@ def _check_safecast(self, attname, warn=warnings.warn):
     msg = """WARNING: %s not used since it
 cannot be safely cast to variable data type""" % attname
     if self.has(attname):
+        safe = getattr(self.attrs, 'safe', ())      # (one variable's: its type does not change)
+        if attname in safe:
+            return True
         att = numpy.array(self.attrs[attname])
     else:
         return False
@@ -203,6 +217,8 @@ cannot be safely cast to variable data type""" % attname
     is_safe = _safecast(att, atta)
     if not is_safe:
         warn(msg)
+    elif safe != ():
+        safe.add(attname)
     return is_safe
 
 
@@ -275,109 +291,160 @@ def _count_last(key, shape):
     return 1
 
 
-def _toma(self, data):
-    # Variable._toma, netCDF4-python 1.7.4
-    is_unsigned = self.get('_Unsigned', False) in ["True", "true"]
-    is_unsigned_int = is_unsigned and data.dtype.kind == 'i'
-    if self.scale and is_unsigned_int:
-        dtype_unsigned_int = '%su%s' % (data.dtype.byteorder, data.dtype.itemsize)
-        data = data.view(dtype_unsigned_int)
-    totalmask = numpy.zeros(data.shape, numpy.bool_)
-    fill_value = None
-    safe_missval = _check_safecast(self, 'missing_value')
-    if safe_missval:
-        mval = numpy.array(self.attrs['missing_value'], self.dtype)
-        if self.scale and is_unsigned_int:
-            mval = mval.view(dtype_unsigned_int)
-        mvalmask = numpy.zeros(data.shape, numpy.bool_)
-        if mval.shape == ():
-            mval = [mval]
-        for m in mval:
+class _Masking:
+    """Variable._toma, netCDF4-python 1.7.4, in two: here what it works out from
+    the attributes, in `run` what it does with values. A file read does not
+    change its attributes, so the first is done once a variable: it was a third
+    of a small read. One addition: a type netCDF has no default fill value for
+    (HDF5 arrays; netCDF-C will not open a file that has one) has none to be
+    masked at, and no KeyError."""
+    __slots__ = ('view', 'missing', 'fill', 'fill_nan', 'other', 'low', 'high', 'last', 'byte')
+
+    def __init__(self, var, dt, warn):
+        dtype, attrs = var.dtype, var.attrs
+        default = DEFAULT_FILLVALS.get(dtype.str[1:])
+        is_unsigned = var.get('_Unsigned', False) in ["True", "true"]
+        view = None
+        if var.scale and is_unsigned and dt.kind == 'i':
+            view = '%su%s' % (dt.byteorder, dt.itemsize)
+        self.view = view
+        self.missing = None
+        if _check_safecast(var, 'missing_value', warn):
+            mval = numpy.array(attrs['missing_value'], dtype)
+            if view:
+                mval = mval.view(view)
+            if mval.shape == ():
+                mval = [mval]
+            self.missing = []
+            for m in mval:
+                try:
+                    mvalisnan = numpy.isnan(m)
+                except TypeError:
+                    mvalisnan = False
+                self.missing.append((m, mvalisnan))
+        safe_fillval = _check_safecast(var, '_FillValue', warn)
+        self.fill = self.other = None
+        self.fill_nan = False
+        if safe_fillval:
+            self.fill = numpy.array(attrs['_FillValue'], dtype)
+            if view:
+                self.fill = self.fill.view(view)
             try:
-                mvalisnan = numpy.isnan(m)
-            except TypeError:
-                mvalisnan = False
-            if mvalisnan:
-                mvalmask += numpy.isnan(data)
-            else:
-                mvalmask += data == m
-        if mvalmask.any():
-            fill_value = mval[0]
-            totalmask += mvalmask
-    safe_fillval = _check_safecast(self, '_FillValue')
-    if safe_fillval:
-        fval = numpy.array(self.attrs['_FillValue'], self.dtype)
-        if self.scale and is_unsigned_int:
-            fval = fval.view(dtype_unsigned_int)
-        try:
-            fvalisnan = numpy.isnan(fval)
-        except Exception:
-            fvalisnan = False
-        if fvalisnan:
-            mask = numpy.isnan(data)
-        elif (data == fval).any():
-            mask = data == fval
+                self.fill_nan = numpy.isnan(self.fill)
+            except Exception:
+                self.fill_nan = False
         else:
+            no_fill = 1 if var.no_fill else 0
+            if (default is not None and not var._isvlen
+                    and (no_fill != 1 or dtype.str[1:] not in ['u1', 'i1'])):
+                self.other = numpy.array(default, dtype)
+        validmin = None
+        validmax = None
+        safe_validrange = _check_safecast(var, 'valid_range', warn)
+        safe_validmin = _check_safecast(var, 'valid_min', warn)
+        safe_validmax = _check_safecast(var, 'valid_max', warn)
+        if safe_validrange and attrs['valid_range'].size == 2:
+            validmin = numpy.array(attrs['valid_range'][0], dtype)
+            validmax = numpy.array(attrs['valid_range'][1], dtype)
+        else:
+            if safe_validmin:
+                validmin = numpy.array(attrs['valid_min'], dtype)
+            if safe_validmax:
+                validmax = numpy.array(attrs['valid_max'], dtype)
+        if validmin is not None and view:
+            validmin = validmin.view(view)
+        if validmax is not None and view:
+            validmax = validmax.view(view)
+        self.low, self.high = (validmin, validmax) if dtype.kind != 'S' else (None, None)
+        if safe_fillval:
+            self.last = numpy.array(attrs['_FillValue'], dtype)
+        elif default is None or dtype.str[1:] in ['u1', 'i1']:
+            self.last = default
+        else:
+            self.last = numpy.array(default, dtype)
+        self.byte = None                            # a char variable's fill, as a number (see run)
+        fill = self.fill if self.fill is not None else self.other
+        if dtype == numpy.dtype('S1') and dt == dtype and fill is not None and self.missing is None:
+            self.byte = numpy.frombuffer(fill.tobytes(), numpy.uint8)[0]
+
+    def run(self, data, always_mask):
+        if self.view:
+            data = data.view(self.view)
+        total = fill_value = None
+        if self.byte is not None and data.__class__ is numpy.ndarray:
+            # (a byte each: numpy compares them as strings, 40 times slower)
+            fill = self.fill if self.fill is not None else self.other
+            mask = data.view(numpy.uint8) == self.byte
+            masked_values = bool(mask.any())
+            if masked_values:
+                data = ma.masked_array(data, mask=mask, fill_value=fill)
+            else:
+                data = ma.masked_array(data)
+            if data.shape == () and data.mask.all():
+                data = data[()]
+            elif not always_mask and not masked_values:
+                data = _plain(data)
+            return data
+        if self.missing is not None:
             mask = None
-        if mask is not None:
-            if fill_value is None:
-                fill_value = fval
-            totalmask += mask
-    else:
-        no_fill = 1 if self.no_fill else 0
-        if not self._isvlen and (no_fill != 1 or self.dtype.str[1:] not in ['u1', 'i1']):
-            fillval = numpy.array(DEFAULT_FILLVALS[self.dtype.str[1:]], self.dtype)
-            has_fillval = data == fillval
-            if type(has_fillval) == bool:
-                has_fillval = numpy.asarray(has_fillval)
-            if has_fillval.any():
+            for m, isnan in self.missing:
+                hit = numpy.isnan(data) if isnan else data == m
+                mask = hit if mask is None else mask | hit
+            if mask is not None and mask.any():
+                fill_value = self.missing[0][0]
+                total = mask
+        fval = self.fill
+        if fval is not None:
+            if self.fill_nan:
+                mask = numpy.isnan(data)
+            else:
+                mask = data == fval
+                if not mask.any():
+                    mask = None
+            if mask is not None:
                 if fill_value is None:
-                    fill_value = fillval
-                mask = data == fillval
-                totalmask += mask
-    validmin = None
-    validmax = None
-    safe_validrange = _check_safecast(self, 'valid_range')
-    safe_validmin = _check_safecast(self, 'valid_min')
-    safe_validmax = _check_safecast(self, 'valid_max')
-    if safe_validrange and self.attrs['valid_range'].size == 2:
-        validmin = numpy.array(self.attrs['valid_range'][0], self.dtype)
-        validmax = numpy.array(self.attrs['valid_range'][1], self.dtype)
-    else:
-        if safe_validmin:
-            validmin = numpy.array(self.attrs['valid_min'], self.dtype)
-        if safe_validmax:
-            validmax = numpy.array(self.attrs['valid_max'], self.dtype)
-    if validmin is not None and self.scale and is_unsigned_int:
-        validmin = validmin.view(dtype_unsigned_int)
-    if validmax is not None and self.scale and is_unsigned_int:
-        validmax = validmax.view(dtype_unsigned_int)
-    byte_type = self.dtype.str[1:] in ['u1', 'i1']
-    if safe_fillval:
-        fval = numpy.array(self.attrs['_FillValue'], self.dtype)
-    else:
-        fval = numpy.array(DEFAULT_FILLVALS[self.dtype.str[1:]], self.dtype)
-        if byte_type:
-            fval = None
-    if self.dtype.kind != 'S':
-        if validmin is not None:
-            totalmask += data < validmin
-        if validmax is not None:
-            totalmask += data > validmax
-    if fill_value is None and fval is not None:
-        fill_value = fval
-    if fill_value is None:
-        fill_value = DEFAULT_FILLVALS[self.dtype.str[1:]]
-    masked_values = bool(totalmask.any())
-    if masked_values:
-        data = ma.masked_array(data, mask=totalmask, fill_value=fill_value)
-    else:
-        data = ma.masked_array(data)
-    if data.shape == () and data.mask.all():
-        data = data[()]
-    elif not self.always_mask and not masked_values:
-        data = _plain(data)
-    return data
+                    fill_value = fval
+                total = mask if total is None else total | mask
+        elif self.other is not None:
+            mask = data == self.other
+            if type(mask) == bool:
+                mask = numpy.asarray(mask)
+            if mask.any():
+                if fill_value is None:
+                    fill_value = self.other
+                total = mask if total is None else total | mask
+        if self.low is not None:
+            mask = data < self.low
+            total = mask if total is None else total | mask
+        if self.high is not None:
+            mask = data > self.high
+            total = mask if total is None else total | mask
+        if fill_value is None:
+            fill_value = self.last
+        masked_values = total is not None and bool(total.any())
+        if masked_values:
+            data = ma.masked_array(data, mask=total, fill_value=fill_value)
+        else:
+            data = ma.masked_array(data)
+        if data.shape == () and data.mask.all():
+            data = data[()]
+        elif not always_mask and not masked_values:
+            data = _plain(data)
+        return data
+
+
+def _toma(self, data):
+    kept = getattr(self.attrs, 'toma', None)
+    key = data.dtype, self.scale, self.no_fill
+    m = None if kept is None else kept.get(key)
+    if m is None:
+        warned = []                                 # (those netCDF4 gives every read: so here)
+        m = _Masking(self, data.dtype, warned.append)
+        for w in warned:
+            warnings.warn(w)
+        if kept is not None and not warned:
+            kept[key] = m
+    return m.run(data, self.always_mask)
 
 
 def _plain(data):
@@ -401,8 +468,7 @@ def _chartostring(b, encoding='utf-8'):
     else:
         a = numpy.array([bs[n1:n1 + slen].decode(encoding) for n1 in range(0, len(bs), slen)],
                         'U' + repr(slen))
-    a.shape = b.shape[:-1]
-    return a
+    return a.reshape(b.shape[:-1])
 
 
 def _set_viewdtype(dt):
@@ -441,27 +507,137 @@ CAT_MISSING, CAT_FILL, CAT_DEFAULT = 1, 2, 4
 class Plan:
     """What the kernel needs (thresholds in the storage dtype, flags, the
     scale constants) and what the wrapping needs (how the fill value is
-    chosen, the dtypes, the masked array's stand-in)."""
+    chosen, the dtypes, the masked array's stand-in). Shared between
+    variables and threads: nothing changes one once made."""
 
 
-def make_plan(raw_dtype, attrs, dtype, kind, mask, scale, no_fill):
+_DECIDES_PLAN = ('_Unsigned', 'missing_value', '_FillValue', 'valid_range', 'valid_min',
+                 'valid_max', 'scale_factor', 'add_offset')
+_PLANS = {}                     # what decides a plan -> (Plan or None, its warnings)
+PLANS_KEPT = 1024
+
+def make_plan(raw_dtype, attrs, dtype, kind, mask, scale, no_fill, quiet=False):
     """A Plan for the fast path, or None where the reference path must run
-    (non-numeric storage, integer or complex scaling, odd attributes)."""
+    (non-numeric storage, integer or complex scaling, odd attributes).
+    quiet: warnings about odd attributes left to the plan of the read."""
     dtype = numpy.dtype(dtype)
-    if raw_dtype != dtype or dtype.kind not in 'iuf' or not dtype.isnative:
+    if (raw_dtype != dtype or dtype.kind not in 'iuf' or not dtype.isnative
+            or dtype.str[1:] not in DEFAULT_FILLVALS):  # (float16: no kernels for it either)
         return None
-    for name in ('_Unsigned', 'missing_value', '_FillValue', 'valid_range', 'valid_min',
-                 'valid_max', 'scale_factor', 'add_offset'):
+    # A plan follows from these and nothing else, so variables that agree on
+    # them share one, across files too (186 of WRF's 200 variables); it holds
+    # only these, not `attrs`, which would keep a closed file's mapping alive
+    own = {}
+    key = [dtype, kind, bool(mask), bool(scale), bool(no_fill)]
+    among = getattr(attrs, 'among', None)
+    for name in _DECIDES_PLAN if among is None else among(_DECIDES_PLAN):
         v = attrs.get(name)
-        if v is not None and not isinstance(v, (str, numpy.generic, numpy.ndarray)):
+        if v is None:
+            continue
+        if isinstance(v, str):
+            key.append((name, v))
+        elif isinstance(v, (numpy.generic, numpy.ndarray)):
+            key.append((name, v.dtype, v.shape, v.tobytes()))
+            if v.dtype.hasobject:
+                key = None                      # (those bytes are pointers)
+                break
+        else:
             return None                         # (not as getncattr gives them)
-    self = _Var(attrs, dtype, kind, mask, scale, True, False, no_fill, None)
-    said = []
-    p = _plan(self, dtype, said.append)
-    if p is not None:                           # (else the reference path says them)
+        own[name] = v
+    if key is None:
+        got = None
+    else:
+        key = tuple(key)
+        got = _PLANS.get(key)
+    if got is None:
+        said = []
+        got = (_plan(_Var(attrs if key is None else own, dtype, kind, mask, scale, True, False,
+                          no_fill, None), dtype, said.append), said)
+        if got[0] is not None:
+            got[0].few = _few_values(got[0])
+            got[0].words = None if got[0].few is None else value_words(got[0].few)
+        if key is not None:
+            if len(_PLANS) >= PLANS_KEPT:
+                _PLANS.clear()
+            _PLANS[key] = got
+    p, said = got
+    if p is not None and not quiet:             # (else the reference path says them)
         for msg in said:
             warnings.warn(msg)
     return p
+
+
+class Probe:
+    """A test a read makes while its values are in cache, instead of a pass
+    over them afterwards: `values` (at most two, in the stored type) are
+    all a mask-only plan looks for. The read sets `proven` once it has
+    shown that none of them is among what it read; anything it could not
+    test leaves that False, and the usual pass runs."""
+    __slots__ = ('values', 'proven')
+
+    def __init__(self, values):
+        self.values = values
+        self.proven = False
+
+
+def masked_values(p):
+    """The values Plan p masks, when masking exactly those is all it does
+    and a value equals one only if their bits do; else None. (Not 0.0:
+    -0.0 equals it. Not a range, NaN, or a scaled or unsigned view.)"""
+    if not p.mask or p.out_dtype is not None or p.view is not None or p.neq == 0:
+        return None
+    o = p.opts
+    if o[O_MVNAN] or o[O_FVNAN] or p.fval_always:
+        return None
+    xdt = p.xdt
+    lo, hi = p.lohi[0], p.lohi[1]
+    if xdt.kind == 'f':
+        if lo != -numpy.inf or hi != numpy.inf:
+            return None
+    else:
+        t = numpy.iinfo(xdt)
+        if lo != t.min or hi != t.max:
+            return None
+    eq = p.eq[:p.neq]
+    if xdt.kind == 'f' and (eq == 0).any():
+        return None
+    return eq
+
+
+def probe(attrs, dtype, mask, scale, no_fill):
+    """A Probe for a whole-number or float variable with these attributes,
+    or None when no test made while reading can stand in for the pass."""
+    dtype = numpy.dtype(dtype)
+    if dtype.kind not in 'iuf' or dtype.itemsize not in (2, 4, 8):
+        return None                             # (x87 floats: padding among their bytes)
+    p = make_plan(dtype, attrs, dtype, 'primitive', mask, scale, no_fill, quiet=True)
+    return None if p is None or p.few is None else Probe(p.few)
+
+
+def _few_values(p):
+    """masked_values(p) without repeats if they are at most two, each of 2,
+    4 or 8 bytes; else None."""
+    eq = masked_values(p)
+    if eq is None or eq.dtype.itemsize not in (2, 4, 8):
+        return None
+    t = eq.tolist()
+    u = eq[[i for i, v in enumerate(t) if v not in t[:i]]]
+    return u if len(u) <= 2 else None
+
+
+def _nothing_masked(p, data, threads):
+    """Whether data holds none of what Plan p masks, when it can tell: a
+    test far lighter than flagging every value (no mask to write, nothing
+    counted, stopped by the first hit), which is all most arrays need."""
+    if p.few is None:
+        return False
+    c = _Check(p, data)
+    if c.x.size <= SOLO_BYTES:
+        c.run()
+    else:
+        _pool.share(c.run, _pool.memory_threads(c.x.size, min(c.x.size // c.step + 1,
+                                                              threads or _pool.threads())))
+    return c.hit[0] == 0
 
 
 def _plan(self, dtype, warn):
@@ -663,27 +839,109 @@ def finish(p, data, out, msk, stats, always_mask):
 
 def run_plan(p, raw, always_mask, threads=None):
     """The fast path: the kernel over raw (C-contiguous) on the pool."""
-    from . import _pool
     if p.nan_const:
         return run_plan_numpy(p, raw, always_mask, threads)
-    data = raw.view(p.view) if p.view is not None else raw
-    x = data.reshape(-1)
-    n = x.size
-    out = _arena.empty(data.shape, p.out_dtype) if p.out_dtype is not None else None
-    o = out.reshape(-1) if out is not None else numpy.empty(1, numpy.float64)
-    msk = _arena.empty(data.shape, numpy.bool_) if p.mask else numpy.empty(1, numpy.bool_)
-    m = msk.reshape(-1)
-    nblk = (n + BLOCK - 1) // BLOCK
-    stats = numpy.zeros((nblk, 4), numpy.int64)
-    ctr = numpy.zeros(2, numpy.int64)
-    nthr = min(nblk, threads or _pool.threads())
-    if p.mask or out is not None:
-        _pool.share(lambda: maskscale_blocks(x, o, m, p.eq, p.eqcat, p.neq, p.lohi, p.opts,
-                                             p.sc, p.sc32, stats, ctr, BLOCK), nthr)
-    tot = stats.sum(axis=0)
-    if p.mask and tot[3] and (stats[:, 3] == 0).any():
-        _pool.share(lambda: zero_clean_blocks(m, stats, ctr, BLOCK), nthr)
-    return finish(p, data, out, msk, tot, always_mask)
+    if _nothing_masked(p, raw, threads):
+        return finish(p, raw, None, None, (0, 0, 0, 0), always_mask)
+    s = _Pass(p, raw)
+    nthr = _pool.memory_threads(raw.nbytes, min(s.nblk, threads or _pool.threads()), _pool.PASS_SPEED)
+    _pool.share(s.run, nthr)
+    if s.mixed():
+        _pool.share(s.zero, nthr)
+    return s.result(always_mask)
+
+
+class _Pass:
+    """One array's masking and scaling, for any number of threads at once:
+    they take its blocks off its counter until none is left."""
+
+    def __init__(self, p, raw):
+        self.p = p
+        self.data = data = raw.view(p.view) if p.view is not None else raw
+        self.x = x = data.reshape(-1)
+        self.out = _arena.empty(data.shape, p.out_dtype) if p.out_dtype is not None else None
+        self.o = self.out.reshape(-1) if self.out is not None else numpy.empty(1, numpy.float64)
+        self.msk = _arena.empty(data.shape, numpy.bool_) if p.mask else numpy.empty(1, numpy.bool_)
+        self.m = self.msk.reshape(-1)
+        self.block = BLOCK
+        self.nblk = (x.size + BLOCK - 1) // BLOCK
+        self.stats = numpy.zeros((self.nblk, 4), numpy.int64)
+        self.ctr = numpy.zeros(2, numpy.int64)
+        self.call = None
+
+    def run(self):
+        p = self.p
+        if p.mask or self.out is not None:
+            call = self.call
+            if call is None:
+                call = self.call = bind(maskscale_blocks, (self.x, self.o, self.m, p.eq, p.eqcat, p.neq,
+                                                           p.lohi, p.opts, p.sc, p.sc32, self.stats,
+                                                           self.ctr, self.block), ())
+            call()
+
+    def mixed(self):
+        """Whether some blocks are masked and some are not (run first)."""
+        s = self.stats
+        return self.p.mask and s[:, 3].any() and (s[:, 3] == 0).any()
+
+    def zero(self):
+        zero_clean_blocks(self.m, self.stats, self.ctr, self.block)
+
+    def result(self, always_mask):
+        return finish(self.p, self.data, self.out, self.msk, self.stats.sum(axis=0), always_mask)
+
+
+class _Check:
+    """One array tested for what its plan masks (see _nothing_masked), for
+    any number of threads at once."""
+
+    def __init__(self, p, data):
+        self.x = data.reshape(-1).view(numpy.uint8)
+        self.step = BLOCK * data.dtype.itemsize
+        self.words = p.words
+        self.ctr = numpy.zeros(1, numpy.int64)
+        self.hit = numpy.zeros(1, numpy.int64)
+        self.call = None
+
+    def run(self):
+        call = self.call
+        if call is None:
+            w0, w1, low = self.words
+            call = self.call = bind(_holds_blocks, (self.x, self.step, w0, w1, low, self.ctr, self.hit), ())
+        call()
+
+
+def run_plans(items, threads=None):
+    """run_plan for every (plan, raw, always_mask, clean), in one pass of
+    the pool: a thread goes on to another array when it finds none of the
+    last one's blocks left, so small arrays cost no waking of threads and
+    the biggest ends up with all of them, whatever the sizes (_pool.walk).
+    The results in the order given."""
+    res = [None] * len(items)
+    biggest = sorted(range(len(items)), key=lambda i: -items[i][1].nbytes)
+    checks = {}
+    for i in biggest:
+        p, raw, always_mask, clean = items[i]
+        if clean and p.few is not None:
+            res[i] = finish(p, raw, None, None, (0, 0, 0, 0), always_mask)
+        elif p.few is not None:
+            checks[i] = _Check(p, raw)
+    total = sum(it[1].nbytes for it in items)
+    _pool.walk([c.run for c in checks.values()], _pool.memory_threads(total, threads or _pool.threads()))
+    nthr = _pool.memory_threads(total, threads or _pool.threads(), _pool.PASS_SPEED)
+    passes = {}
+    for i in biggest:
+        p, raw, always_mask, clean = items[i]
+        if res[i] is None:
+            if i in checks and not checks[i].hit[0]:
+                res[i] = finish(p, raw, None, None, (0, 0, 0, 0), always_mask)
+            else:
+                passes[i] = _Pass(p, raw)
+    _pool.walk([s.run for s in passes.values()], nthr)
+    _pool.walk([s.zero for s in passes.values() if s.mixed()], nthr)
+    for i, s in passes.items():
+        res[i] = s.result(items[i][2])
+    return res
 
 
 def xdt_kind_f(dt):
@@ -701,7 +959,6 @@ def run_plan_numpy(p, raw, always_mask, threads=None):
     lets go of the GIL inside them): for a process whose kernels have not
     loaded (numba's import is half a second). Each value goes through the
     same operations in the same float types as in the kernel."""
-    from . import _pool
     data = raw.view(p.view) if p.view is not None else raw
     x = data.reshape(-1)
     n = x.size
@@ -978,6 +1235,19 @@ def maskscale_blocks(x, out, msk, eq, eqcat, neq, lohi, opts, sc, sc32, stats, c
             stats[b, 1] = cnt[1]
             stats[b, 2] = cnt[2]
         stats[b, 3] = c
+
+
+@njit(cache=True, nogil=True)
+def _holds_blocks(x, step, w0, w1, low, ctr, hit):
+    """hit[0] = 1 if a block of step bytes (taken off ctr[0]) holds one of
+    the values (see _chunks.holds_value); no more are taken after that."""
+    n = x.size
+    while hit[0] == 0:
+        lo = take(ctr, 0) * step
+        if lo >= n:
+            return
+        if holds_value(x, lo, min(lo + step, n), w0, w1, low):
+            hit[0] = 1
 
 
 @njit(cache=True, nogil=True)

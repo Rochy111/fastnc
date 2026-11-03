@@ -33,6 +33,7 @@ import threading
 REF_RAM = 16 << 30              # available RAM at which the budgets are as written
 MIN_RAM_SCALE = 1 / 32          # and the least they shrink to
 REF_L2 = 2 << 20                # the L2 the block sizes were measured with
+REF_L3 = 32 << 20               # the last cache to suppose when none can be found
 TUNE_FORMAT = 1                 # tune.json's layout: another is ignored
 
 _lock = threading.RLock()
@@ -324,21 +325,21 @@ def scaled(nbytes, least=1 << 20):
 
 # ----------------------------------------------------------------- cache
 
-def _win_l2():
+def _win_cache(want):
     best = 0
     for rec in _win_relations(2):                       # RelationCache
         # CACHE_RELATIONSHIP: Level, Associativity, LineSize, CacheSize, Type
         level = rec[8]
         size = struct.unpack_from('<I', rec, 12)[0]
-        if level == 2:
+        if level == want:
             best = max(best, size)
     return best or None
 
 
-def _linux_l2():
+def _linux_cache(want):
     base = '/sys/devices/system/cpu/cpu0/cache/'
     for i in range(8):
-        if _read(base + 'index%d/level' % i) == '2':
+        if _read(base + 'index%d/level' % i) == str(want):
             s = _read(base + 'index%d/size' % i)
             if s:
                 return _size(s)
@@ -352,12 +353,27 @@ def l2_bytes():
     what matters here is the order of magnitude."""
     n = None
     if sys.platform == 'win32':
-        n = _win_l2()
+        n = _win_cache(2)
     elif sys.platform.startswith('linux'):
-        n = _linux_l2()
+        n = _linux_cache(2)
     elif sys.platform == 'darwin':
         n = _sysctl_int('hw.perflevel0.l2cachesize') or _sysctl_int('hw.l2cachesize')
     return n or REF_L2
+
+
+@_once
+def last_cache_bytes():
+    """The last cache before memory: L3, or L2 where there is none (Apple's
+    chips); REF_L3 when neither can be found. What fits here is not yet
+    memory traffic when the next step reads it."""
+    n = None
+    if sys.platform == 'win32':
+        n = _win_cache(3)
+    elif sys.platform.startswith('linux'):
+        n = _linux_cache(3)
+    elif sys.platform == 'darwin':
+        n = _sysctl_int('hw.l3cachesize')
+    return n or (l2_bytes() if l2_bytes() != REF_L2 else REF_L3)
 
 
 def block(n, least=1 << 10):
@@ -370,6 +386,7 @@ def block(n, least=1 << 10):
 
 # ------------------------------------------------------------- the tuning
 
+@_once
 def cpu_name():
     """The CPU's model, as the OS names it ('' when it will not say)."""
     if sys.platform == 'win32':
@@ -417,18 +434,28 @@ def machine_key(gpu_name=''):
     """What a measurement is good for: this CPU, the CPUs allowed, the GPU,
     fastnc's minor version."""
     from . import __version__
-    return '|'.join([cpu_name(), str(cpus()), gpu_name or '', '.'.join(__version__.split('.')[:2])])
+    return '|'.join([cpu_name() or '', str(cpus()), gpu_name or '', '.'.join(__version__.split('.')[:2])])
 
 
 @_once
 def _tune_file():
-    import json
     try:
         with open(_tune_path()) as f:
-            d = json.load(f)
-    except (OSError, ValueError):
+            text = f.read()
+    except OSError:
         return {}
-    return d if d.get('format') == TUNE_FORMAT else {}
+    try:
+        # (numbers and strings: Python reads them as they are, and importing
+        # json, for a file of 300 bytes, was most of a fresh read's overhead)
+        import ast
+        d = ast.literal_eval(text)
+    except (SyntaxError, ValueError):
+        import json
+        try:
+            d = json.loads(text)
+        except ValueError:
+            return {}
+    return d if isinstance(d, dict) and d.get('format') == TUNE_FORMAT else {}
 
 
 def tuned():
@@ -476,9 +503,11 @@ def save_tuned(cpu=None, gpu=None):
 
 def info():
     """What was found on this machine, and what fastnc does with it."""
-    from . import _pool
+    from . import _image, _pool
     total, avail = memory()
     return dict(cpu=cpu_name(), cpus_allowed=cpus(), cpus_total=os.cpu_count(),
                 topology=topology(), memory_total=total, memory_available=avail,
-                l2_bytes=l2_bytes(), threads=_pool.threads(), ram_scale=ram_scale(),
-                tuned=tuned(), tune_file=_tune_path() if _tune_file() else None)
+                l2_bytes=l2_bytes(), last_cache_bytes=last_cache_bytes(),
+                threads=_pool.threads(), ram_scale=ram_scale(),
+                tuned=tuned(), tune_file=_tune_path() if _tune_file() else None,
+                kernel_image=_image.current())

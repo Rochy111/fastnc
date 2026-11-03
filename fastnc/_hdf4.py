@@ -25,19 +25,24 @@ stored; types big-endian unless stored little-endian (DFNT_L*); data
 model 'NETCDF4'. This module gives the same, reading the bytes itself.
 
 Raw values come back native-endian (contract, docs/contracts.md section
-2). Chunked, compressed and contiguous data are decoded through the
-chunk engine (`_chunks`) on fastnc's pool: deflated chunks inflate in
-numba in parallel, straight into the output, big-endian swapped as
-placed; a contiguous array is cut into pseudo-chunks so that the copy and
-byte swap run on every core too. RLE, N-bit and skipping Huffman decode
-in numba (`_hdf4_codecs`), chunk by chunk on the pool.
+2). A contiguous array is read as netCDF-3's are (`_nc3._read`): the same
+sums, positional reads, swapped in cache. Chunked and compressed data are
+decoded through the chunk engine (`_chunks`) on fastnc's pool: deflated
+chunks inflate in numba in parallel, straight into the output, and the
+output is swapped afterwards. RLE, N-bit and skipping Huffman decode in
+numba (`_hdf4_codecs`), chunk by chunk on the pool. Reads within one small
+chunk, and small reads of an array, go through a closure (`_small_reads`).
 """
+import math
+import mmap
 import os
 import struct
+import threading
+import zlib
 
 import numpy as np
 
-from . import _chunks, _pool, _select
+from . import _arena, _chunks, _hold, _nc3, _pio, _pool, _quick, _select
 
 MAGIC = b'\x0e\x03\x13\x01'
 
@@ -64,8 +69,8 @@ _FILL = {3: b'\0', 4: b'\0', 20: b'\x81', 21: b'\x81', 22: b'\x80\x01', 23: b'\x
          5: struct.pack('>f', 9.9692099683868690e+36),
          6: struct.pack('>d', 9.9692099683868690e+36)}
 
-PSEUDO_CHUNK = 1 << 17          # contiguous data is read in pieces this big, on the pool
-SMALL_READ = 1 << 16            # reads smaller than this skip the pool (numpy, or one thread)
+SMALL_READ = 1 << 16            # whole variables smaller than this are not worth a batch
+SWAP_BLOCK = 1 << 20            # bytes a thread swaps at a time
 
 
 class FormatError(ValueError):
@@ -113,8 +118,9 @@ class Elem:
 
 
 class Chunked:
-    """A chunked element's header and chunk table."""
-    __slots__ = ('dims', 'chunks', 'nt_size', 'fill', 'coder', 'params', 'table', 'length')
+    """A chunked element's header and chunk table (origins on the chunk grid,
+    the tag and ref of each chunk's element: arrays, row by row)."""
+    __slots__ = ('dims', 'chunks', 'nt_size', 'fill', 'coder', 'params', 'origin', 'tags', 'refs', 'length')
 
 
 class VGroup:
@@ -129,10 +135,14 @@ class H4File:
     """The HDF4 structure of a file mapped (or held) in `buf`."""
 
     def __init__(self, buf, path=None):
-        self.b = buf
+        # (a view of it, let go of at close: anything still asking then gets
+        # a ValueError, and the mapping can go)
+        self.b = memoryview(buf)
         self.n = len(buf)
         self.path = path
-        if self.n < 4 or bytes(buf[:4]) != MAGIC:
+        self.src = None
+        if self.n < 4 or bytes(self.b[:4]) != MAGIC:
+            self.b.release()
             raise FormatError('not an HDF4 file (no magic number)')
         self.dd = {}
         self._vg = {}
@@ -141,11 +151,15 @@ class H4File:
 
     # -- data descriptors
     def _read_dds(self):
+        """The file's DDs. Metadata's in the dict `dd`; those of chunks and
+        their compressed bytes, which can be nearly all of them (a file of 1,200
+        chunks a variable: 12,000 of 13,894, most of an open in Python), as
+        arrays, for `far`: no read of a variable needs them one by one."""
         b, n = self.b, self.n
         dt = np.dtype([('tag', '>u2'), ('ref', '>u2'), ('off', '>i4'), ('len', '>i4')])
         pos = 4
         seen = set()
-        dd = self.dd
+        starts, counts = [], []
         while pos:
             if pos in seen or pos < 4 or pos + 6 > n:
                 if pos in seen:
@@ -156,26 +170,62 @@ class H4File:
             nxt = _i32(b, pos + 2)[0]
             if pos + 6 + 12 * ndds > n:
                 raise FormatError('DD block at %d runs past the end of the file' % pos)
-            a = np.frombuffer(b, dt, ndds, pos + 6)
-            tags = a['tag'].tolist()
-            refs = a['ref'].tolist()
-            offs = a['off'].tolist()
-            lens = a['len'].tolist()
-            for t, r, o, ln in zip(tags, refs, offs, lens):
-                if t == T_NULL or t == 0:
-                    continue
-                dd[(t, r)] = (o, ln)
+            starts.append(pos + 6)
+            counts.append(ndds)
             pos = nxt
             if pos < 0:
                 break
+        # (all the blocks' bytes at once: thousands of blocks of 16 DDs are usual)
+        at = np.repeat(np.array(starts, np.int64), counts)
+        at += 12 * (np.arange(at.size) - np.repeat(np.cumsum([0] + counts[:-1]), counts))
+        bytes_ = np.frombuffer(b, np.uint8)[at[:, None] + np.arange(12)]
+        a = bytes_.reshape(-1).view(dt)
+        tag = a['tag'].astype(np.int64)
+        ref, off, ln = a['ref'].astype(np.int64), a['off'].astype(np.int64), a['len'].astype(np.int64)
+        kept = (tag != T_NULL) & (tag != 0)
+        kind = tag & ~SPECIAL
+        bulk = kept & ((kind == T_CHUNK) | (kind == T_COMPRESSED) | (kind == T_LINKED))
+        near = kept & ~bulk
+        self.dd = dict(zip(zip(tag[near].tolist(), ref[near].tolist()), zip(off[near].tolist(), ln[near].tolist())))
+        self._far = (tag[bulk] << 16) | ref[bulk], off[bulk], ln[bulk]
+        self._sorted = False
+
+    def far(self, keys):
+        """(found, offsets, lengths) of the DDs of chunks, compressed or linked
+        data with these keys (an array of tag << 16 | ref). A later DD of the
+        same element stands, as a dict would have it."""
+        if not self._sorted:
+            k, o, n = self._far
+            order = np.argsort(k, kind='stable')
+            k = k[order]
+            last = np.ones(k.size, bool)
+            last[:-1] = k[1:] != k[:-1]
+            order = order[last]
+            self._far = k[last], o[order], n[order]
+            self._sorted = True
+        k, o, n = self._far
+        if not k.size:
+            return np.zeros(keys.shape, bool), np.zeros(keys.shape, np.int64), np.zeros(keys.shape, np.int64)
+        at = np.minimum(k.searchsorted(keys), k.size - 1)
+        return k[at] == keys, o[at], n[at]
+
+    def _dd(self, tag, ref):
+        """(offset, length) of a DD, or None."""
+        e = self.dd.get((tag, ref))
+        kind = tag & ~SPECIAL
+        if e is None and (kind == T_CHUNK or kind == T_COMPRESSED or kind == T_LINKED):
+            hit, o, n = self.far(np.array([tag << 16 | ref], np.int64))
+            if hit[0]:
+                return int(o[0]), int(n[0])
+        return e
 
     def find(self, tag, ref):
         """(special, offset, length) of element (tag, ref), or None."""
-        e = self.dd.get((tag, ref))
+        e = self._dd(tag, ref)
         if e is not None:
             return False, e[0], e[1]
         if not tag & 0x8000:
-            e = self.dd.get((tag | SPECIAL, ref))
+            e = self._dd(tag | SPECIAL, ref)
             if e is not None:
                 return True, e[0], e[1]
         return None
@@ -359,7 +409,8 @@ class H4File:
             c.coder, c.params = self._coder(q + 6, q + 6 + clen)
         # the chunk table: a Vdata of (origin[ndims] int32, tag uint16, ref uint16)
         vd = self.vdata(tbl_ref)
-        table = []
+        c.origin = np.zeros((0, ndims), np.int64)
+        c.tags = c.refs = np.zeros(0, np.int64)
         if vd.nrec > 0:
             raw = self.read(T_VS, tbl_ref)
             fields = {f[0]: f for f in vd.fields}
@@ -368,13 +419,12 @@ class H4File:
                 raise FormatError('bad chunk table')
             fo, ft, fr = (fields[k][3] for k in need)
             rs = vd.ivsize
-            if vd.interlace != 0 or rs * vd.nrec > len(raw):
+            if (vd.interlace != 0 or rs * vd.nrec > len(raw) or fo + 4 * ndims > rs or ft + 2 > rs
+                    or fr + 2 > rs):
                 raise FormatError('chunk table too short')
-            for i in range(vd.nrec):
-                r0 = i * rs
-                origin = struct.unpack_from('>%di' % ndims, raw, r0 + fo)
-                table.append((origin, _u16(raw, r0 + ft)[0], _u16(raw, r0 + fr)[0]))
-        c.table = table
+            a = np.frombuffer(raw, np.dtype(dict(names=['o', 't', 'r'], formats=[('>i4', (ndims,)), '>u2', '>u2'],
+                                                 offsets=[fo, ft, fr], itemsize=rs)), vd.nrec)
+            c.origin, c.tags, c.refs = (a[k].astype(np.int64) for k in 'otr')
         e = Elem('chunked', c.length)
         e.chunked = c
         return e
@@ -608,15 +658,16 @@ def _szip_decode(params, src, p, pend, out):
         k = min(out.size, good, pend - p - 5)
         out[:k] = src[p + 5:p + 5 + k]
         return k
-    try:
-        from . import _szip
-    except ImportError:
-        raise NotImplementedError('szip-compressed HDF4 data needs an szip decoder, '
-                                  'which fastnc does not have yet') from None
+    from . import _szip
     pixels, ppsl, mask, bpp, ppb = params
-    cd = np.array([0, out.size, 4, mask & ~(1 << 16), ppb, ppsl, bpp], np.int64)
+    cd = np.array([0, out.size, 4, mask & ~(1 << 16), ppb, bpp, ppsl], np.int64)
     ws = np.zeros(max(1, _szip.workspace_size(out.size)), np.uint8)
-    return _szip.decode(src, p + 5, p + 5 + min(good, pend - p - 5), out, 0, out.size, cd, ws)
+    # (the same stream as HDF5's, whose filter puts the size in bytes in front of it)
+    good = min(good, pend - p - 5)
+    framed = np.empty(4 + good, np.uint8)
+    framed[:4] = np.frombuffer(np.array([out.size], '<u4').tobytes(), np.uint8)
+    framed[4:] = src[p + 5:p + 5 + good]
+    return _szip.decode(framed, 0, framed.size, out, 0, out.size, cd, ws)
 
 
 def decode_into(f, e, out, esize=1):
@@ -647,6 +698,7 @@ class _Filter:
 
 class _Type:
     __slots__ = ('size',)
+    cls = -1                                        # (no HDF5 class)
 
     def __init__(self, size):
         self.size = size
@@ -654,16 +706,21 @@ class _Type:
 
 class _DS:
     """What `_chunks` needs of a dataset (the fill value asked of the layout
-    only when needed: it can mean reading the attributes)."""
-    __slots__ = ('name', 'shape', 'filters', 'lay', 'type')
+    only when needed: it can mean reading the attributes). file: the H4File
+    its chunks are read from where its index gives places in that file, so
+    that they go with it at close; None where they are in a buffer."""
+    __slots__ = ('name', 'shape', 'filters', 'lay', 'type', 'file')
 
-    def __init__(self, name, shape, filters, lay, esize):
+    def __init__(self, name, shape, filters, lay, esize, file=None):
         self.name, self.shape, self.filters, self.lay = name, tuple(shape), filters, lay
         self.type = _Type(esize)
+        self.file = file
 
     @property
     def fill(self):
-        return self.lay.fill
+        """In the file's order, as chunks are read: they are swapped afterwards."""
+        fill = self.lay.fill
+        return fill[::-1] if self.lay.swap else fill
 
 
 def _attr_value(f, vd, name):
@@ -736,15 +793,16 @@ class Variable:
         self._attrs = attrs                         # dict, or the Vgroup to read them from
         self._elem = None
         self._layout = None
-        self.filters = {'zlib': False, 'szip': False, 'zstd': False, 'bzip2': False,
+        self._quick = None                          # _small_reads(self), once read
+        self.filters ={'zlib': False, 'szip': False, 'zstd': False, 'bzip2': False,
                         'blosc': False, 'shuffle': False, 'complevel': 0, 'fletcher32': False}
 
     @property
     @_guard
     def attrs(self):
         a = self._attrs
-        if not isinstance(a, dict):
-            a = self._attrs = _attrs(self.nc.f, a)
+        if a.__class__ is not _nc3.Attrs:
+            a = self._attrs = _nc3.Attrs(a if isinstance(a, dict) else _attrs(self.nc.f, a))
         return a
 
     @property
@@ -799,23 +857,35 @@ class Variable:
         return self.fill_bytes()
 
     # -- reading
+    probes = True                                   # (read takes a Probe)
+
     @_guard
-    def read(self, key=(), out=None, threads=None):
+    def read(self, key=(), out=None, threads=None, probe=None):
+        if out is None:
+            q = self._quick
+            if q is None:
+                q = self._quick = _small_reads(self)
+            if q:
+                res = q(key, probe, threads)
+                if res is not None:
+                    return res
         box, post, drop = _select.normalize(key, self.shape)
         shape = _select.box_shape(box)
         nat = self.dtype
         direct_out = out is not None and post is None and not drop and out.shape == shape \
-            and out.dtype == nat and out.flags.c_contiguous
-        res = out if direct_out else np.empty(shape, nat)
+            and out.dtype == nat and out.flags.c_contiguous and out.flags.writeable
+        res = out if direct_out else _arena.empty(shape, nat)
         if res.size:
-            self._read_into(box, res, threads)
+            self._read_into(box, res, threads, probe)
         res = _select.finish(res, post, drop)
         if out is not None and not direct_out:
             out[...] = res
             return out
         return res
 
-    def _read_into(self, box, res, threads=None):
+    def _read_into(self, box, res, threads=None, probe=None):
+        if self.nc.f.src is None:
+            raise ValueError('the file of variable %s is closed' % self.name)
         lay = self.layout()
         if lay.kind == 'fill':
             _fill_with(res, lay.fill)
@@ -826,23 +896,38 @@ class Variable:
         m = 0 if e <= s or s >= avail else (min(e, avail) - s + k - 1) // k
         if m < res.shape[0]:
             _fill_with(res[m:], lay.fill)
+            probe = None                            # (what a read tests is not all of it)
         if m == 0:
             return
         sub = res[:m] if m < res.shape[0] else res
         sbox = [(s, min(e, s + (m - 1) * k + 1), k)] + list(box[1:])
+        if lay.base is not None:
+            self._read_plain(lay, sbox, sub, probe, threads)
+            return
         if lay.kind == 'decode':
             src, index = self._predecode(lay, sbox, threads)
-        else:
-            src, index = lay.src, lay.index
-        if src is None:
-            _fill_with(sub, lay.fill)
-            return
-        if lay.base is not None and (sub.nbytes < SMALL_READ or not _chunks.ready()):
-            # contiguous, kernels not loaded yet: numpy
-            whole = np.ndarray(lay.ds.shape, self.stored, buffer=src, offset=lay.base)
-            sub[...] = whole[tuple(slice(a, b, c) for a, b, c in sbox)]
-            return
-        _chunks.read(lay.ds, index, src, sbox, sub, swap=lay.swap, threads=threads)
+            if src is None:
+                _fill_with(sub, lay.fill)
+                return
+            _chunks.read(lay.ds, index, src, sbox, sub, threads=threads)
+        elif not _hold.read(lay.ds, lay.index, lay.src, sbox, sub, False, threads):
+            _chunks.read(lay.ds, lay.index, lay.src, sbox, sub, threads=threads)
+        if lay.swap:
+            _swapped(sub, threads)
+
+    def _read_plain(self, lay, box, out, probe, threads):
+        """A contiguous array: elements at a sum, with netCDF-3's reader, as
+        nothing else about it differs. (Through the chunk kernel, cut into
+        pieces, it was slower on any number of threads than one copy: 6.5 MB,
+        5.2 ms against 0.5.)"""
+        at = lay.base
+        dims = []
+        for (s, e, k), st in zip(box, lay.strides):
+            at += s * st
+            c = (e - s + k - 1) // k
+            if c != 1:
+                dims.append((c, k * st))
+        _nc3._read(lay.io, self.stored, lay.esize, at, dims, out, probe, threads)
 
     def layout(self):
         if self._layout is None:
@@ -903,10 +988,88 @@ def _fill_with(a, fill):
         a.reshape(-1).view(np.uint8)[:] = 0
 
 
+def _swapped(a, threads=None):
+    """a (C-contiguous), read in the file's order, native in place. Chunks are
+    read so and swapped afterwards: this is a word at a time, where placing
+    them swapped is a byte at a time, and they can be inflated straight into
+    the output."""
+    n = a.nbytes
+    nt = _pool.memory_threads(n, threads or _pool.threads()) if _nc3._kernels() else 1
+    if nt == 1:
+        a.byteswap(inplace=True)
+        return
+    u8 = a.reshape(-1).view(np.uint8)
+    es = a.dtype.itemsize
+    block = SWAP_BLOCK // es * es
+    left = iter(range(0, n, block))
+    lock = threading.Lock()
+
+    def work():
+        while True:
+            with lock:
+                lo = next(left, -1)
+            if lo < 0:
+                return
+            _nc3._swap(u8, lo, min(lo + block, n), es)
+    _pool.share(work, nt)
+
+
+class _Bytes:
+    """Bytes in memory (linked or external data, a remote file) as
+    `_nc3._read` wants a file."""
+    _remote = None
+    _spanned = None
+
+    def __init__(self, src):
+        self._src, self._size = src, src.size
+
+    def _source(self):
+        if self._src is None:
+            raise ValueError('the file is closed')
+        return self._src
+
+    def _readinto(self, u8, addr, o, n, off):
+        u8[o:o + n] = self._source()[off:off + n]
+
+    def close(self):
+        self._src = None
+
+
+class _File(_Bytes):
+    """A local file: the mapping for small strided copies, positional reads
+    for runs (nothing to fault in, and no pages to unmap at close)."""
+
+    def __init__(self, src, path):
+        _Bytes.__init__(self, src)
+        self.path, self._rd = path, None
+        self._lock = threading.Lock()
+        self._spanned = set()
+
+    def _reader(self):
+        r = self._rd
+        if r is None:
+            with self._lock:
+                self._source()                      # (closed: not a handle made anew, left open)
+                if self._rd is None:
+                    self._rd = _pio.Reader(self.path)
+                r = self._rd
+        return r._io
+
+    _readinto = _nc3.NC3File._readinto
+
+    def close(self):
+        _Bytes.close(self)
+        if self._rd is not None:
+            self._rd.close()
+            self._rd = None
+
+
 class Layout:
     """How to read a variable: kind 'fill' (no data), 'file' (the chunk
-    engine over `src` with `index`) or 'decode' (chunks decoded first)."""
-    __slots__ = ('kind', 'ds', 'index', 'src', 'swap', '_fill', 'var', 'esize', 'elems', 'raw_fill', 'base')
+    engine over `src` with `index`, or for a contiguous array, `base` set, the
+    bytes `io` with the byte `strides`) or 'decode' (chunks decoded first)."""
+    __slots__ = ('kind', 'ds', 'index', 'src', 'swap', '_fill', 'var', 'esize', 'elems', 'raw_fill', 'base',
+                 'io', 'strides')
 
     @property
     def fill(self):
@@ -915,9 +1078,136 @@ class Layout:
         return self._fill
 
 
+def _small_reads(v):
+    """A function of a key giving the values of a read within one chunk of up
+    to 64 kB, or None if it is not sure of it; False if v has no such chunks.
+    `_quick`'s idea, for what reaches a backend (slices, each a number or
+    three): the same variable, the same sums, so nothing to plan. A row of a
+    file of row chunks took 105 us through the batch for what zlib does in 10.
+    Chunks are kept with `_quick`'s, which fastnc.release() lets go of."""
+    lay = v.layout()
+    if lay.kind != 'file' or lay.ds.shape != tuple(v.shape):
+        return False
+    if lay.base is not None:
+        return _nc3.small_reads(lay.io, lay.base, lay.ds.shape, lay.strides, v.stored, v.dtype)
+    index = lay.index
+    cs = index.cshape
+    stored, nat, esize = v.stored, v.dtype, lay.esize
+    cbytes = math.prod(cs) * esize
+    if cbytes > _quick.SMALL or len(cs) != len(v.shape):
+        return False
+    table = index.table
+    if table is None:
+        table = index.table = index._grid_table()
+    if table is False:
+        table = _quick._few(index)
+        if table is None:
+            return False
+    f = v.nc.f
+    rank = len(cs)
+    deflated = bool(lay.ds.filters)
+    addrs, sizes = index.addr.tolist(), index.size.tolist()
+    grid = index.gridlist
+    plan = tuple(zip(v.shape, cs, grid))
+
+    def place(lin):
+        out = [0] * rank
+        for d in range(rank - 1, -1, -1):
+            lin, out[d] = divmod(lin, grid[d])
+        return tuple(out)
+
+    def chunk(lin):
+        """The chunk's values in the file's order, kept, or None."""
+        src = f.src
+        row = table[lin]
+        if row < 0 or src is None:
+            return None                             # (the general path says what is wrong)
+        a = addrs[row]
+        if not deflated:
+            return np.ndarray(cs, stored, src, a)
+        where = place(lin)
+        h = _quick._chunk((index, lin), index, where, False, stored)
+        if h is not None:
+            return h
+        if _chunks._along(index, [where]) is not None:  # going along: the general path reads ahead
+            return None
+        _chunks._went(index, [where], rank)
+        try:
+            data = zlib.decompress(src[a:a + sizes[row]])
+        except zlib.error:
+            return None
+        if len(data) != cbytes:
+            return None
+        return _quick._keep((index, lin), np.frombuffer(data, stored).reshape(cs))
+
+    def read(key, probe=None, threads=None):
+        if key.__class__ is not tuple or len(key) != rank:
+            return None
+        lin = 0
+        inner = []
+        for k, (n, b, g) in zip(key, plan):
+            if k.__class__ is not slice:
+                return None
+            s, e, st = k.start, k.stop, k.step
+            if s.__class__ is not int or e.__class__ is not int or st.__class__ is not int \
+                    or st < 1 or s < 0 or e > n or s >= e:
+                return None
+            p = s // b
+            if (e - 1) // b != p:
+                return None
+            q = p * b
+            inner.append(slice(s - q, e - q, st))
+            lin = lin * g + p
+        h = _quick._recent.get((index, lin))
+        if h is None:
+            h = chunk(lin)
+            if h is None:
+                return None
+        return h[tuple(inner)].astype(nat)
+    return read
+
+
+def _u16s(src, at):
+    """The big-endian 16-bit numbers at the places `at` of the file."""
+    return src[at].astype(np.int64) << 8 | src[at + 1]
+
+
+def _plain_table(f, c, grid, cbytes):
+    """(offsets, addresses, sizes, masks) of the chunks of a table that is as
+    tables usually are: every chunk inside the array, stored whole, or deflated
+    with its bytes in one piece. All at once: an element a chunk, in Python,
+    took 5 ms for a variable of 1,200, before anything was read. None: some
+    chunk is not so, and each is looked at in turn."""
+    n = c.tags.size
+    if not n or c.coder not in (C_NONE, C_DEFLATE) or c.origin.shape[1] != len(grid) \
+            or (c.tags != T_CHUNK).any():
+        return None
+    limit = np.array(grid, np.int64)
+    if ((c.origin < 0) | (c.origin >= limit)).any():
+        return None
+    size = f.n
+    plain, addr, stored = f.far(T_CHUNK << 16 | c.refs)
+    if c.coder == C_NONE:
+        if not plain.all() or (addr < 0).any() or (stored < cbytes).any() or (addr + stored > size).any():
+            return None
+    else:
+        special, head, hlen = f.far((T_CHUNK | SPECIAL) << 16 | c.refs)
+        if plain.any() or not special.all() or (head < 0).any() or (hlen < 14).any() \
+                or (head + hlen > size).any():
+            return None
+        src = f.src
+        if (_u16s(src, head) != S_COMP).any() or (_u16s(src, head + 12) != C_DEFLATE).any():
+            return None
+        found, addr, stored = f.far(T_COMPRESSED << 16 | _u16s(src, head + 8))
+        if not found.all() or (addr < 0).any() or (stored <= 0).any() or (addr + stored > size).any():
+            return None
+    return c.origin * np.array(c.chunks, np.int64), addr, stored, np.zeros(n, np.int64)
+
+
 def _layout(v):
     f = v.nc.f
     e = v.elem
+    local = f if isinstance(f.io, _File) else None  # (see _DS: a remote file's bytes are in memory)
     lay = Layout()
     lay.esize = esize = v.dtype.itemsize
     lay.swap = v.stored.byteorder == '>' and esize > 1
@@ -942,10 +1232,17 @@ def _layout(v):
         lay.raw_fill = c.fill[:esize] if len(c.fill) >= esize else None
         cbytes = int(np.prod(c.chunks)) * esize
         grid = [-(-s // cl) for s, cl in zip(shape, c.chunks)]
+        got = _plain_table(f, c, grid, cbytes)
+        if got is not None:
+            filters = [_Filter(_chunks.F_DEFLATE)] if c.coder == C_DEFLATE else []
+            lay.kind = 'file'
+            lay.ds = _DS(v.name, shape, filters, lay, esize, local)
+            lay.index = _chunks.ChunkIndex(None, c.chunks, shape, got)
+            return lay
         rows = []
         elems = []
         direct = c.coder in (C_NONE, C_DEFLATE)
-        for origin, tag, ref in c.table:
+        for origin, tag, ref in zip(c.origin.tolist(), c.tags.tolist(), c.refs.tolist()):
             if len(origin) != rank or any(o < 0 or o >= g for o, g in zip(origin, grid)):
                 continue                            # outside the array: never read
             ce = f.element(tag, ref)
@@ -980,7 +1277,7 @@ def _layout(v):
             filters = []
             lay.kind = 'decode'
             lay.elems = elems
-        lay.ds = _DS(v.name, shape, filters, lay, esize)
+        lay.ds = _DS(v.name, shape, filters, lay, esize, local if direct else None)
         lay.index = _chunks.ChunkIndex(table, c.chunks, shape) if n else _empty_index(c.chunks, shape)
         if n == 0:
             lay.kind = 'fill'
@@ -998,7 +1295,7 @@ def _layout(v):
         if e.coder == C_DEFLATE and dk.kind == 'plain' and dk.pieces:
             off, ln = dk.pieces[0]
             lay.kind = 'file'
-            lay.ds = _DS(v.name, cshape, [_Filter(_chunks.F_DEFLATE)], lay, esize)
+            lay.ds = _DS(v.name, cshape, [_Filter(_chunks.F_DEFLATE)], lay, esize, local)
             lay.index = _chunks.ChunkIndex([((0,) * rank, off, ln, 0)], cshape, cshape)
             return lay
         lay.kind = 'decode'
@@ -1014,22 +1311,18 @@ def _layout(v):
         lay.kind = 'fill'
         return lay
     if e.kind == 'plain':
-        base = e.pieces[0][0] + skip
-        src = f.src
+        lay.base = e.pieces[0][0] + skip
+        lay.io = f.io
     else:
         raw = f.read_elem(e, skip + rows_avail * rowbytes)
-        src = np.frombuffer(raw, np.uint8)
-        base = skip
+        lay.base = skip
+        lay.io = _Bytes(np.frombuffer(raw, np.uint8))
     cshape = (rows_avail,) + tuple(shape[1:])
-    k = max(1, PSEUDO_CHUNK // max(rowbytes, 1))
-    k = min(k, rows_avail)
-    table = [((r,) + (0,) * (rank - 1), base + r * rowbytes, min(k, rows_avail - r) * rowbytes, 0)
-             for r in range(0, rows_avail, k)]
     lay.kind = 'file'
-    lay.src = src
-    lay.base = base
+    lay.src = lay.io._src
     lay.ds = _DS(v.name, cshape, [], lay, esize)
-    lay.index = _chunks.ChunkIndex(table, (k,) + tuple(shape[1:]), cshape)
+    lay.index = None
+    lay.strides = tuple(int(x) for x in _chunks.strides(cshape) * esize)
     return lay
 
 
@@ -1047,6 +1340,12 @@ class Group:
         self.groups = {}
         self.attrs = {}
 
+    def peek(self, name):
+        return self.variables[name]
+
+    def holds_no_data(self):
+        return not self.variables and not self.dimensions
+
 
 class HDF4File:
     """An HDF4 file read through netCDF-c's HDF4 model (backend contract)."""
@@ -1058,15 +1357,43 @@ class HDF4File:
             self.f = H4File(buf, path)
         except (struct.error, IndexError) as ex:
             raise FormatError('corrupt HDF4 file: %s' % ex) from None
-        self.f.src = src if src is not None else np.frombuffer(buf, np.uint8)
+        f = self.f
+        f.src = src if src is not None else np.frombuffer(buf, np.uint8)
+        # (a file that is mapped can be read positionally; a remote one is all in memory)
+        f.io = _File(f.src, path) if path is not None and isinstance(buf, mmap.mmap) else _Bytes(f.src)
         self.root = Group()
         try:
             self._read_sd()
         except (struct.error, IndexError) as ex:
+            self.close()
             raise FormatError('corrupt HDF4 file: %s' % ex) from None
+        except BaseException:
+            self.close()
+            raise
 
     def close(self):
-        pass
+        """Lets go of the mapping, and of anything kept of this file. (The
+        Dataset unmaps it: a variable still held raises ValueError if read.)"""
+        f = self.f
+        if f.src is None:
+            return
+        _hold.forget(f)
+        _quick.forget()
+        r = f.__dict__.pop('_pio', None)            # (_chunks' reader, for big unfiltered batches)
+        if r is not None:
+            r.close()
+        f.src = None
+        f.io.close()
+        for v in self.root.variables.values():
+            lay = v._layout
+            if lay is not None:
+                lay.src = None
+                if lay.base is not None:
+                    lay.io.close()
+        try:
+            f.b.release()
+        except BufferError:                         # (an exception's frame still holds a view of it)
+            pass
 
     def _read_sd(self):
         f = self.f
@@ -1352,14 +1679,15 @@ def read_many(variables, threads=None):
     raw: those the chunk engine reads straight from the file decoded
     together in one pass of the pool (one shared buffer, biggest chunks
     first), so that files of many deflated arrays -- one stream each, which
-    no reader can split -- inflate on every core at once."""
+    no reader can split -- inflate on every core at once. The others at the
+    same time, each still on the pool for itself."""
     out = [None] * len(variables)
-    if variables and _chunks._READY.is_set():
+    if variables and _chunks.loaded():
         batch = []
         total = 0
         for i, v in enumerate(variables):
             lay = v.layout()
-            if lay.kind != 'file' or lay.src is not v.nc.f.src or tuple(lay.ds.shape) != tuple(v.shape) \
+            if lay.kind != 'file' or lay.base is not None or tuple(lay.ds.shape) != tuple(v.shape) \
                     or not v.shape:
                 continue
             n = int(np.prod(v.shape)) * v.dtype.itemsize
@@ -1368,16 +1696,24 @@ def read_many(variables, threads=None):
             batch.append((i, v, total, n))
             total += (n + 63) // 64 * 64
         if len(batch) > 1:
-            buf = np.empty(total, np.uint8)
+            buf = _arena.empty((total,), np.uint8)
             items = []
             for i, v, base, n in batch:
                 lay = v.layout()
                 a = buf[base:base + n].view(v.dtype).reshape(v.shape)
                 out[i] = a
-                items.append(_chunks.Item(lay.ds, lay.index, [(0, s, 1) for s in v.shape], a,
-                                          lay.swap, base))
+                items.append(_chunks.Item(lay.ds, lay.index, [(0, s, 1) for s in v.shape], a, False, base))
             _chunks.read_batch(items, variables[0].nc.f.src, buf, threads)
-    for i, v in enumerate(variables):
-        if out[i] is None:
-            out[i] = v.read((), threads=threads)
+            for i, v, _, _ in batch:
+                if v.layout().swap:
+                    _swapped(out[i], threads)
+    rest = [i for i in range(len(variables)) if out[i] is None]
+
+    def one(i):
+        out[i] = variables[i].read((), threads=threads)
+    if threads == 1:
+        for i in rest:
+            one(i)
+    else:
+        _pool.map_items(one, rest)
     return out

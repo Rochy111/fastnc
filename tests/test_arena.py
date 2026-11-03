@@ -73,6 +73,48 @@ def test_release_and_budget():
     assert _arena.held() == 0
 
 
+def test_what_threads_keep_goes_when_unused():
+    box = [None, 0]
+    a = _arena.kept(box, 100)
+    assert a.size >= 100 and box[1] == a.ctypes.data
+    assert _arena.kept(box, 50) is a
+    bigger = _arena.kept(box, 1 << 20)
+    assert bigger.size >= 1 << 20 and box[1] == bigger.ctypes.data
+    assert _arena._empty_boxes()                    # used since the last look: stays
+    assert box[0] is bigger
+    assert not _arena._empty_boxes()                # not used since
+    assert box[0] is None
+    bigger[:] = 1                                   # a read under way keeps its own reference
+    assert (bigger == 1).all()
+    assert _arena.kept(box, 100) is not bigger
+    _arena.release()
+    assert box[0] is None
+
+
+def test_kept_after_its_keeper_answered_is_not_forgotten(monkeypatch):
+    started = []
+
+    class Timer:
+        daemon = False
+
+        def __init__(self, wait, fn):
+            pass
+
+        def start(self):
+            started.append(1)
+    monkeypatch.setattr(_arena.threading, 'Timer', Timer)
+    monkeypatch.setattr(_arena, '_timer', None)
+    monkeypatch.setattr(_arena, '_idle', [])
+
+    def keeper():
+        _arena.wake(keeper)                         # (as if another thread had)
+        return False
+    _arena.wake(keeper)
+    assert started == [1]
+    _arena._tick()
+    assert len(started) == 2 and _arena._idle == [keeper]
+
+
 @pytest.mark.parametrize('dtype', ['f4', 'i2', 'u1', 'f8', '?'])
 def test_dtypes_and_shapes(dtype):
     a = _arena.empty((300, 700, 5), dtype)

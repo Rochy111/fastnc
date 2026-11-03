@@ -24,6 +24,8 @@ once (`_pinflate.inflate_many`: speculative decoding from guessed block
 starts, every part verified against where the one before it ended), the
 other chunks run by each thread once the parts are taken.
 """
+import math
+import sys
 import threading
 import time
 
@@ -31,7 +33,7 @@ import numpy as np
 
 from . import _hw, _inflate, _pinflate, _pio, _pool
 from ._intrin import ld64, st64, take
-from ._jit import njit
+from ._jit import bind, njit
 
 # pipeline stage kinds the kernel knows (HDF5 filter ids)
 F_DEFLATE = 1
@@ -42,8 +44,12 @@ MAXDIM = 32
 
 
 class Plan:
-    """The chunks a selection touches and where each goes."""
-    __slots__ = ('addr', 'size', 'mask', 'cstart', 'count', 'ostart', 'needend', 'fill_needed')
+    """The chunks a selection touches and where each goes. wide: cstart,
+    count and ostart with a column for every dimension of a batch, if made so."""
+    __slots__ = ('addr', 'size', 'mask', 'cstart', 'count', 'ostart', 'needend', 'fill_needed', 'wide')
+
+    def __init__(self):
+        self.wide = None
 
 
 class ChunkIndex:
@@ -51,8 +57,18 @@ class ChunkIndex:
     absolute addresses, stored sizes, filter masks; and a lookup from the
     chunk's grid position to its row."""
 
+    seen = None                                     # see _h5read.LazyIndex
+
     def __init__(self, table, chunks, shape, arrays=None):
-        rank = len(chunks)
+        self._frame(chunks, shape)
+        self._tables(table, arrays)
+
+    def part(self, sel):
+        """The chunks of a box without the table, if there is a way to."""
+        return None
+
+    def _tables(self, table, arrays):
+        rank = len(self.cshape)
         if arrays is not None:                      # (offsets, addr, size, mask) already
             self.offsets, self.addr, self.size, self.mask = arrays
             n = len(self.addr)
@@ -62,11 +78,88 @@ class ChunkIndex:
             self.addr = np.array([t[1] for t in table], np.int64)
             self.size = np.array([t[2] for t in table], np.int64)
             self.mask = np.array([t[3] for t in table], np.int64)
+        self.complete = n >= self.ngrid             # every chunk stored: no fill needed
+
+    def _frame(self, chunks, shape):
+        rank = len(chunks)
         self.chunks = np.array(chunks, np.int64)
         self.grid = np.array([-(-s // c) for s, c in zip(shape, chunks)], np.int64)
+        self.gridlist = self.grid.tolist()
         self.ngrid = int(np.prod(self.grid)) if rank else 1
-        self.complete = n >= self.ngrid             # every chunk stored: no fill needed
         self.plans = {}                             # box -> Plan, for repeated reads
+        self.ways = {}                              # thread -> its _Way through this
+        self.coming = {}                            # grid place -> Event: being decoded by a read
+        self.gone = set()                           # grid places threads have read and not kept
+        self.fresh = set()                          # grid places decoded ahead and not yet read
+        self.owner = None                           # the file, once anything of it is cached
+        self.cshape = tuple(int(c) for c in chunks)
+        self.table = None                           # row of each grid place (False: no use here)
+        self.bare = None                            # see _bare: None until looked at
+        self._cstrides = None
+
+    def cstrides(self, esize):
+        """A chunk's strides in bytes, as ints."""
+        s = self._cstrides
+        if s is None:
+            out = [esize] * len(self.cshape)
+            for d in range(len(out) - 2, -1, -1):
+                out[d] = out[d + 1] * self.cshape[d + 1]
+            s = self._cstrides = tuple(out)
+        return s
+
+    def near(self, sel):
+        """The rows of the chunks a box touches, without going through all of
+        them: planning a small read over the whole table took 90 us a row, in
+        a loop over a dataset's rows. None: look at all of them."""
+        t = self.table
+        C = self.cshape
+        if t is None:
+            t = self.table = self._grid_table()
+        if t is False:
+            return None
+        lin = None
+        for (s, e, _), c, n in zip(sel, C, self.gridlist):
+            a, b = s // c, min((e - 1) // c, n - 1)
+            if a > b:
+                return np.zeros(0, np.int32)
+            axis = np.arange(a, b + 1, dtype=np.int64)
+            lin = axis if lin is None else (lin[:, None] * n + axis[None, :]).ravel()
+        rows = t[lin]
+        return rows[rows >= 0]
+
+    def _grid_table(self):
+        n = len(self.addr)
+        self.gridlist = self.grid.tolist()
+        if not len(self.cshape) or n < 16 or self.ngrid > 4 * n + (1 << 16):
+            return False                            # (small, or sparse: the table is not worth it)
+        g = self.offsets // self.chunks
+        if ((g < 0) | (g >= self.grid)).any():
+            return False                            # (a chunk past the edge of a dataset that shrank)
+        lin = g[:, 0].copy()
+        for d in range(1, g.shape[1]):
+            lin = lin * self.grid[d] + g[:, d]
+        t = np.full(self.ngrid, -1, np.int32)
+        t[lin] = np.arange(n, dtype=np.int32)
+        return t if (t >= 0).sum() == n else False  # (two chunks in one place)
+
+
+_STRIDES = {}                   # shape -> its strides in elements: files repeat a few shapes
+
+
+def strides(shape):
+    """The C-order strides of a shape (a tuple), in elements: don't write to
+    them. Kept, because a batch asks twice for each of hundreds of variables."""
+    s = _STRIDES.get(shape)
+    if s is None:
+        out = [1] * len(shape)
+        for d in range(len(shape) - 2, -1, -1):
+            out[d] = out[d + 1] * shape[d + 1]
+        s = np.array(out, np.int64)
+        s.flags.writeable = False
+        if len(_STRIDES) >= 1024:
+            _STRIDES.clear()
+        _STRIDES[shape] = s
+    return s
 
 
 def plan(index, shape, sel):
@@ -85,6 +178,9 @@ def plan(index, shape, sel):
 
 def _plan(index, shape, sel):
     rank = len(shape)
+    few = index.part(sel) if rank else None
+    if few is not None:
+        return (_few_plan if len(few.addr) <= 8 else _many_plan)(few, shape, sel, few.offsets, None)
     off = index.offsets
     C = index.chunks
     if rank and all(s == 0 and e >= n and k == 1 for (s, e, k), n in zip(sel, shape)):
@@ -96,12 +192,69 @@ def _plan(index, shape, sel):
             p.cstart = np.zeros_like(off)
             p.count = np.ascontiguousarray(np.minimum(C, sh - off))
             p.ostart = np.ascontiguousarray(off)
-            cstr = np.ones(rank, np.int64)
-            for d in range(rank - 2, -1, -1):
-                cstr[d] = cstr[d + 1] * C[d + 1]
-            p.needend = ((p.count - 1) * cstr).sum(axis=1) + 1
+            p.needend = ((p.count - 1) * strides(tuple(C.tolist()))).sum(axis=1) + 1
             p.fill_needed = not index.complete and len(off) < index.ngrid
             return p
+    rows = index.near(sel) if rank else None
+    if rows is not None:
+        off = off[rows]
+    if rank and len(off) <= 8 and (index.complete or all(s[2] == 1 for s in sel)):
+        return _few_plan(index, shape, sel, off, rows)
+    return _many_plan(index, shape, sel, off, rows)
+
+
+def _few_plan(index, shape, sel, off, rows):
+    """_many_plan's sums in plain integers, for a few chunks: numpy's fixed
+    cost on each of some forty small arrays came to 70 us, a read of two
+    small chunks planning three times more than it took to decode them."""
+    C = index.cshape
+    rank = len(C)
+    keep, cstart, count, ostart, needend = [], [], [], [], []
+    cstr = [1] * rank
+    for d in range(rank - 2, -1, -1):
+        cstr[d] = cstr[d + 1] * C[d + 1]
+    for i, o in enumerate(off.tolist()):
+        cs, ct, os_ = [], [], []
+        end = 1
+        for (s, e, k), c0, c, n, st in zip(sel, o, C, shape, cstr):
+            lo = c0 if c0 > s else s
+            hi = min(c0 + c, e, n)
+            first = s + -(-(lo - s) // k) * k           # first selected index >= lo
+            if first >= hi:
+                break
+            m = (hi - 1 - first) // k + 1
+            cs.append(first - c0)
+            ct.append(m)
+            os_.append((first - s) // k)
+            end += (first - c0 + (m - 1) * k) * st
+        else:
+            keep.append(i)
+            cstart.extend(cs)
+            count.extend(ct)
+            ostart.extend(os_)
+            needend.append(end)
+    idx = keep if rows is None else rows[keep].tolist()
+    p = Plan()
+    p.addr = index.addr[idx]
+    p.size = index.size[idx]
+    p.mask = index.mask[idx]
+    p.cstart = np.array(cstart, np.int64).reshape(-1, rank)
+    p.count = np.array(count, np.int64).reshape(-1, rank)
+    p.ostart = np.array(ostart, np.int64).reshape(-1, rank)
+    p.needend = np.array(needend, np.int64)
+    if index.complete:
+        p.fill_needed = False
+    else:                                           # (steps of 1: see _plan)
+        touched = 1
+        for (s, e, _), c, n in zip(sel, C, shape):
+            touched *= (min(e, n) - 1) // c - s // c + 1
+        p.fill_needed = len(idx) < touched
+    return p
+
+
+def _many_plan(index, shape, sel, off, rows):
+    rank = len(shape)
+    C = index.chunks
     keep = np.ones(len(off), bool)
     cstart = np.empty_like(off)
     count = np.empty_like(off)
@@ -117,14 +270,15 @@ def _plan(index, shape, sel):
         cstart[:, d] = first - c0
         count[:, d] = n
         ostart[:, d] = (first - s) // k
-    idx = np.nonzero(keep)[0]
+    kept = np.nonzero(keep)[0]
+    idx = kept if rows is None else rows[kept]
     p = Plan()
     p.addr = index.addr[idx]
     p.size = index.size[idx]
     p.mask = index.mask[idx]
-    p.cstart = np.ascontiguousarray(cstart[idx])
-    p.count = np.ascontiguousarray(count[idx])
-    p.ostart = np.ascontiguousarray(ostart[idx])
+    p.cstart = np.ascontiguousarray(cstart[kept])
+    p.count = np.ascontiguousarray(count[kept])
+    p.ostart = np.ascontiguousarray(ostart[kept])
     # the decoded bytes each chunk needs: up to its last selected element
     last = p.cstart + (p.count - 1) * np.array([s[2] for s in sel], np.int64)
     cstr = np.ones(rank, np.int64)
@@ -277,6 +431,195 @@ def _unshuffle8(sc, p0, nel, swap, out, b, n):
 
 
 @njit(cache=True, nogil=True)
+def _swapped(sc, a, out, b, n, esize):
+    """n elements of sc[a:] into out[b:] with their bytes reversed (the same
+    place will do), a word at a time: byte by byte was 1.2 GB/s, and h5py read
+    big-endian chunks with no shuffle faster than this did."""
+    u = np.uint64
+    nb = n * esize
+    k = 0
+    m8 = u(0x00FF00FF00FF00FF)
+    m16 = u(0x0000FFFF0000FFFF)
+    if esize == 2:
+        while k + 8 <= nb:
+            x = ld64(sc, a + k)
+            st64(out, b + k, ((x & m8) << u(8)) | ((x >> u(8)) & m8))
+            k += 8
+    elif esize == 4:
+        while k + 8 <= nb:
+            x = ld64(sc, a + k)
+            x = ((x & m8) << u(8)) | ((x >> u(8)) & m8)
+            st64(out, b + k, ((x & m16) << u(16)) | ((x >> u(16)) & m16))
+            k += 8
+    elif esize == 8:
+        while k + 8 <= nb:
+            x = ld64(sc, a + k)
+            x = ((x & m8) << u(8)) | ((x >> u(8)) & m8)
+            x = ((x & m16) << u(16)) | ((x >> u(16)) & m16)
+            st64(out, b + k, (x << u(32)) | (x >> u(32)))
+            k += 8
+    while k < nb:
+        for j in range(esize // 2):                 # (both ends of one at a time: it may be in place)
+            t = sc[a + k + j]
+            out[b + k + j] = sc[a + k + esize - 1 - j]
+            out[b + k + esize - 1 - j] = t
+        if esize & 1:
+            out[b + k + esize // 2] = sc[a + k + esize // 2]
+        k += esize
+
+
+@njit(cache=True, nogil=True)
+def vlen_pack(src, raw, n, step, base, width, out, ends):
+    """The variable-length values that raw's n elements (step bytes each: a
+    length, a collection's address and an object's number) refer to, one after
+    another in out, each ending at ends[i]. Offsets and lengths of 8 bytes. A
+    collection is walked once for each run of values in it: they are written
+    together, so a run is all of them. The bytes written, or -1 if anything is
+    not where it should be."""
+    u = np.uint64
+    pos = np.empty(65536, np.int64)                 # (up to top: past that, nothing looks)
+    size = np.empty(65536, np.int64)
+    pos[0] = -1
+    cap = out.shape[0]
+    last = src.shape[0]
+    cur = -1
+    top = 0
+    w = 0
+    for i in range(n):
+        q = i * step
+        coll = np.int64(ld64(raw, q + 4))
+        if coll != 0:
+            a = coll + base
+            if a != cur:
+                if a < 0 or a + 16 > last or ld64(src, a) & u(0xFFFFFFFF) != u(0x4C4F4347):     # 'GCOL'
+                    return -1
+                end = a + np.int64(ld64(src, a + 8))
+                if end > last:
+                    return -1
+                top = 0
+                p = a + 16
+                while p + 16 <= end:
+                    k = np.int64(ld64(src, p) & u(0xFFFF))
+                    if k == 0:
+                        break
+                    m = np.int64(ld64(src, p + 8))
+                    if m < 0 or p + 16 + m > end:
+                        return -1
+                    for j in range(top + 1, k):
+                        pos[j] = -1
+                    pos[k] = p + 16
+                    size[k] = m
+                    if k > top:
+                        top = k
+                    p += 16 + (m + 7) // 8 * 8
+                cur = a
+            idx = np.int64(ld64(raw, q + 8) >> u(32))
+            if idx > top or pos[idx] < 0:
+                return -1
+            take = min(np.int64(ld64(raw, q) & u(0xFFFFFFFF)) * width, size[idx])
+            if w + take > cap:
+                return -1
+            at = pos[idx]
+            k = 0
+            while k + 8 <= take:
+                st64(out, w + k, ld64(src, at + k))
+                k += 8
+            while k < take:
+                out[w + k] = src[at + k]
+                k += 1
+            w += take
+        ends[i] = w
+    return w
+
+
+@njit(cache=True, nogil=True)
+def _gather(src, addr, table, spec, rank, esize, swap, out):
+    """A box across chunks stored as they are, into out: nothing to plan, each
+    chunk a copy (see _quick). spec has a row for each dimension: first and last
+    chunk, the box's start and end, the chunk's size, strides of the grid in
+    chunks, of a chunk and of out in bytes, and the box's step. False if a
+    chunk it wants is not stored."""
+    last = rank - 1
+    g = np.zeros(MAXDIM, np.int64)
+    idx = np.zeros(MAXDIM, np.int64)
+    n = np.zeros(MAXDIM, np.int64)
+    for d in range(rank):
+        g[d] = spec[d, 0]
+    cbytes = spec[0, 4] * spec[0, 6]
+    end = src.shape[0]
+    tail = spec[last, 8]
+    while True:
+        lin = 0
+        c0 = 0
+        o0 = 0
+        some = True
+        for d in range(rank):
+            lin += g[d] * spec[d, 5]
+            q = g[d] * spec[d, 4]
+            s = spec[d, 2]
+            st = spec[d, 8]
+            lo = max(s, q)
+            lo = s + (lo - s + st - 1) // st * st           # the first it wants here
+            hi = min(spec[d, 3], q + spec[d, 4])
+            if lo >= hi:
+                some = False                                # (steps past this chunk)
+                break
+            n[d] = (hi - lo - 1) // st + 1
+            c0 += (lo - q) * spec[d, 6]
+            o0 += (lo - s) // st * spec[d, 7]
+        if some:
+            row = table[lin]
+            if row < 0:
+                return False
+            a = addr[row]
+            if a < 0 or a + cbytes > end:
+                return False
+            a += c0
+            run = n[last] * esize
+            while True:
+                s = a
+                o = o0
+                for d in range(last):
+                    s += idx[d] * spec[d, 8] * spec[d, 6]
+                    o += idx[d] * spec[d, 7]
+                if tail != 1:
+                    for j in range(n[last]):
+                        if swap:
+                            _swapped(src, s + j * tail * esize, out, o + j * esize, 1, esize)
+                        else:
+                            for k in range(esize):
+                                out[o + j * esize + k] = src[s + j * tail * esize + k]
+                elif swap:
+                    _swapped(src, s, out, o, n[last], esize)
+                else:
+                    k = 0
+                    while k + 8 <= run:
+                        st64(out, o + k, ld64(src, s + k))
+                        k += 8
+                    while k < run:
+                        out[o + k] = src[s + k]
+                        k += 1
+                d = last - 1
+                while d >= 0:
+                    idx[d] += 1
+                    if idx[d] < n[d]:
+                        break
+                    idx[d] = 0
+                    d -= 1
+                if d < 0:
+                    break
+        d = last
+        while d >= 0:
+            g[d] += 1
+            if g[d] <= spec[d, 1]:
+                break
+            g[d] = spec[d, 0]
+            d -= 1
+        if d < 0:
+            return True
+
+
+@njit(cache=True, nogil=True)
 def _place(sc, s0, nel, out, cstart, count, ostart, cstr, ostr, step, rank, esize,
            shuffled, swap):
     """Copy the selected elements of a decoded chunk (sc[s0:], nel elements,
@@ -370,6 +713,8 @@ def _place(sc, s0, nel, out, cstart, count, ostart, cstr, ostr, step, rank, esiz
                     b = (de + j) * esize
                     for k in range(esize):
                         out[b + k] = sc[s0 + k * nel + e]
+        elif st_last == 1:
+            _swapped(sc, s0 + se * esize, out, de * esize, n_last, esize)
         else:
             for j in range(n_last):
                 a = s0 + (se + j * st_last) * esize
@@ -391,12 +736,100 @@ def _place(sc, s0, nel, out, cstart, count, ostart, cstr, ostr, step, rank, esiz
 # per-variable parameter table columns
 V_ESIZE, V_RANK, V_NEL, V_CBYTES, V_SWAP, V_NST, V_OUT, V_STAGE0 = range(8)
 MAXSTAGE = 8
-V_COLS = V_STAGE0 + MAXSTAGE
+V_PROBE = V_STAGE0 + MAXSTAGE   # the byte plane to test + 1 (0: none), then two byte values
+V_COLS = V_PROBE + 3
+
+_LO = np.uint64(0x0101010101010101)
+_HI = np.uint64(0x8080808080808080)
+_NONE = np.uint64(0)
+
+
+@njit(cache=True, nogil=True)
+def _holds(a, lo, n, b0, b1):
+    """Whether a[lo:lo + n] holds the byte b0 or b1, a word at a time (the
+    usual test for a zero byte: exact on whether there is one)."""
+    w0 = np.uint64(b0) * _LO
+    w1 = np.uint64(b1) * _LO
+    seen = _NONE
+    n8 = n // 8
+    for k in range(n8):
+        x = ld64(a, lo + k * 8)
+        y0 = x ^ w0
+        y1 = x ^ w1
+        seen |= ((y0 - _LO) & ~y0) | ((y1 - _LO) & ~y1)
+    if (seen & _HI) != _NONE:
+        return True
+    for k in range(lo + n8 * 8, lo + n):
+        if a[k] == b0 or a[k] == b1:
+            return True
+    return False
+
+
+@njit(cache=True, nogil=True)
+def _box_holds(a, p0, C, cstart, count, cstr, step, rank, b0, b1):
+    """_holds over what a selection takes of the byte plane at a[p0:] (a
+    chunk's corner past the variable's edge holds fill values: no value of
+    the variable). Each run goes from its first to its last element, steps
+    or not; whole trailing dimensions make longer runs."""
+    k = rank - 1
+    while k > 0 and count[k] == C[k] and step[k] == 1:
+        k -= 1
+    run = ((count[k] - 1) * step[k] + 1) * cstr[k]
+    idx = np.zeros(rank, np.int64)
+    while True:
+        e = cstart[k] * cstr[k]
+        for d in range(k):
+            e += (cstart[d] + idx[d] * step[d]) * cstr[d]
+        if _holds(a, p0 + e, run, b0, b1):
+            return True
+        d = k - 1
+        while d >= 0:
+            idx[d] += 1
+            if idx[d] < count[d]:
+                break
+            idx[d] = 0
+            d -= 1
+        if d < 0:
+            return False
+
+
+@njit(cache=True, nogil=True)
+def holds_value(a, lo, hi, w0, w1, low):
+    """Whether a value in a[lo:hi] (hi - lo a multiple of its size) equals
+    one of two, bit for bit (value_words gives w0, w1 and low). A value is
+    zero after the xor exactly if ~(((y & low) + low) | y | low) has a bit
+    in its place: no carry leaves one. Under a word in all it cannot tell:
+    True."""
+    n = hi - lo
+    if n < 8:
+        return True
+    seen = _NONE
+    n8 = n // 8
+    for k in range(n8):
+        x = ld64(a, lo + k * 8)
+        y = x ^ w0
+        z = x ^ w1
+        seen |= ~(((y & low) + low) | y | low) | ~(((z & low) + low) | z | low)
+    # (what is left over, in the word ending at hi: its places line up)
+    x = ld64(a, hi - 8)
+    y = x ^ w0
+    z = x ^ w1
+    seen |= ~(((y & low) + low) | y | low) | ~(((z & low) + low) | z | low)
+    return seen != _NONE
+
+
+def value_words(values):
+    """(the first value repeated over a word, the last, and a word with all
+    but the top bit of each value's place set) for holds_value."""
+    es = values.dtype.itemsize
+    b = values.tobytes()
+    low = np.full(8 // es, (1 << (8 * es - 1)) - 1, 'u%d' % es).tobytes()
+    return tuple(np.frombuffer(w, np.uint64)[0] for w in (b[:es] * (8 // es), b[-es:] * (8 // es), low))
 
 
 @njit(cache=True, nogil=True)
 def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
-          counter, status, scratch, tab, iws, band, progress):
+          counter, status, scratch, tab, iws, band, progress, clean):
     """Take chunks off counter[0] until none is left: decode each into
     scratch (or straight into out) and place its selected elements.
 
@@ -409,6 +842,8 @@ def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count
     band (if not empty): chunk i's band of the output, progress[band[i]]
     counted up once it is placed (the GPU path uploads each band when all
     its chunks are in).
+    clean[v] counts variable v's chunks whose probed byte plane (V_PROBE)
+    was found free of both byte values.
     """
     n = addr.shape[0]
     track = band.shape[0] > 0
@@ -417,14 +852,14 @@ def _work(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count
         if i >= n:
             return
         _work_one(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count,
-                  ostart, status, scratch, tab, iws, i)
+                  ostart, status, scratch, tab, iws, i, clean)
         if track:
             take(progress, band[i])
 
 
 @njit(cache=True, nogil=True)
 def _work_one(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
-              status, scratch, tab, iws, i):
+              status, scratch, tab, iws, i, clean):
     """Chunk i of _work's batch."""
     v = var[i]
     esize = V[v, V_ESIZE]
@@ -500,6 +935,15 @@ def _work_one(src, out, V, VD, addr, size, mask, var, needend, direct, cstart, c
     if ok != 0 or placed:
         return
     if in_scratch:
+        # the chunk's byte planes are here: a value's top byte missing from
+        # its plane means the value is nowhere in the chunk
+        if shuffled and V[v, V_PROBE] != 0:
+            pl = (V[v, V_PROBE] - 1) * planes
+            b0 = V[v, V_PROBE + 1]
+            b1 = V[v, V_PROBE + 2]
+            if not _holds(scratch, pl, nel, b0, b1) or not _box_holds(
+                    scratch, pl, VD[v, 0], cstart[i], count[i], VD[v, 1], VD[v, 3], rank, b0, b1):
+                take(clean, v)
         _place(scratch, 0, planes, out[obase:], cstart[i], count[i], ostart[i], VD[v, 1],
                VD[v, 2], VD[v, 3], rank, esize, shuffled, swap)
     else:
@@ -517,13 +961,7 @@ def _swap_inplace(a, esize, counter, n):
         if i >= nb:
             return
         e0 = i * blk
-        e1 = min(n, e0 + blk)
-        for e in range(e0, e1):
-            q = e * esize
-            for k in range(esize // 2):
-                t = a[q + k]
-                a[q + k] = a[q + esize - 1 - k]
-                a[q + esize - 1 - k] = t
+        _swapped(a, e0 * esize, a, e0 * esize, min(n, e0 + blk) - e0, esize)
 
 
 # ---------------------------------------------------------------- driver
@@ -532,10 +970,10 @@ _TLS = threading.local()
 
 
 def _scratch(nbytes):
-    s = getattr(_TLS, 'scratch', None)
-    if s is None or s.size < nbytes:
-        s = np.empty(max(nbytes, 1 << 16), np.uint8)
-        _TLS.scratch = s
+    box = getattr(_TLS, 'box', None)
+    if box is None:
+        box = _TLS.box = [None, 0]
+    s = _pool.kept(box, nbytes)
     if getattr(_TLS, 'tab', None) is None:
         _TLS.tab, _TLS.iws = _inflate.workspace()
         if NATIVE_INFLATE:
@@ -555,11 +993,13 @@ _EMPTY1 = np.zeros(1, np.int64)
 class Item:
     """One dataset's part of a batch: its chunk index, the box to read, the
     output array (one dimension per dataset dimension, C-contiguous, in a
-    shared byte buffer at byte offset `base`), and whether to swap bytes."""
-    __slots__ = ('ds', 'index', 'box', 'out', 'swap', 'base')
+    shared byte buffer at byte offset `base`), whether to swap bytes, and
+    what to test while decoding (a _maskscale.Probe, or None)."""
+    __slots__ = ('ds', 'index', 'box', 'out', 'swap', 'base', 'probe')
 
-    def __init__(self, ds, index, box, out, swap, base=0):
+    def __init__(self, ds, index, box, out, swap, base=0, probe=None):
         self.ds, self.index, self.box, self.out, self.swap, self.base = ds, index, box, out, swap, base
+        self.probe = probe
 
 
 _READY = threading.Event()      # numba and the kernels loaded
@@ -578,6 +1018,8 @@ _LOADING = []
 # better of the two). The load time is noted whenever a load happens.
 LOAD_AFTER = None               # seconds (None: this machine's load time)
 LOAD_GUESS = 1.0                # ... before any load was timed here
+LOAD_LEAST = 0.25               # ... at least (no import of numba is shorter; a mistaken
+                                # timing here would load the kernels in the middle of reads)
 LOAD_MOST = 3.0                 # ... and at most (a compile is not a load)
 _SLOW = [0.0]                   # seconds read without the kernels so far
 
@@ -585,7 +1027,7 @@ _SLOW = [0.0]                   # seconds read without the kernels so far
 def _load_after():
     if LOAD_AFTER is not None:
         return LOAD_AFTER
-    return min(_hw.tuned().get('load_s') or LOAD_GUESS, LOAD_MOST)
+    return max(LOAD_LEAST, min(_hw.tuned().get('load_s') or LOAD_GUESS, LOAD_MOST))
 
 
 def slow(seconds):
@@ -593,12 +1035,32 @@ def slow(seconds):
     _SLOW[0] += seconds
 
 
+IMAGE = True                    # kernels from this machine's image (_image), where it has one
+
+
+def loaded():
+    """Whether kernels can be called now without waiting: numba's are loaded,
+    or an image of them is there, which takes no time."""
+    if _READY.is_set():
+        return True
+    if IMAGE:
+        from . import _image
+        if _image.open_image() is not None:
+            _READY.set()
+            return True
+    return False
+
+
 def ready():
     """Whether to use the kernels now: once loaded -- and loading them
     here if reading without them has taken as long as that would."""
-    if _READY.is_set():
+    if loaded():
         return True
     if _SLOW[0] >= _load_after():
+        if IMAGE:
+            from . import _image
+            if _image.coming():
+                return False
         warm(wait=True)
         return True
     return False
@@ -608,7 +1070,9 @@ def _warm():
     """Import numba and load (from cache, or compile) the batch kernel with
     the argument types reads use, off the caller's thread; the time it
     took is kept for this machine (the shortest seen: a compile or a busy
-    moment is not what a load costs)."""
+    moment is not what a load costs -- and neither is a load in a process
+    that had numba imported already, which is a fraction of one)."""
+    cold = 'numba' not in sys.modules
     t0 = time.perf_counter()
     try:
         i64 = np.zeros(1, np.int64)
@@ -618,13 +1082,16 @@ def _warm():
         tab, iws = _inflate.workspace()
         _work(ro, u8, np.zeros((1, V_COLS), np.int64), np.zeros((1, 4, 1), np.int64),
               i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i64[:0], i2[:0], i2[:0], i2[:0],
-              np.zeros(1, np.int64), i64[:0], u8, tab, iws, i64[:0], i64[:1])
+              np.zeros(1, np.int64), i64[:0], u8, tab, iws, i64[:0], i64[:1], i64[:1])
         _pinflate.warm()
         took = round(time.perf_counter() - t0, 3)
-        if took < LOAD_MOST and took < (_hw.tuned().get('load_s') or LOAD_MOST):
+        if cold and took < LOAD_MOST and took < (_hw.tuned().get('load_s') or LOAD_MOST):
             _hw.save_tuned(cpu={'load_s': took})
     finally:
         _READY.set()
+    if IMAGE:
+        from . import _image
+        _image.build_later()                        # the next process need not do this
 
 
 def _start_warm():
@@ -638,6 +1105,8 @@ def warm(wait=True):
     without them has taken a second in all: see LOAD_AFTER). For a session
     that will read a lot, or worker processes:
     ProcessPoolExecutor(initializer=fastnc.warm)."""
+    if loaded():
+        return
     _start_warm()
     if wait:
         _READY.wait()
@@ -778,17 +1247,14 @@ def read_batch(items, src, buf, threads=None, bands=None):
     bands (one item): (band of each of its plan's chunks, progress counts)
     -- chunks then go in band order, and progress[b] counts band b's
     chunks as they are placed (_gpu uploads each band once complete)."""
-    staged = [it for it in items if not all(f.id in SUPPORTED for f in it.ds.filters)]
-    if staged:
-        # other filters (szip, scale-offset, n-bit, bzip2, ...): stage by stage
+    fused = [fusable(it.ds) for it in items]
+    if not all(fused):
+        # other filters (szip, scale-offset, n-bit, bzip2, ...), or more of them
+        # than the kernels' tables hold: stage by stage
         from . import _staged
-        for it in staged:
-            if not _staged.handles(it.ds.filters):
-                bad = [f.id for f in it.ds.filters if not _staged.handles([f])]
-                raise NotImplementedError('filter %d is not supported yet' % bad[0])
         fetch_chunks(items)                         # (all: one round with the fast ones)
-        _staged.read_items(staged, src, buf, threads)
-        items = [it for it in items if all(f.id in SUPPORTED for f in it.ds.filters)]
+        _staged.read_items([it for it, k in zip(items, fused) if not k], src, buf, threads)
+        items = [it for it, k in zip(items, fused) if k]
         if not items:
             return
     if all(f.id in SUPPORTED for it in items for f in it.ds.filters) and not ready():
@@ -796,60 +1262,68 @@ def read_batch(items, src, buf, threads=None, bands=None):
         _read_python(items, src, threads)
         slow(time.perf_counter() - t)
         return
+    # (the tables as plain rows, made into arrays once: writing them into
+    # arrays a variable at a time was a dozen numpy calls for each of hundreds)
     plans = []
-    V = np.zeros((len(items), V_COLS), np.int64)
     maxrank = max(1, max(len(it.ds.shape) for it in items))
-    VD = np.zeros((len(items), 4, maxrank), np.int64)
-    cmax = 0
-    for v, it in enumerate(items):
+    zeros = [0] * maxrank
+    rows, cshapes, cstrides, ostrides, steps = [], [], [], [], []
+    straight = []                                   # (place in the batch, offsets of chunks to inflate in place)
+    cmax = n = 0
+    for it in items:
         ds, index, box = it.ds, it.index, it.box
         rank = len(ds.shape)
         esize = ds.type.size
         stages = [f.id for f in reversed(ds.filters)]
-        for fid in stages:
-            if fid not in SUPPORTED:
-                raise NotImplementedError('filter %d is not supported yet' % fid)
-        if len(stages) > MAXSTAGE:
-            raise NotImplementedError('more than %d filters' % MAXSTAGE)
         p = plan(index, ds.shape, box)
         if p.fill_needed:
-            _fill(it.out, ds)
+            _fill(it.out, ds, it.swap)
         oshape = it.out.shape
-        cstr = np.ones(rank, np.int64)
-        ostr = np.ones(rank, np.int64)
-        for d in range(rank - 2, -1, -1):
-            cstr[d] = cstr[d + 1] * index.chunks[d + 1]
-            ostr[d] = ostr[d + 1] * oshape[d + 1]
-        step = np.array([s[2] for s in box], np.int64)
-        nel = int(np.prod(index.chunks)) if rank else 1
-        V[v, :V_STAGE0] = (esize, rank, nel, nel * esize, int(bool(it.swap)), len(stages), it.base)
-        V[v, V_STAGE0:V_STAGE0 + len(stages)] = stages
-        VD[v, 0, :rank] = index.chunks
-        VD[v, 1, :rank] = cstr
-        VD[v, 2, :rank] = ostr
-        VD[v, 3, :rank] = step
+        chunks = tuple(index.chunks.tolist())
+        ostr = strides(oshape)
+        step = [s[2] for s in box]
+        nel = math.prod(chunks) if rank else 1
+        row = [esize, rank, nel, nel * esize, int(bool(it.swap)), len(stages), it.base] + stages
+        row += [0] * (V_COLS - len(row))
+        if it.probe is not None and it.probe.values.dtype.itemsize == esize:
+            # the top byte of each value, and the plane top bytes are stored in
+            b = it.probe.values.tobytes()
+            little = sys.byteorder == 'little'
+            tops = b[esize - 1::esize] if little else b[::esize]
+            row[V_PROBE:V_PROBE + 3] = (esize if little != bool(it.swap) else 1, tops[0], tops[-1])
+        rows.append(row)
+        rest = zeros[rank:]
+        cshapes.append(list(chunks) + rest)
+        cstrides.append(strides(chunks).tolist() + rest)
+        ostrides.append(ostr.tolist() + rest)
+        steps.append(step + rest)
         cmax = max(cmax, nel * esize)
+        count = len(p.addr)
         # chunks inflated straight into the output: whole chunk selected,
         # step 1, no shuffle, no swap, and the chunk one run of the output
         # (extent 1 in the leading dimensions, the output's after the first
         # other): their bytes are the output's
-        direct = np.full(len(p.addr), -1, np.int64)
-        k1 = next((d for d in range(rank) if index.chunks[d] > 1), rank - 1)
-        if (len(p.addr) and rank and not it.swap and F_SHUFFLE not in stages and np.all(step == 1)
-                and np.all(index.chunks[k1 + 1:] == np.array(oshape[k1 + 1:], np.int64))):
-            full = np.all(p.count == index.chunks, axis=1) & np.all(p.cstart == 0, axis=1)
-            lin = (p.ostart * ostr).sum(axis=1) * esize
-            direct[full] = lin[full]
-        plans.append((p, direct))
-    n = sum(len(p.addr) for p, _ in plans)
+        if count and rank and not it.swap and F_SHUFFLE not in stages and all(k == 1 for k in step):
+            k1 = next((d for d in range(rank) if chunks[d] > 1), rank - 1)
+            if chunks[k1 + 1:] == tuple(oshape[k1 + 1:]):
+                full = np.all(p.count == index.chunks, axis=1) & np.all(p.cstart == 0, axis=1)
+                lin = (p.ostart * ostr).sum(axis=1) * esize
+                straight.append((n, full, lin))
+        n += count
+        plans.append((p, None))
     if n == 0:
         return
+    V = np.array(rows, np.int64)
+    VD = np.empty((len(items), 4, maxrank), np.int64)
+    VD[:, 0], VD[:, 1], VD[:, 2], VD[:, 3] = cshapes, cstrides, ostrides, steps
     addr = np.concatenate([p.addr for p, _ in plans])
     size = np.concatenate([p.size for p, _ in plans])
     mask = np.concatenate([p.mask for p, _ in plans])
     needend = np.concatenate([p.needend for p, _ in plans])
-    direct = np.concatenate([d for _, d in plans])
-    var = np.concatenate([np.full(len(p.addr), v, np.int64) for v, (p, _) in enumerate(plans)])
+    direct = np.full(n, -1, np.int64)
+    for at, full, lin in straight:
+        direct[at:at + len(full)][full] = lin[full]
+    var = np.repeat(np.arange(len(plans), dtype=np.int64), [len(p.addr) for p, _ in plans])
 
     def pad(a):
         if a.shape[1] == maxrank:
@@ -857,9 +1331,9 @@ def read_batch(items, src, buf, threads=None, bands=None):
         z = np.zeros((a.shape[0], maxrank), np.int64)
         z[:, :a.shape[1]] = a
         return z
-    cstart = np.concatenate([pad(p.cstart) for p, _ in plans])
-    count = np.concatenate([pad(p.count) for p, _ in plans])
-    ostart = np.concatenate([pad(p.ostart) for p, _ in plans])
+    wide = [p.wide if p.wide is not None and p.wide[0].shape[1] == maxrank
+            else (pad(p.cstart), pad(p.count), pad(p.ostart)) for p, _ in plans]
+    cstart, count, ostart = (np.concatenate([w[k] for w in wide]) for k in range(3))
     fetch_chunks(items, [p for p, _ in plans])
     band = _EMPTY if bands is None else np.asarray(bands[0], np.int64)
     progress = _EMPTY1 if bands is None else bands[1]
@@ -872,15 +1346,11 @@ def read_batch(items, src, buf, threads=None, bands=None):
         addr, size, mask, needend, direct, var = (addr[order], size[order], mask[order],
                                                   needend[order], direct[order], var[order])
         cstart, count, ostart = cstart[order], count[order], ostart[order]
-    io = _stage_reader(items) if not any(it.ds.filters for it in items) else None
-    if io is not None and int(size.sum()) >= _pio.STAGE_MIN:
-        # a big unfiltered batch from a local file: positional reads into warm
-        # memory beat faulting in the freshly mapped file's pages (with a
-        # decompressor at work the faults hide behind it: staging lost there)
-        src, addr = io.stage(addr, size, threads)
+    filtered = any(it.ds.filters for it in items)
+    src, addr = maybe_stage(items[0].ds, src, addr, size, threads, filtered)
     # a thread for each ~32 kB of output at most: handing tiny reads to the
     # pool costs more than it saves
-    outbytes = int(sum(int(np.prod(it.out.shape)) * it.ds.type.size for it in items))
+    outbytes = sum(math.prod(it.out.shape) * it.ds.type.size for it in items)
     allthreads = threads or _pool.threads()
     big = None
     if allthreads > 1 and size[0] >= PAR_MIN:
@@ -903,15 +1373,20 @@ def read_batch(items, src, buf, threads=None, bands=None):
             big = None
     counter = np.zeros(1, np.int64)
     status = np.zeros(n, np.int64)
+    clean = np.zeros(len(items), np.int64)
     # (the work is the decoding: a column of a variable has little output
     # but every chunk to inflate; compressed bytes count double, about
-    # what they inflate to)
-    nthreads = _pool.work_threads(max(outbytes, 2 * int(size.sum())), min(allthreads, n))
+    # what they inflate to. With nothing to decode it is copying)
+    if filtered:
+        nthreads = _pool.work_threads(max(outbytes, 2 * int(size.sum())), min(allthreads, n))
+    else:
+        nthreads = _pool.memory_threads(outbytes, min(allthreads, n))
+    call = bind(_work, (src, buf, V, VD, addr, size, mask, var, needend, direct, cstart, count,
+                        ostart, counter, status) + _scratch(cmax + 8) + (band, progress, clean),
+                (15, 16, 17))
 
     def work():
-        sc, tab, iws = _scratch(cmax + 8)
-        _work(src, buf, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
-              counter, status, sc, tab, iws, band, progress)
+        call(*_scratch(cmax + 8))
     if big is not None:                             # the other chunks once a thread's parts are done
         _read_big(src, buf, V, VD, bigs, allthreads, items, work if n else None, total)
     else:
@@ -920,6 +1395,12 @@ def read_batch(items, src, buf, threads=None, bands=None):
         bad = np.nonzero(status)[0][0]
         raise IOError('chunk at byte %d of %s could not be decoded (error %d)'
                       % (addr[bad], items[var[bad]].ds.name, status[bad]))
+    for v, it in enumerate(items):
+        # (every chunk has to have been tested: one decoded any other way, a
+        # big one in parts, or a part of the selection with no chunk is not)
+        if it.probe is not None:
+            p = plans[v][0]
+            it.probe.proven = not p.fill_needed and 0 < len(p.addr) == clean[v]
 
 
 def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
@@ -960,17 +1441,33 @@ def place_staged(it, p, sel, src, addr, size, mask, stages, buf, threads=None):
     def work():
         sc, tab, iws = _scratch(8)
         _work(src, buf, V, VD, addr, size, mask, var, needend, direct, cstart, count, ostart,
-              counter, status, sc, tab, iws, _EMPTY, _EMPTY1)
+              counter, status, sc, tab, iws, _EMPTY, _EMPTY1, _EMPTY1)
     nbytes = int(np.prod(it.out.shape)) * esize
     _pool.share(work, _pool.work_threads(nbytes, min(threads or _pool.threads(), n)))
     if status.any():
         raise IOError('a staged chunk of %s could not be placed' % ds.name)
 
 
-def _stage_reader(items):
+def maybe_stage(ds, src, addr, size, threads, filtered):
+    """(src, addr), the chunks' bytes staged first if that is the better way:
+    a big unfiltered batch from a local file (positional reads into warm
+    memory beat faulting in the freshly mapped file's pages; with a
+    decompressor at work the faults hide behind it), or a big compressed one
+    from storage that makes faults dear (_pio.Reader.slow)."""
+    if int(size.sum()) < _pio.STAGE_MIN:
+        return src, addr
+    f = getattr(ds, 'file', None)                   # (HDF4's datasets have none)
+    if filtered and (f is None or getattr(f, 'source', None) is not None
+                     or not _pio.slow(src, addr, threads or _pool.threads())):
+        return src, addr                            # (no reader made: a handle per file adds up)
+    io = _stage_reader(ds)
+    return (src, addr) if io is None else io.stage(addr, size, threads)
+
+
+def _stage_reader(ds):
     """The local file's positional reader (made on first use), or None for
     remote sources and files opened without a path."""
-    f = getattr(items[0].ds, 'file', None)          # (HDF4's datasets have none)
+    f = getattr(ds, 'file', None)                   # (HDF4's datasets have none)
     if f is None or getattr(f, 'source', None) is not None or getattr(f, 'path', None) is None:
         return None
     r = getattr(f, '_pio', None)
@@ -1015,7 +1512,8 @@ def read(ds, index, src, sel, out, swap=False, threads=None, bands=None):
     array with one dimension per dataset dimension, sized to the selection
     (integer indexes as length one). swap: reverse each element's bytes as
     it is placed (big-endian numbers read as native)."""
-    if bands is None and _cached(ds, index, src, sel, out, swap, threads):
+    if bands is None and (_plain(ds, index, src, sel, out) or (_CACHE and _hit(index, sel, out, swap))
+                          or _cached(ds, index, src, sel, out, swap, threads)):
         return out
     read_batch([Item(ds, index, sel, out, swap, 0)], src, out.reshape(-1).view(np.uint8), threads,
                bands)
@@ -1038,6 +1536,306 @@ def release_cache():
         _CACHE_HELD[0] = 0
 
 
+def _hit(index, sel, out, swap):
+    """A read inside one chunk already decoded, with no plan: all that going
+    through a dataset row by row needs for most rows. False: not such a read."""
+    C = index.cshape
+    if len(sel) != len(C) or out.ndim != len(C):
+        return False
+    place, inner = [], []
+    for (s, e, k), c in zip(sel, C):
+        g = s // c
+        if (e - 1) // c != g:
+            return False
+        place.append(g)
+        g *= c
+        inner.append(slice(s - g, e - g, k))
+    key = (index, tuple(place), bool(swap))
+    with _CACHE_LOCK:
+        h = _CACHE.pop(key, None)
+        if h is None:
+            return False
+        _CACHE[key] = h                             # (now the most recent)
+    out.reshape(-1).view(np.uint8).reshape(out.shape + h.shape[-1:])[...] = h[tuple(inner)]
+    return True
+
+
+def cached_chunk(index, place, swap):
+    """A decoded chunk at a grid place, now the most recent, or None."""
+    key = (index, place, swap)
+    with _CACHE_LOCK:
+        h = _CACHE.pop(key, None)
+        if h is not None:
+            _CACHE[key] = h
+            index.fresh.discard(place)
+    return h
+
+
+def take_chunk(index, place, swap):
+    """A chunk decoded ahead that no read has seen, out of the cache: the
+    caller's now, to hand on without a copy. None if there is no such chunk."""
+    if place not in index.fresh:
+        return None
+    index.fresh.discard(place)
+    if len(index.ways) > 1:
+        _gone(index, [place])
+    with _CACHE_LOCK:
+        h = _CACHE.pop((index, place, swap), None)
+        if h is not None:
+            _CACHE_HELD[0] -= h.nbytes
+    return h
+
+
+def _trim_cache():
+    """Chunks decoded ahead of a read that has stopped: past the cache's own
+    budget only while it is going on. True while they may still be wanted."""
+    with _CACHE_LOCK:
+        size = _CACHE_HELD[0]
+        seen = _pool.CACHE_SEEN
+        if size <= _hw.scaled(CACHE_BYTES):
+            seen[0] = 0
+            return False
+        if size != seen[0]:                         # (read from since the last look: going on)
+            seen[0] = size
+            return True
+        while _CACHE_HELD[0] > _hw.scaled(CACHE_BYTES) and _CACHE:
+            _CACHE_HELD[0] -= _CACHE.pop(next(iter(_CACHE))).nbytes
+        seen[0] = 0
+    return False
+
+
+def drop_file(file):
+    """Lets go of the chunks of a closed file: nothing can read them again."""
+    with _CACHE_LOCK:
+        for k in [k for k in _CACHE if k[0].owner is file]:
+            _CACHE_HELD[0] -= _CACHE.pop(k).nbytes
+
+
+def _bare(ds):
+    """The dtype of a dataset whose chunks are its values as they stand in a
+    local file, else False."""
+    from ._h5read import reduced
+    f = getattr(ds, 'file', None)                   # (HDF4's datasets have none)
+    if f is None or getattr(f, 'source', None) is not None or ds.filters:
+        return False
+    t = ds.type
+    if t.cls not in (0, 1) or t.dtype is None or reduced(t):
+        return False
+    return t.dtype
+
+
+def _plain(ds, index, src, sel, out):
+    """A read inside one chunk of uncompressed values: their place in the file
+    is arithmetic, and copying them all there is to it. Through the plan and
+    the kernel such a read took 95 us, in a loop over rows. False: not such a
+    read (or a chunk not stored)."""
+    dt = index.bare
+    if dt is None:
+        dt = index.bare = _bare(ds)
+    if dt is False or len(sel) != len(index.cshape) or out.ndim != len(sel) or index.seen is not None:
+        return False
+    t = index.table
+    if t is None:
+        t = index.table = index._grid_table()
+    lin = at = 0
+    steps = []
+    for (s, e, k), c, n, st in zip(sel, index.cshape, index.gridlist, index.cstrides(dt.itemsize)):
+        g = s // c
+        if (e - 1) // c != g:
+            return False
+        lin = lin * n + g
+        at += (s - g * c) * st
+        steps.append(k * st)
+    if t is False:
+        if len(index.addr) != 1 or lin or index.offsets.any():
+            return False                            # (a lone chunk need not be the first)
+        row = 0
+    else:
+        row = t[lin]
+        if row < 0:
+            return False
+    out[...] = np.ndarray(out.shape, dt, src, int(index.addr[row]) + at, tuple(steps))
+    return True
+
+
+def _beside(places, rank):
+    """{a grid place next to these: (the dimension, the direction) to it}."""
+    return {g[:d] + (g[d] + k,) + g[d + 1:]: (d, k) for g in places for d in range(rank) for k in (-1, 1)}
+
+
+class _Way:
+    """One thread's way through a dataset. Threads going through a file by
+    turns had one between them: each read looked like a jump from the other's,
+    nothing was decoded ahead, and two threads took twice as long as one."""
+    __slots__ = 'beside', 'last', 'ahead'
+
+    def __init__(self):
+        self.beside = {}                            # grid place next to the chunks last decoded ->
+        #                                             the way to it (dimension, direction)
+        self.last = None                            # the place a read last started at (see _went)
+        self.ahead = 0                              # chunks to decode ahead of a read going along
+
+
+def _way(index):
+    """This thread's _Way through a dataset."""
+    ways = index.ways
+    me = threading.get_ident()
+    w = ways.get(me)
+    if w is None:
+        if len(ways) >= 64:                         # (threads come and go)
+            ways.clear()
+        w = ways[me] = _Way()
+    return w
+
+
+def _along(index, places):
+    """The way to these from any thread's last read, or None: one thread's
+    reads may carry on from another's."""
+    for w in list(index.ways.values()):
+        beside = w.beside
+        for g in places:
+            if g in beside:
+                return beside[g]
+    return None
+
+
+def _went(index, places, rank):
+    """Where this thread's read of these places may go next: next to them, or
+    as far along one dimension again as they are from its last read's. Every
+    sixth step of a variable is a loop like any other, and went a chunk at a
+    time on one thread: 2 ms a step, against 0.5 for every step."""
+    w = _way(index)
+    way = _beside(places, rank)
+    was, w.last = w.last, places[0]
+    if was is not None:
+        moved = [(d, b - a) for d, (a, b) in enumerate(zip(was, places[0])) if a != b]
+        if len(moved) == 1 and abs(moved[0][1]) > 1:
+            d, k = moved[0]
+            way.update({g[:d] + (g[d] + k,) + g[d + 1:]: (d, k) for g in places})
+    w.beside = way
+
+
+def _ahead(index, shape, origins, way, count):
+    """The boxes of the chunks a read going on along way (a dimension, a
+    direction, a stride) comes to next, count steps of them past the chunks at
+    origins; none past the end. One box if the chunks are next to each other,
+    so that they are decoded in one pass of the kernel, however many and
+    however small: a row each, as in the Ku-band file, cost 100 us a row one
+    at a time."""
+    if count < 1:
+        return []
+    d, k = way
+    C = index.chunks
+    lo, hi = origins.min(axis=0), (origins + C).max(axis=0)
+    box = [(int(a), min(int(b), n), 1) for a, b, n in zip(lo, hi, shape)]
+    if abs(k) > 1:
+        boxes = []
+        for j in range(1, count + 1):
+            a, b = max(int(lo[d] + j * k * C[d]), 0), min(int(hi[d] + j * k * C[d]), shape[d])
+            if a >= b:
+                break
+            boxes.append(box[:d] + [(a, b, 1)] + box[d + 1:])
+        return boxes
+    a, b = (int(hi[d]), int(hi[d] + count * C[d])) if k > 0 else (int(lo[d] - count * C[d]), int(lo[d]))
+    a, b = max(a, 0), min(b, shape[d])
+    if a >= b:
+        return []
+    box[d] = (a, b, 1)
+    return [box]
+
+
+def _claim(index, places):
+    """These places are this read's to decode: others wait for them, and do
+    not decode them ahead. What _unclaim needs to say it is done."""
+    import os
+    done = threading.Event()
+    done.pid = os.getpid()
+    for g in places:
+        index.coming[g] = done
+    return done
+
+
+def _unclaim(index, places, done):
+    with _CACHE_LOCK:
+        for g in places:
+            index.coming.pop(g, None)
+    done.set()
+
+
+def _gone(index, places):
+    """These were read and are in no cache: a thread behind the others is not
+    to decode them ahead. (Only some 16,000: a later pass may read them again.)"""
+    if len(index.gone) >= 1 << 14:
+        index.gone.clear()
+    index.gone.update(places)
+
+
+def _places(box, C):
+    """The grid places of the chunks a box covers."""
+    from itertools import product
+    return list(product(*[range(s // c, (e - 1) // c + 1) for (s, e, _), c in zip(box, C)]))
+
+
+def _unclaimed(index, boxes, way, swap):
+    """Of boxes to decode ahead, what is neither decoded nor being decoded: the
+    run of chunks nearest the read along way. Threads going through one file by
+    turns decoded the same chunks: 610 at 8 threads, for 240 read. (Holding
+    the cache's lock.)"""
+    if not way:
+        return boxes
+    d, k = way
+    C = index.cshape
+
+    def taken(box, j):
+        slab = _places(box[:d] + [(j * C[d], (j + 1) * C[d], 1)] + box[d + 1:], C)
+        return any(g in index.coming or g in index.gone or (index, g, swap) in _CACHE for g in slab)
+    out = []
+    for box in boxes:
+        free = []
+        lo, hi = box[d][0] // C[d], (box[d][1] - 1) // C[d] + 1
+        for j in range(lo, hi) if k > 0 else range(hi - 1, lo - 1, -1):
+            if not taken(box, j):
+                free.append(j)
+            elif free:
+                break
+        if free:
+            a, b = min(free) * C[d], (max(free) + 1) * C[d]
+            out.append(box[:d] + [(max(a, box[d][0]), min(b, box[d][1]), 1)] + box[d + 1:])
+    return out
+
+
+def _keep_box(index, shape, box, buf, swap, way):
+    """The decoded box's chunks into the cache, each a view of it (they go
+    out together: they were put in together, and are read in turn). Past them
+    a read is still going the same way, not jumping: decoded twice over and
+    with no chunks ahead, otherwise, at the end of every box."""
+    C = index.cshape
+    q = plan(index, shape, box)
+    first = [b[0] for b in box]
+    places = (q.ostart + np.array(first, np.int64) - q.cstart) // index.chunks
+    made = 0
+    kept = []
+    with _CACHE_LOCK:
+        for g in places.tolist():
+            s = tuple(slice(p * c - f, min((p + 1) * c, n) - f) for p, c, f, n in zip(g, C, first, shape))
+            h = buf[s]
+            g = tuple(g)
+            kept.append(g)
+            key = (index, g, swap)
+            old = _CACHE.pop(key, None)
+            if old is not None:
+                _CACHE_HELD[0] -= old.nbytes
+            _CACHE[key] = h
+            made += h.nbytes
+        _CACHE_HELD[0] += made
+    index.fresh.update(kept)
+    beside = _way(index).beside
+    beside.update(_beside(kept, len(C)))
+    d, k = way
+    if abs(k) > 1:
+        beside.update({g[:d] + (g[d] + k,) + g[d + 1:]: way for g in kept})
+
+
 def _cached(ds, index, src, sel, out, swap, threads):
     """Small parts of a few shuffled chunks, read through a cache of decoded
     chunks: a loop reading points, or one level of a variable, decoded the
@@ -1048,7 +1846,11 @@ def _cached(ds, index, src, sel, out, swap, threads):
     selection is copied out of them. False: not such a read."""
     rank = len(ds.shape)
     esize = ds.type.size
-    if rank == 0 or esize < 2 or out.ndim != rank or not any(f.id == F_SHUFFLE for f in ds.filters):
+    if rank == 0 or out.ndim != rank or not ds.filters:
+        return False
+    whole = out.size == math.prod(ds.shape)
+    if whole and _SEEN.setdefault((id(index), 'all'), False) is False:
+        _SEEN[id(index), 'all'] = True              # (all of it: only ever worth keeping if read again)
         return False
     C = index.chunks
     cbytes = int(np.prod(C)) * esize
@@ -1057,18 +1859,47 @@ def _cached(ds, index, src, sel, out, swap, threads):
         return False
     p = plan(index, ds.shape, sel)
     n = len(p.addr)
-    if n == 0 or n > CACHE_CHUNKS or n * cbytes * 2 > budget or out.nbytes * 2 > n * cbytes:
+    if n == 0 or n > CACHE_CHUNKS or n * cbytes * 2 > budget:
         return False
-    if p.fill_needed:
-        _fill(out, ds)
     start = np.array([s[0] for s in sel], np.int64)
     step = np.array([s[2] for s in sel], np.int64)
     origin = start + p.ostart * step - p.cstart         # each chunk's first element
     swap = bool(swap)
     hits = [None] * n
+    places = [tuple(g) for g in (origin // C).tolist()]
+    if index.coming:                                    # (another thread is decoding what this wants)
+        import os                                       # (a claim from before a fork: its thread is not here)
+        me = os.getpid()
+        with _CACHE_LOCK:
+            wait = {e for e in map(index.coming.get, places) if e is not None and e.pid == me}
+        if wait:
+            for e in wait:
+                e.wait()
+            return _cached(ds, index, src, sel, out, swap, threads)
+    if out.nbytes * 2 > n * cbytes and _along(index, places) is None and not any(g in index.fresh for g in places):
+        # most of its chunks: nothing to keep them for, unless it is going
+        # through them, a chunk a read, when the next ones are worth decoding,
+        # or it read just these before (a small variable, read over and over)
+        with _CACHE_LOCK:
+            again = whole or all((id(index), g) in _SEEN for g in places)
+            for g in places:
+                _SEEN[id(index), g] = True
+        if not again:
+            _went(index, places, rank)
+            if len(index.ways) < 2:
+                return False
+            done = _claim(index, places)                # (not for another thread to decode ahead)
+            try:
+                read_batch([Item(ds, index, sel, out, swap, 0)], src, out.reshape(-1).view(np.uint8), threads)
+            finally:
+                _unclaim(index, places, done)
+            _gone(index, places)
+            return True
+    if p.fill_needed:
+        _fill(out, ds, swap)
     with _CACHE_LOCK:
         for i in range(n):
-            key = (index, int(p.addr[i]), swap)
+            key = (index, places[i], swap)
             h = _CACHE.pop(key, None)
             if h is not None:
                 _CACHE[key] = h                         # (now the most recent)
@@ -1076,43 +1907,84 @@ def _cached(ds, index, src, sel, out, swap, threads):
     miss = [i for i in range(n) if hits[i] is None]
     if miss:
         # a chunk is kept from its second read on: a read made once (a fresh
-        # open's first window) costs what it did, not a whole-chunk decode
+        # open's first window) costs what it did, not a whole-chunk decode. One
+        # next to the last chunks read is kept at once: a program going through
+        # a dataset row by row comes back to it, reads at random do not. So are
+        # a few small ones: decoded all the same, keeping them costs less than
+        # this read (many, as a crop across rows of a chunk each, cost more)
+        grid = [places[i] for i in miss]
+        going = _along(index, grid)
+        _went(index, grid, rank)
+        # ... and the chunks after it are decoded now, on the threads that
+        # would otherwise wait: as many as were right so far, twice over
+        w = _way(index)
+        w.ahead = 0 if going is None else max(1, 2 * w.ahead)
         with _CACHE_LOCK:
-            new = [i for i in miss if _SEEN.setdefault((id(index), int(p.addr[i])), False)
-                   is False]
+            new = [i for i in miss if _SEEN.setdefault((id(index), places[i]), False) is False]
             for i in new:
-                _SEEN[id(index), int(p.addr[i])] = True
+                _SEEN[id(index), places[i]] = True
             if len(_SEEN) > 1 << 16:
                 _SEEN.clear()
-        if new:
+        if new and going is None and (cbytes > 1 << 18 or n > 4):
             return False
-        items, shapes, base = [], [], 0
-        for i in miss:
-            o = [int(x) for x in origin[i]]
-            box = [(o[d], min(o[d] + int(C[d]), ds.shape[d]), 1) for d in range(rank)]
-            shapes.append(tuple(e - s for s, e, _ in box))
-            items.append((box, base))
-            base += (int(np.prod(shapes[-1])) * esize + 63) // 64 * 64
-        buf = np.empty(base, np.uint8)
-        batch = []
-        for (box, b0), shape in zip(items, shapes):
-            nb = int(np.prod(shape)) * esize
-            batch.append(Item(ds, index, box, buf[b0:b0 + nb].view(out.dtype).reshape(shape),
-                              swap, b0))
-        read_batch(batch, src, buf, threads)
-        with _CACHE_LOCK:
-            for (box, b0), shape, i in zip(items, shapes, miss):
+        todo = [([int(x) for x in origin[i]], places[i], i) for i in miss]
+        boxes = []
+        index.owner = getattr(ds, 'file', None)     # (HDF4's datasets have none)
+        if going is not None:
+            # (as far as this machine's cores use them, not the cache's budget:
+            # chunks of megabytes would come three at a pass, on 24 threads)
+            from . import _arena
+            per = cbytes * len(miss)
+            room = max(budget // 2, min(_arena.BUDGET // 8, _pool.AHEAD * _pool.threads() * per))
+            boxes = _ahead(index, ds.shape, origin[miss], going, min(w.ahead, room // per - 1))
+            budget += room
+            _arena.wake(_trim_cache)
+        mine, done = [], None
+        if len(index.ways) > 1:                         # (threads going through one file: each its own)
+            with _CACHE_LOCK:
+                boxes = _unclaimed(index, boxes, going, swap)
+                mine = grid + [g for b in boxes for g in _places(b, index.cshape)]
+                done = _claim(index, mine)
+        try:
+            items, shapes, base = [], [], 0
+            for o, _, _ in todo:
+                box = [(o[d], min(o[d] + int(C[d]), ds.shape[d]), 1) for d in range(rank)]
+                shapes.append(tuple(e - s for s, e, _ in box))
+                items.append((box, base))
+                base += (int(np.prod(shapes[-1])) * esize + 63) // 64 * 64
+            buf = np.empty(base, np.uint8)
+            batch = []
+            for (box, b0), shape in zip(items, shapes):
                 nb = int(np.prod(shape)) * esize
-                h = buf[b0:b0 + nb].reshape(shape + (esize,))
-                h = hits[i] = h.copy() if len(miss) > 1 else h   # (each freed on its own)
-                key = (index, int(p.addr[i]), swap)
-                old = _CACHE.pop(key, None)
-                if old is not None:
-                    _CACHE_HELD[0] -= old.nbytes
-                _CACHE[key] = h
-                _CACHE_HELD[0] += nb
-            while _CACHE_HELD[0] > budget and _CACHE:
-                _CACHE_HELD[0] -= _CACHE.pop(next(iter(_CACHE))).nbytes
+                batch.append(Item(ds, index, box, buf[b0:b0 + nb].view(out.dtype).reshape(shape),
+                                  swap, b0))
+            read_batch(batch, src, buf, threads)
+            if boxes:
+                sizes = [tuple(e - s for s, e, _ in b) for b in boxes]
+                ends = np.cumsum([0] + [(math.prod(s) * esize + 63) // 64 * 64 for s in sizes]).tolist()
+                buf2 = np.empty(ends[-1], np.uint8)
+                read_batch([Item(ds, index, b, buf2[o:o + math.prod(s) * esize].view(out.dtype).reshape(s), swap, o)
+                            for b, s, o in zip(boxes, sizes, ends)], src, buf2, threads)
+                for b, s, o in zip(boxes, sizes, ends):
+                    _keep_box(index, ds.shape, b, buf2[o:o + math.prod(s) * esize].reshape(s + (esize,)), swap, going)
+            with _CACHE_LOCK:
+                for (box, b0), shape, (_, a, i) in zip(items, shapes, todo):
+                    nb = int(np.prod(shape)) * esize
+                    h = buf[b0:b0 + nb].reshape(shape + (esize,))
+                    h = h.copy() if len(todo) > 1 else h    # (each freed on its own)
+                    if i is not None:
+                        hits[i] = h
+                    key = (index, a, swap)
+                    old = _CACHE.pop(key, None)
+                    if old is not None:
+                        _CACHE_HELD[0] -= old.nbytes
+                    _CACHE[key] = h
+                    _CACHE_HELD[0] += nb
+                while _CACHE_HELD[0] > budget and _CACHE:
+                    _CACHE_HELD[0] -= _CACHE.pop(next(iter(_CACHE))).nbytes
+        finally:
+            if done is not None:
+                _unclaim(index, mine, done)
     ob = out.reshape(-1).view(np.uint8).reshape(out.shape + (esize,))
     for i in range(n):
         cs, cn, os_ = p.cstart[i], p.count[i], p.ostart[i]
@@ -1122,9 +1994,26 @@ def _cached(ds, index, src, sel, out, swap, threads):
     return True
 
 
-def _fill(out, ds):
+def fusable(ds):
+    """Whether the kernels' one pass can decode this dataset: each filter once
+    and one of theirs, undone in the one order it goes by (checksum of what
+    is stored, inflate, shuffle: any other, such as netCDF-C's checksum under
+    the shuffle, is left to the stages, as a chunk may go without a filter that
+    is optional), and a shuffle by the size of its elements (its own says:
+    PyTables has shuffled 16-byte variable-length records by 8)."""
+    filters = ds.filters
+    order = [f.id for f in reversed(filters)]
+    return order == [x for x in (F_FLETCHER, F_DEFLATE, F_SHUFFLE) if x in order] and all(
+        f.id != F_SHUFFLE or not f.cd or f.cd[0] == ds.type.size for f in filters)
+
+
+def _fill(out, ds, swap=False):
+    """The fill value in out, native if its chunks are being swapped as placed
+    (HDF5 keeps it in the file's order; HDF4's datasets, native already, have no `file`)."""
     if ds.fill is not None and len(ds.fill) == ds.type.size:
-        out.reshape(-1).view(np.uint8).reshape(-1, ds.type.size)[:] = np.frombuffer(ds.fill, np.uint8)
+        v = np.frombuffer(ds.fill, np.uint8)
+        swap = swap and getattr(ds, 'file', None) is not None
+        out.reshape(-1).view(np.uint8).reshape(-1, ds.type.size)[:] = v[::-1] if swap else v
     else:
         out.reshape(-1).view(np.uint8)[:] = 0
 
@@ -1147,10 +2036,10 @@ _PYTLS = threading.local()
 
 def _pybuf(nbytes):
     """This thread's inflate buffer for _quick, at least nbytes."""
-    b = getattr(_PYTLS, 'buf', None)
-    if b is None or b.size < nbytes:
-        b = _PYTLS.buf = np.empty(max(nbytes, 1 << 16), np.uint8)
-    return b
+    box = getattr(_PYTLS, 'box', None)
+    if box is None:
+        box = _PYTLS.box = [None, 0]
+    return _pool.kept(box, nbytes)
 
 
 class _Quick:
@@ -1163,9 +2052,10 @@ class _Quick:
     plain Python numbers: the per-chunk Python runs under the GIL, so on
     24 threads it was the bottleneck (GOES-19 C02's 3,616 chunks)."""
 
-    def __init__(self, it, p):
+    def __init__(self, it, p, src):
         from . import _zlib
         self.inflate = _zlib.inflate_into
+        self.quick = _zlib.stream_inflater(src)
         ds = it.ds
         self.esize = esize = ds.type.size
         self.C = C = tuple(int(c) for c in it.index.chunks)
@@ -1192,6 +2082,7 @@ class _Quick:
         self.whole = whole.tolist()
         self.wofs = (p.ostart[:, 0] * (cbytes // C[0])).tolist() if rank else [0] * len(p.addr)
         self.flat = out.reshape(-1).view(np.uint8)
+        self.faddr = self.flat.ctypes.data
         if esize > 1:
             self.ob = out.view(np.uint8).reshape(out.shape + (esize,))
         if esize in (1, 2, 4, 8):
@@ -1227,11 +2118,15 @@ class _Quick:
         shuffled, cut = sp
         cbytes = self.cbytes
         a, n = self.addr[i], self.size[i] - cut
+        f = self.quick
         if self.whole[i] and not shuffled:
+            if f is not None and f(a, n, self.faddr + self.wofs[i], cbytes) == cbytes:
+                return True
             return self.inflate(src, a, n, self.flat, self.wofs[i], cbytes) == cbytes
         buf = _pybuf(cbytes)
-        if self.inflate(src, a, n, buf, 0, cbytes) != cbytes:
-            return False
+        if f is None or f(a, n, _PYTLS.box[1], cbytes) != cbytes:
+            if self.inflate(src, a, n, buf, 0, cbytes) != cbytes:
+                return False
         cs, cn, os_ = self.cs[i], self.cn[i], self.os[i]
         src_sl = tuple([slice(c0, c0 + (k - 1) * s + 1, s) for c0, k, s in zip(cs, cn, self.step)])
         dst_sl = tuple([slice(o0, o0 + k) for o0, k in zip(os_, cn)])
@@ -1411,7 +2306,7 @@ def _read_python(items, src, threads=None):
         ds, index, box, out = it.ds, it.index, it.box, it.out
         p = plan(index, ds.shape, box)
         if p.fill_needed:
-            _fill(out, ds)
+            _fill(out, ds, it.swap)
         plans.append(p)
     if any(len(p.addr) for p in plans):
         fetch_chunks(items, plans)
@@ -1419,7 +2314,7 @@ def _read_python(items, src, threads=None):
     sizes = []
     for k, (it, p) in enumerate(zip(items, plans)):
         if len(p.addr) and not _gather_grid(it, p, src) and not _zgrid(it, p, src, threads):
-            quick[k] = _Quick(it, p)
+            quick[k] = _Quick(it, p, src)
             jobs.extend((k, i) for i in range(len(p.addr)))
             sizes.append(p.size)
     if jobs:
@@ -1450,6 +2345,8 @@ def _read_python(items, src, threads=None):
                 q = len(data) // esize              # HDF5 leaves the leftover bytes at the end
                 data = (np.frombuffer(data, np.uint8, q * esize).reshape(esize, q).T.tobytes()
                         + bytes(data[q * esize:]))
+        if len(data) < nel * esize:                 # (a virtual chunk past the end of the file)
+            data = bytes(data) + bytes(nel * esize - len(data))
         b = np.frombuffer(data, np.uint8, nel * esize)
         chunk = np.ascontiguousarray(b).view(np.dtype('V%d' % esize)).reshape(C)
         step = [s[2] for s in it.box]

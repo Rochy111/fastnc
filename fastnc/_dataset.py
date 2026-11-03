@@ -6,15 +6,38 @@ Dataset opens netCDF-3 (classic, 64-bit offset, CDF-5) through `_nc3`,
 netCDF-4 / plain HDF5 through `_nc4` and HDF4 (SD) through `_hdf4`;
 each gives backend objects (docs/contracts.md, section 2) wrapped here.
 """
+import math
 import mmap
 import os
 
 import numpy as np
 
-from . import _hdf5, _readahead, _select
+from . import _hdf5, _hw, _pool, _quick, _readahead, _select
 
-FUSED = True                    # masked / scaled HDF5 reads through _fused when it can
-FUSED_LOAD_MIN = 32 << 20       # ... in load(): variables of at least this many raw bytes
+FUSED = True                 # masked / scaled HDF5 reads through _fused when it can
+FUSED_LOAD_MIN = None           # ... in load(): variables of at least this many raw bytes
+#                                 (None: this CPU's last cache: an array that fits is still
+#                                 there for the mask / scale pass, and fusing saves no memory
+#                                 traffic but costs its own pass of the pool)
+_lazy = {}                  # modules a raw read never needs (numpy.ma: 8 ms of a fresh one)
+
+
+def _masking():
+    """fastnc._maskscale, imported at first need (`from . import` in a
+    function runs the import machinery every time: 950 times a WRF load)."""
+    m = _lazy.get('_maskscale')
+    if m is None:
+        from . import _maskscale
+        m = _lazy['_maskscale'] = _maskscale
+    return m
+
+
+def _fusing():
+    m = _lazy.get('_fused')
+    if m is None:
+        from . import _fused
+        m = _lazy['_fused'] = _fused
+    return m
 
 
 class _LazyRemote:
@@ -60,6 +83,18 @@ def _format(head):
     return None
 
 
+def _past_user_block(fh):
+    """'HDF5' if its signature lies at a power of two past the first 4096 bytes."""
+    size = os.fstat(fh.fileno()).st_size
+    at = 4096
+    while at + 8 <= size:
+        fh.seek(at)
+        if fh.read(8) == _hdf5.SIGNATURE:
+            return 'HDF5'
+        at *= 2
+    return None
+
+
 class Dimension:
     """A netCDF dimension (netCDF4.Dimension)."""
 
@@ -90,7 +125,13 @@ class CompoundType:
 
     def __init__(self, name, dtype):
         self.name, self.dtype = name, dtype
-        self.dtype_view = dtype
+        self._view = None
+
+    @property
+    def dtype_view(self):
+        if self._view is None:
+            self._view = _masking()._set_viewdtype(self.dtype)
+        return self._view
 
     def __repr__(self):
         return "<class 'fastnc.CompoundType'>: name = '%s', numpy dtype = %s" % (self.name, self.dtype)
@@ -126,7 +167,10 @@ class Variable:
         ds = group._dataset
         self.__dict__.update(_group=group, _bv=bv, name=bv.name, _mask=ds._auto_mask,
                              _scale=ds._auto_scale, _always_mask=ds._always_mask,
-                             _chartostring=ds._chartostring, _device=ds._device)
+                             _chartostring=ds._chartostring, _device=ds._device, _quick=None)
+
+    def __reduce__(self):
+        return _variable_in, (self._group, self.name, self._mask, self._scale, self._always_mask, self._chartostring)
 
     # -- metadata
     @property
@@ -136,7 +180,8 @@ class Variable:
     @property
     def shape(self):
         bv = self._bv
-        if hasattr(bv, 'dims'):                     # unlimited dims share the longest length
+        if self._short() or (not hasattr(bv, 'short') and hasattr(bv, 'dims')):
+            # unlimited dims share the longest length
             return tuple(max(s, d.size) if d is not None and d.unlimited else s
                          for s, d in zip(bv.shape, bv.dims))
         return tuple(bv.shape)
@@ -149,9 +194,12 @@ class Variable:
     def datatype(self):
         """The dtype, or for user-defined types a CompoundType / EnumType /
         VLType carrying its name (as netCDF4-python)."""
-        ut = getattr(self._bv, 'user_type', None)
-        t = ut() if ut is not None else None
-        return t if t is not None else self._bv.dtype
+        t = self.__dict__.get('_datatype')
+        if t is None:
+            ut = getattr(self._bv, 'user_type', None)
+            t = ut() if ut is not None else None
+            t = self._datatype = t if t is not None else self._bv.dtype
+        return t
 
     @property
     def ndim(self):
@@ -205,7 +253,7 @@ class Variable:
         c = self._bv.chunks
         if c is None:
             # netCDF-4 / HDF4 contiguous storage says so; netCDF-3 has no choice (None)
-            return None if self._group._dataset.disk_format in ('NETCDF3', 'CDF5') else 'contiguous'
+            return None if self._group._dataset.disk_format == 'NETCDF3' else 'contiguous'
         return list(c)
 
     def endian(self):
@@ -241,7 +289,17 @@ class Variable:
         """Values for key (any netCDF4-python index), masked and scaled as
         set. device 'gpu' returns a cupy array (identical values)."""
         device = device or self._device
-        if device == 'gpu':
+        if self._short():
+            # past what is stored: fill values, as netCDF-C gives them
+            if device == 'gpu':
+                from . import _gpu
+                return _gpu._host_then_upload(self, key, threads)
+            if not self._group._dataset.isopen:
+                raise ValueError('the file of variable %s is closed' % self.name)
+            box, post, drop = _select.normalize(key if isinstance(key, tuple) else (key,), self.shape)
+            raw = _select.finish(self._bv.read_padded(box, threads), post, drop)
+            return self._post(raw, box, drop, threads)
+        if device == 'gpu' and not self._null:      # (a null dataset: nothing to put on the card)
             from . import _gpu
             return _gpu.read(self, key, threads=threads)
         k = key if isinstance(key, tuple) else (key,)
@@ -249,45 +307,101 @@ class Variable:
         if _readahead.ENABLED and hasattr(bv, '_reader') and _readahead.whole(k, bv.shape):
             # whole variables read in the file's order: decoded several at a time
             ra = self._group._readahead()
-            raw = ra.take(self)
-            if raw is None:
+            got = ra.take(self)
+            if got is None:
                 res = self._read(k, threads)
                 ra.note(self)
                 return res
             box, post, drop = _select.normalize(k, bv.shape)
-            return self._post(raw, box, drop, threads)
+            return self._post(got[0], box, drop, threads, got[1])
         return self._read(k, threads)
 
     def _read(self, k, threads):
         bv = self._bv
-        if FUSED and (self._mask or self._scale) and hasattr(bv, '_reader'):
-            from . import _fused                    # mask / scale while decoding
-            res = _fused.read(self, k, threads)
+        q = self._quick
+        if q is None:
+            q = self._quick = False if getattr(bv, 'widened', False) else _quick.reader(getattr(bv, '_reader', None))
+        if q:
+            raw = q(k)
+            if raw is not None:
+                box, _, drop = _select.normalize(k, bv.shape)
+                return self._post(raw, box, drop, threads)
+        if FUSED and (self._mask or self._scale) and hasattr(bv, '_reader') and not getattr(bv, 'widened', False):
+            res = _fusing().read(self, k, threads)  # mask / scale while decoding
             if res is not None:
                 return res
         box, post, drop = _select.normalize(k, bv.shape)
+        probe = None
         if hasattr(bv, '_reader'):                  # the HDF5 reader takes any index
             raw = bv.read(k) if threads is None else bv.read(k, threads=threads)
         else:
             # other backends read boxes (contract section 2): reduce the index
             # here, and apply the rest (dropped, reversed, picked) afterwards
-            raw = bv.read(tuple(slice(s, e, st) for s, e, st in box))
+            sel = tuple(slice(s, e, st) for s, e, st in box)
+            if getattr(bv, 'probes', False):
+                probe = self._probe(_select.box_shape(box))
+                raw = bv.read(sel, probe=probe)
+            else:
+                raw = bv.read(sel)
             raw = _select.finish(raw, post, drop)
-        return self._post(raw, box, drop, threads)
+        return self._post(raw, box, drop, threads, probe is not None and probe.proven)
 
-    def _post(self, raw, box, drop, threads=None):
-        """netCDF4-python's masking / scaling / char conversion of raw values."""
+    def _probe(self, shape=None):
+        """What a read of this shape (default: all of it) can test as it goes
+        to spare the pass over its values, or None."""
+        if not self._mask:                          # (no numpy.ma for a raw read)
+            return None
+        ms = _masking()
+        if not ms._kernels_ready():
+            return None
+        bv = self._bv
+        if math.prod(bv.shape if shape is None else shape) < ms.FAST_MIN_SIZE:
+            return None
+        dt = self.datatype
+        if not isinstance(dt, np.dtype) or not isinstance(bv.dtype, np.dtype):
+            return None
+        return ms.probe(bv.attrs, bv.dtype, self._mask, self._scale, getattr(bv, 'no_fill', False))
+
+    @property
+    def _null(self):
+        """An HDF5 null dataspace: no values at all. netCDF-C will not open
+        such a file; here reading one gives None, masked or not."""
+        ds = getattr(getattr(self._bv, '_reader', None), 'ds', None)
+        return ds is not None and ds.null
+
+    def _short(self):
+        """Whether this variable has fewer records than its unlimited
+        dimension (netCDF-4 only: netCDF-3 records are the file's)."""
+        short = getattr(self._bv, 'short', None)
+        return short is not None and short()
+
+    def _fast_plan(self, raw):
+        """What _post would hand the kernels raw with, or None if it would
+        do something else with it."""
+        if not (self._mask or self._scale):
+            return None
+        bv = self._bv
+        dt = self.datatype
+        ms = _masking()
+        return ms.fast_plan(raw, bv.attrs, bv.dtype,
+                            ms._kind(bv.dtype, None if isinstance(dt, np.dtype) or dt is str else dt),
+                            self._mask, self._scale, getattr(bv, 'no_fill', False))
+
+    def _post(self, raw, box, drop, threads=None, clean=False):
+        """netCDF4-python's masking / scaling / char conversion of raw values;
+        clean: the read proved no value here is masked."""
+        if raw is None:
+            return None                             # (see _null)
         bv = self._bv
         chars = self._chartostring and bv.dtype == np.dtype('S1') and '_Encoding' in bv.attrs
         if not (self._mask or self._scale or chars):
             return raw
-        from . import _maskscale
         dt = self.datatype
-        return _maskscale.apply(raw, bv.attrs, bv.dtype, mask=self._mask, scale=self._scale,
+        return _masking().apply(raw, bv.attrs, bv.dtype, mask=self._mask, scale=self._scale,
                                 always_mask=self._always_mask, chartostring=self._chartostring,
                                 var_dtype=None if isinstance(dt, np.dtype) or dt is str else dt,
-                                no_fill=getattr(bv, 'no_fill', False), var_shape=tuple(bv.shape),
-                                key=_norm_key(box, drop), threads=threads)
+                                no_fill=getattr(bv, 'no_fill', False), var_shape=self.shape,
+                                key=_norm_key(box, drop), threads=threads, clean=clean)
 
     def __array__(self, dtype=None, copy=None):
         a = np.asarray(self[...])
@@ -298,6 +412,93 @@ class Variable:
             self.dtype, self.name, ', '.join(self.dimensions), self.shape)
 
 
+class _Variables(dict):
+    """Group.variables, a dict as in netCDF4-python, that looks a name up by
+    reading that variable alone (`d['T']` in a loop over many files: most of
+    what an open cost was for the other variables). Anything that needs them
+    all reads them all first, and is then the plain dict in the file's order."""
+
+    def __init__(self, group):
+        self.group, self.whole = group, False
+
+    def fill(self):
+        if self.whole:
+            return
+        g = self.group
+        if g._bg.holds_no_data():
+            self.whole = True
+            return
+        found = dict(dict.items(self))              # (those handed out stay the ones)
+        dict.clear(self)
+        for name, bv in g._bg.variables.items():
+            v = found.get(name)
+            dict.__setitem__(self, name, Variable(g, bv) if v is None else v)
+        self.whole = True
+
+    def __missing__(self, name):
+        if self.whole:
+            raise KeyError(name)
+        bv = self.group._bg.peek(name)
+        if bv is None:
+            self.fill()
+            return dict.__getitem__(self, name)
+        return dict.setdefault(self, name, Variable(self.group, bv))
+
+    def __contains__(self, name):
+        try:
+            self[name]
+        except KeyError:
+            return False
+        return True
+
+    def get(self, name, default=None):
+        try:
+            return self[name]
+        except KeyError:
+            return default
+
+    def __iter__(self):
+        self.fill()
+        return dict.__iter__(self)
+
+    def __reversed__(self):
+        self.fill()
+        return dict.__reversed__(self)
+
+    def __len__(self):
+        self.fill()
+        return dict.__len__(self)
+
+    def __eq__(self, other):
+        self.fill()
+        return dict.__eq__(self, other)
+
+    def __ne__(self, other):
+        return not self == other
+
+    __hash__ = None
+
+    def __repr__(self):
+        self.fill()
+        return dict.__repr__(self)
+
+    def keys(self):
+        self.fill()
+        return dict.keys(self)
+
+    def values(self):
+        self.fill()
+        return dict.values(self)
+
+    def items(self):
+        self.fill()
+        return dict.items(self)
+
+    def copy(self):
+        self.fill()
+        return dict(self)
+
+
 class Group:
     """A netCDF group (netCDF4.Group)."""
 
@@ -306,14 +507,52 @@ class Group:
         self._bg = bg
         self.parent = parent
         self.name = bg.name
-        self.dimensions = {name: Dimension(self, name, *_dim_info(d)) for name, d in bg.dimensions.items()}
-        self.variables = {name: Variable(self, bv) for name, bv in bg.variables.items()}
-        self.groups = {name: Group(dataset, sub, self) for name, sub in bg.groups.items()}
+        if hasattr(bg, 'peek'):
+            self.variables = _Variables(self)
+        else:
+            self.variables = {name: Variable(self, bv) for name, bv in bg.variables.items()}
+
+    def __reduce__(self):
+        return _group_at, (self._dataset, self.path)
+
+    @property
+    def groups(self):
+        d = self.__dict__.get('_groups')
+        if d is None:
+            kids = self.__dict__.get('_kids', {})
+            d = self.__dict__['_groups'] = {name: kids.get(name) or Group(self._dataset, sub, self)
+                                            for name, sub in self._bg.groups.items()}
+        return d
+
+    def _child(self, name):
+        """The subgroup called `name`, or None: that one alone where it can
+        be (a path walks one group of each level, not the whole file)."""
+        d = self.__dict__.get('_groups')
+        if d is not None:
+            return d.get(name)
+        kids = self.__dict__.setdefault('_kids', {})
+        g = kids.get(name)
+        if g is None:
+            peek = getattr(self._bg, 'peek_group', None)
+            bg = peek(name) if peek is not None else None
+            if bg is None:
+                return self.groups.get(name)
+            g = kids.setdefault(name, Group(self._dataset, bg, self))
+        return g
+
+    @property
+    def dimensions(self):
+        d = self.__dict__.get('_dimensions')
+        if d is None:
+            d = self.__dict__['_dimensions'] = {name: Dimension(self, name, *_dim_info(x))
+                                                for name, x in self._bg.dimensions.items()}
+        return d
 
     def _readahead(self):
         ra = self.__dict__.get('_ra')
         if ra is None:
             ra = self.__dict__.setdefault('_ra', _readahead.Readahead(self))
+            self._dataset._readaheads.append(ra)
         return ra
 
     @property
@@ -350,8 +589,9 @@ class Group:
             last = k == len(parts) - 1
             if last and p in g.variables:
                 return g.variables[p]
-            if p in g.groups:
-                g = g.groups[p]
+            sub = g._child(p)
+            if sub is not None:
+                g = sub
             elif p == '..' and g.parent is not None:
                 g = g.parent
             else:
@@ -381,32 +621,36 @@ class Group:
             # big scaled variables of many chunks: masked / scaled while
             # decoding, each on every core (faster than raw in the batch,
             # then mask/scale: GOES-19 C02 269 -> ~176 ms)
-            from . import _fused
+            least = _hw.last_cache_bytes() if FUSED_LOAD_MIN is None else FUSED_LOAD_MIN
             for k, v in vs:
                 if ((v._mask or v._scale) and getattr(v._bv, '_reader', None) is not None
-                        and _readahead._nbytes(v) >= FUSED_LOAD_MIN):
-                    r = _fused.read(v, (Ellipsis,), threads)
+                        and _readahead._nbytes(v) >= least and not v._short()):
+                    r = _fusing().read(v, (Ellipsis,), threads)
                     if r is not None:
                         fused[k] = r
         batch = [(k, v) for k, v in vs if getattr(v._bv, '_reader', None) is not None
-                 and k not in fused and v._bv.ds.type.cls in (0, 1, 4, 8) and v._bv.ds.shape]
+                 and k not in fused and v._bv.ds.type.cls in (0, 1, 4, 8) and v._bv.ds.shape
+                 and not v._short()]
+        clean = set()
         if batch:
             from ._h5read import read_many
-            for (k, v), a in zip(batch, read_many([v._bv._reader for _, v in batch], threads=threads)):
+            probes = [v._probe() for _, v in batch]
+            arrays = read_many([v._bv._reader for _, v in batch], threads=threads, probes=probes)
+            for (k, v), a, pr in zip(batch, arrays, probes):
                 raws[k] = a
+                if pr is not None and pr.proven:
+                    clean.add(k)
         h4 = [(k, v) for k, v in vs if type(v._bv).__module__.endswith('_hdf4')]
         if h4:
             from ._hdf4 import read_many as read_many4
             for (k, v), a in zip(h4, read_many4([v._bv for _, v in h4], threads=threads)):
                 if a is not None:
                     raws[k] = a
-        out = {}
         rest = [(k, v) for k, v in vs if k not in raws and k not in fused]
         if len(rest) > 1:
             # the others (netCDF-3, special types) read concurrently on the pool:
             # each read stays parallel inside, and many small variables no
             # longer go one after another
-            from . import _pool
             got = {}
 
             def one(kv):
@@ -414,14 +658,21 @@ class Group:
             _pool.map_items(one, rest)
         else:
             got = {k: v.read(Ellipsis, threads=threads) for k, v in rest}
-        for k, v in vs:
-            if k in fused:
-                out[k] = fused[k]
-            elif k in got:
-                out[k] = got[k]
-            else:
-                out[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads)
-        return out
+
+        todo = [kv for kv in vs if kv[0] in raws]
+        if len(todo) > 1 and any(v._mask or v._scale for _, v in todo) and _masking()._kernels_ready():
+            # as for decoding: all the arrays in one pass of the pool, not one
+            # after another with the threads woken for each
+            items = [(k, v, v._fast_plan(raws[k])) for k, v in todo]
+            items = [it for it in items if it[2] is not None and not it[2].nan_const]
+            if len(items) > 1:
+                done = _masking().run_plans([(p, raws[k], v._always_mask, k in clean)
+                                             for k, v, p in items], threads)
+                got.update((it[0], r) for it, r in zip(items, done))
+        for k, v in todo:
+            if k not in got:
+                got[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads, k in clean)
+        return {k: fused[k] if k in fused else got[k] for k, _ in vs}
 
     def set_auto_maskandscale(self, flag):
         for g in self._walk():
@@ -476,6 +727,27 @@ def _dim_info(d):
     return d.size, d.unlimited
 
 
+def _reopened(filename, device, options, state):
+    """A pickled Dataset, in another process: the file opened there."""
+    d = Dataset(filename, device=device, **options)
+    d.__dict__.update(state)
+    return d
+
+
+def _group_at(ds, path):
+    g = ds
+    for name in path.split('/'):
+        if name:
+            g = g._child(name)
+    return g
+
+
+def _variable_in(group, name, mask, scale, always_mask, chartostring):
+    v = group.variables[name]
+    v.__dict__.update(_mask=mask, _scale=scale, _always_mask=always_mask, _chartostring=chartostring)
+    return v
+
+
 class Dataset(Group):
     """An open netCDF / HDF5 file (netCDF4.Dataset), read-only.
 
@@ -483,16 +755,22 @@ class Dataset(Group):
     filename may also be an http(s):// or s3:// URL (anonymous; options
     such as region in storage_options) or a file-like object: its bytes
     are then fetched as needed (`_remote`).
+
+    It pickles, as do its groups and variables: by what they name, the file
+    being opened again where they are unpickled (dask's workers, multiprocessing).
     """
 
     def __init__(self, filename, mode='r', device=None, **kwargs):
         if mode != 'r':
             raise ValueError('fastnc reads only (mode must be "r")')
+        self._opened = filename, device, kwargs
+        _pool.fast_thread()
         self._auto_mask = self._auto_scale = True
         self._always_mask = True
         self._chartostring = True
         self._device = device
         self._fh = self._mm = None
+        self._readaheads = []                       # (each group's: see Group._readahead)
         self._source = src = _remote.open_source(filename, kwargs.get('storage_options'))
         if src is None:
             self._filepath = os.fspath(filename)
@@ -502,6 +780,9 @@ class Dataset(Group):
             self._filepath = src.name
             head = src.buf[:4096].tobytes()
         fmt = _format(head)
+        if fmt is None and src is None:
+            with open(self._filepath, 'rb') as fh:  # (past a user block of any size)
+                fmt = _past_user_block(fh)
         if fmt is None:
             raise OSError('[Errno -51] NetCDF: Unknown file format: %r' % self._filepath)
         if fmt == 'HDF5':
@@ -523,11 +804,14 @@ class Dataset(Group):
             from ._nc3 import NC3File                 # positional reads of its own
             self._backend = NC3File(self._filepath) if src is None else NC3File(src.name, source=src)
             self.file_format = fmt
-            self.disk_format = {'NETCDF3_CLASSIC': 'NETCDF3', 'NETCDF3_64BIT_OFFSET': 'NETCDF3',
-                                'NETCDF3_64BIT_DATA': 'CDF5'}[fmt]
+            self.disk_format = 'NETCDF3'
         self.data_model = self._backend.data_model
         Group.__init__(self, self, self._backend.root, None)
         self.name = '/'
+
+    def __reduce__(self):
+        return _reopened, self._opened + ({k: self.__dict__[k] for k in (
+            '_auto_mask', '_auto_scale', '_always_mask', '_chartostring')},)
 
     def filepath(self):
         return self._filepath
@@ -537,6 +821,8 @@ class Dataset(Group):
         return getattr(self, '_backend', None) is not None
 
     def close(self):
+        for ra in self.__dict__.get('_readaheads', ()):
+            ra.cache.clear()                        # (what was decoded ahead is the file's too)
         b = getattr(self, '_backend', None)
         if b is not None:
             b.close()

@@ -45,6 +45,8 @@ def _candidates():
 
 def _load():
     global _LIB
+    if _LIB is not None:                        # (once per chunk: no lock for that)
+        return _LIB
     with _LOCK:
         if _LIB is not None:
             return _LIB
@@ -57,10 +59,11 @@ def _load():
                 if kind == 'libdeflate':
                     lib.libdeflate_alloc_decompressor.restype = ctypes.c_void_p
                     lib.libdeflate_alloc_decompressor.argtypes = []
-                    lib.libdeflate_zlib_decompress.restype = ctypes.c_int
-                    lib.libdeflate_zlib_decompress.argtypes = [
-                        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p,
-                        ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+                    for fn in (lib.libdeflate_zlib_decompress, lib.libdeflate_deflate_decompress):
+                        fn.restype = ctypes.c_int
+                        fn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
+                                       ctypes.c_void_p, ctypes.c_size_t,
+                                       ctypes.POINTER(ctypes.c_size_t)]
                 else:
                     lib.uncompress.restype = ctypes.c_int
                     lib.uncompress.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong),
@@ -85,6 +88,16 @@ def _call(kind, lib, sptr, n, dptr, cap):
         return got.value if r == 0 else -1
     got = ctypes.c_ulong(cap)
     r = lib.uncompress(dptr, ctypes.byref(got), sptr, n)
+    return got.value if r == 0 else -1
+
+
+def _raw(lib, sptr, n, dptr, cap):
+    """libdeflate on raw deflate: bytes written, or -1."""
+    d = getattr(_LOCAL, 'dec', None)
+    if d is None:
+        d = _LOCAL.dec = lib.libdeflate_alloc_decompressor()
+    got = ctypes.c_size_t(0)
+    r = lib.libdeflate_deflate_decompress(d, sptr, n, dptr, cap, ctypes.byref(got))
     return got.value if r == 0 else -1
 
 
@@ -118,7 +131,14 @@ def inflate_into(src, a, n, dst, o, cap):
     stream (as zlib.decompress does)."""
     kind, lib = _load()
     if kind is not None:
-        r = _call(kind, lib, src.ctypes.data + a, n, dst.ctypes.data + o, cap)
+        s, d = src.ctypes.data + a, dst.ctypes.data + o
+        r = -1
+        if kind == 'libdeflate' and n > 6:
+            cmf, flg = int(src[a]), int(src[a + 1])
+            if cmf & 15 == 8 and cmf >> 4 <= 7 and (cmf << 8 | flg) % 31 == 0 and not flg & 32:
+                r = _raw(lib, s + 2, n - 2, d, cap)     # (the Adler-32 goes unchecked, as in _inflate)
+        else:
+            r = _call(kind, lib, s, n, d, cap)
         if r >= 0:
             return r
     data = zlib.decompress(src[a:a + n])        # (the reference: its error, or too long)
@@ -126,6 +146,32 @@ def inflate_into(src, a, n, dst, o, cap):
         return -1
     dst[o:o + len(data)] = memoryview(data)
     return len(data)
+
+
+def stream_inflater(src):
+    """A function f(a, n, dptr, cap) -> bytes written or -1, inflating the
+    zlib stream src[a:a + n] (uint8) at address dptr; or None without
+    libdeflate. One Python step for each of thousands of chunks, each under
+    the GIL: nothing here looks at an array or takes a lock. Anything but a
+    plain zlib header gives -1, for inflate_into to deal with."""
+    kind, lib = _load()
+    if kind != 'libdeflate':
+        return None
+    base = src.ctypes.data
+    head = memoryview(src)
+    run = lib.libdeflate_deflate_decompress
+    size_t, ref, local = ctypes.c_size_t, ctypes.byref, _LOCAL
+
+    def f(a, n, dptr, cap):
+        cmf, flg = head[a], head[a + 1]
+        if n <= 6 or cmf & 15 != 8 or cmf >> 4 > 7 or (cmf << 8 | flg) % 31 or flg & 32:
+            return -1
+        d = getattr(local, 'dec', None)
+        if d is None:
+            d = local.dec = lib.libdeflate_alloc_decompressor()
+        got = size_t(0)
+        return got.value if run(d, base + a + 2, n - 2, dptr, cap, ref(got)) == 0 else -1
+    return f
 
 
 def native():

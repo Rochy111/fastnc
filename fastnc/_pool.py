@@ -13,12 +13,18 @@ after the work is done does nothing and is not waited for. Handing work
 to 23 helpers cost ~100 us through futures and a queue (4.4 us each) --
 for a WRF file read variable by variable, 160 such hand-offs were 16 ms.
 """
+import _thread
+import itertools
 import os
 import sys
 import threading
 
+from ._arena import kept, wake  # (here for kernel files: an import there would stamp them anew)
+
 _POOL = None
 _POOL_LOCK = threading.Lock()
+_LOCAL = threading.local()
+_QOS = None                     # what fast_thread() passes, made once
 
 
 def _forked():
@@ -49,7 +55,13 @@ def _threads_from_env():
 _THREADS = _threads_from_env()
 _AUTO = 0                       # threads() when nothing set them, worked out once
 _WORK = 0                       # work_threads()'s bytes per thread, worked out once
+_CORES = 0                      # memory_threads()'s most, worked out once
 THREAD_BYTES = 1 << 15          # ... before fastnc.tune() has measured this machine's
+PASS_SPEED = 8                  # a mask / scale pass against inflating, for memory_threads (it
+                                # tests and scales each value; 2 to 16 read the same)
+AHEAD = 2                       # chunks a thread may have decoded ahead of a read (_chunks._cached):
+                                # more costs memory, and time too, in faults on a bigger buffer
+CACHE_SEEN = [0]                # what _chunks._trim_cache last saw held
 
 
 def threads():
@@ -76,6 +88,20 @@ def work_threads(nbytes, most):
         from . import _hw
         _WORK = int(_hw.tuned().get('thread_bytes') or THREAD_BYTES)
     return max(1, min(most, nbytes // _WORK))
+
+
+def memory_threads(nbytes, most, speed=64):
+    """Threads worth waking for work done at memory speed, not a decoder's
+    (scanning, copying): each must have 64 times what inflating takes, as it
+    goes that much faster (speed: less for work that does more per byte), and
+    there is no use in more than a thread per fast core, all waiting on one
+    memory bus. Scanning 1 MB: 33 us on one thread, 148 on 24; 256 MB: 12.2
+    ms, 3.20 on 8, 3.36 on 24."""
+    global _CORES
+    if not _CORES:
+        from . import _hw
+        _CORES = max(1, _hw.topology()['perf_cores'])
+    return work_threads(nbytes // speed, min(most, _CORES))
 
 
 def set_threads(n=None):
@@ -127,20 +153,24 @@ class _Job:
             wait = self.active > 0
         if wait:
             self.done.acquire()
+        # (workers keep this object while parked: the arrays work() holds,
+        # a file's mapping among them, must not stay alive with it)
+        self.work = None
         if self.error is not None:
             raise self.error
 
 
 class _Worker:
-    __slots__ = ('pool', 'wake', 'job', 'thread')
+    __slots__ = ('pool', 'wake', 'job')
 
     def __init__(self, pool):
         self.pool = pool
         self.wake = threading.Lock()
         self.wake.acquire()
         self.job = None
-        self.thread = threading.Thread(target=self.loop, name='fastnc', daemon=True)
-        self.thread.start()
+        # (not threading.Thread: its start() waits for the thread to begin,
+        # 130 us each, 5 ms of every first read; these are daemons all the same)
+        _thread.start_new_thread(self.loop, ())
 
     def loop(self):
         fast_thread()
@@ -194,11 +224,37 @@ def share(work, n):
     started do nothing (there is nothing left for them), and it waits only
     for those already working -- never on a busy pool. Called from a pool
     thread (work within work), it gets whichever threads are idle."""
+    fast_thread()
     n = max(1, min(n, threads()))
     if n == 1:
         work()
         return
     pool().share(work, n)
+
+
+def walk(tasks, most=None):
+    """Every task run, in one pass of the pool (at most `most` threads). A
+    task is a function any number of threads may call at once, each taking
+    its work off a counter of the task's and returning when none is left.
+    Threads start spread over the tasks and go on round them until all are
+    done: a small task is over before anyone else arrives, a big one (put
+    the biggest first) collects every thread as the rest finish. So there
+    is no size to choose between sharing out tasks and running each on all
+    threads, and threads are woken once, not once per task."""
+    n = len(tasks)
+    if not n:
+        return
+    done = [False] * n
+    start = itertools.count()
+
+    def work():
+        i = next(start)
+        for k in range(n):
+            j = (i + k) % n
+            if not done[j]:
+                tasks[j]()
+                done[j] = True
+    share(work, most or threads())
 
 
 def map_items(fn, items):
@@ -236,20 +292,30 @@ def fast_thread():
     """Declare this thread's work as the user's (high QoS) on Windows: a
     process without a focused window (a script from a terminal) counts as
     background work there, and on a hybrid CPU its busy threads go to the
-    efficiency cores -- timings then swing 30-50%."""
-    if sys.platform != 'win32':
+    efficiency cores -- timings then swing 30-50%. Done for the pool's
+    threads and for any thread that opens a file or reads: otherwise the
+    caller's thread is moved after ~2 s of work, for good, and the Python in
+    every read runs at an efficiency core's speed (WRF d01 34 -> 55 ms).
+    Once per thread; nothing elsewhere, or where all cores are alike."""
+    if sys.platform != 'win32' or getattr(_LOCAL, 'fast', False):
         return
+    _LOCAL.fast = True
+    global _QOS
     try:
-        import ctypes
-        from ctypes import wintypes
+        if _QOS is None:                            # (a class per thread: 1 ms of a fresh read)
+            import ctypes
+            from ctypes import wintypes
 
-        class State(ctypes.Structure):
-            _fields_ = [('Version', wintypes.ULONG), ('ControlMask', wintypes.ULONG),
-                        ('StateMask', wintypes.ULONG)]
-        k = ctypes.windll.kernel32
-        k.GetCurrentThread.restype = wintypes.HANDLE
-        st = State(1, 1, 0)      # execution speed: managed, not throttled
-        k.SetThreadInformation(wintypes.HANDLE(k.GetCurrentThread()), 3,  # ThreadPowerThrottling
-                               ctypes.byref(st), ctypes.sizeof(st))
+            class State(ctypes.Structure):
+                _fields_ = [('Version', wintypes.ULONG), ('ControlMask', wintypes.ULONG),
+                            ('StateMask', wintypes.ULONG)]
+            k = ctypes.windll.kernel32
+            k.GetCurrentThread.restype = wintypes.HANDLE
+            st = State(1, 1, 0)                     # execution speed: managed, not throttled
+            # (GetCurrentThread's value means whichever thread passes it)
+            _QOS = k.SetThreadInformation, wintypes.HANDLE(k.GetCurrentThread()), \
+                ctypes.byref(st), ctypes.sizeof(st), st
+        set_info, me, ref, size, _ = _QOS
+        set_info(me, 3, ref, size)                  # ThreadPowerThrottling
     except Exception:
         pass

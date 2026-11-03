@@ -58,7 +58,9 @@ def test_same_as_own_inflate():
         if len(z) > 4:
             cases.append((zz[:len(z) // 2], n))     # cut short
         for src, cap in cases:
-            assert _run(src, cap, nat) == _run(src, cap, None), (n, cap)
+            got, want = _run(src, cap, nat), _run(src, cap, None)
+            # (a stream that failed: what it left in the output is nobody's)
+            assert got[0] == want[0] and (got[0] < 0 or got == want), (n, cap)
             if cap > 2:
                 stop = cap // 2                     # early stop: never native
                 assert _run(src, cap, nat, stop) == _run(src, cap, None, stop)

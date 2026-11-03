@@ -500,6 +500,12 @@ class Virtual:
         self._parts = None
         self._value = None
 
+    def close(self):
+        """Lets go of the files' bytes."""
+        self.src = self._parts = self._value = None
+        self._sources.clear()
+        self._printf.clear()
+
     def source(self, file_name, dset_name):
         """The source dataset (a _Source), or None when it cannot be opened."""
         key = (file_name, dset_name)
@@ -811,6 +817,8 @@ def sources(ds):
 def read(reader, key, out=None, threads=None, scalars=True):
     """Raw values of a virtual dataset for an index (as Reader.read)."""
     ds = reader.ds
+    if reader.src is None:
+        raise ValueError('the file of dataset %s is closed' % ds.name)
     v = virtual(ds)
     if v.src is None:
         v.src = reader.src
@@ -848,12 +856,20 @@ def _as_slice(idx):
 
 def _convert(vals, vdt):
     """Source values in the virtual dataset's type (HDF5 converts them as
-    it reads): floats to integers clipped to the integer's range, NaN as 0."""
+    it reads): to integers clipped to the integer's range, NaN as 0."""
     if vals.dtype == vdt:
         return vals
     if vdt.kind in 'iu' and vals.dtype.kind == 'f':
         info = np.iinfo(vdt)
-        vals = np.clip(np.nan_to_num(vals, nan=0.0), info.min, info.max)
+        vals = np.nan_to_num(vals, nan=0.0, posinf=np.inf, neginf=-np.inf)
+        top = vals >= float(info.max)               # (not as a float: it rounds past the range)
+        with np.errstate(invalid='ignore'):
+            out = np.clip(vals, info.min, float(info.max)).astype(vdt)
+        out[top] = info.max
+        return out
+    if vdt.kind in 'iu' and vals.dtype.kind in 'iu':
+        info, have = np.iinfo(vdt), np.iinfo(vals.dtype)
+        return np.clip(vals, max(info.min, have.min), min(info.max, have.max)).astype(vdt)
     return vals.astype(vdt)
 
 

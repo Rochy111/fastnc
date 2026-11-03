@@ -38,7 +38,8 @@ import numpy as np
 
 from ._jit import njit
 from ._intrin import ld64, st64, take
-from . import _arena, _jit, _pool
+from ._chunks import holds_value, loaded, value_words
+from . import _arena, _pool
 
 
 class FormatError(ValueError):
@@ -83,6 +84,7 @@ class _Short(Exception):
 
 
 def _decode_name(raw):
+    raw = raw.split(b'\0', 1)[0]                    # (a name may be counted past its end: netCDF-c's ends here)
     try:
         return raw.decode('utf-8')
     except UnicodeDecodeError:
@@ -150,6 +152,14 @@ def _decode_atts(b, p, n, ver):
     return out
 
 
+class _Last:
+    """The variable list last parsed: (version, dimensions, its bytes, where it
+    began, its rows). The files of a run differ in their global attributes and
+    not here, and walking every attribute of every variable was most of an
+    open. Equal bytes say the same, whatever file they came from."""
+    list = None
+
+
 def _parse(b, size):
     """The header in bytes b (the file's first bytes; size the file's size):
     (version, numrecs field, dims [(name, length)], global attribute span,
@@ -189,6 +199,13 @@ def _parse(b, size):
                 p += 4
             dims.append((name, length))
         gfirst, gn, p = _att_list(b, p, ver)
+        ndim = len(dims)
+        last = _Last.list
+        if last is not None and last[0] == ver and last[1] == ndim and b.startswith(last[2], p):
+            shift = p - last[3]                     # (attribute spans are places in the file)
+            rows = last[4] if not shift else [(a, i, f + shift, m, t, g) for a, i, f, m, t, g in last[4]]
+            return ver, numrecs, dims, gfirst, gn, rows, p + len(last[2])
+        start = p
         if ver == 5:
             tag = _u32(b, p)[0]
             n = _u64(b, p + 4)[0]
@@ -198,7 +215,6 @@ def _parse(b, size):
             p += 8
         if tag != NC_VARIABLE and not (tag == 0 and n == 0):
             raise FormatError('netCDF3: bad variable list tag %d' % tag)
-        ndim = len(dims)
         vars_ = []
         for _ in range(n):
             if ver == 5:
@@ -240,6 +256,8 @@ def _parse(b, size):
             raise _Short
     except struct.error:
         raise _Short
+    if p - start <= 1 << 20:
+        _Last.list = ver, ndim, b[start:p], start, vars_
     return ver, numrecs, dims, gfirst, gn, vars_, p
 
 
@@ -284,6 +302,7 @@ class NC3File:
         self._src = None
         self._mlock = threading.Lock()
         self._closed = False
+        self._spanned = set() if source is None else None   # see _span
 
         dsize = [ln for _, ln in dims]
         dnames = [name for name, _ in dims]
@@ -321,13 +340,16 @@ class NC3File:
         root = NC3Group(self, '/', gfirst, gn)
         root.dimensions = {name: (n, i == rec_id) for i, (name, n) in
                            enumerate(zip(dnames, dsize))}
-        variables = {}
-        for name, ids, afirst, an, t, begin in vars_:
-            variables[name] = NC3Variable(self, name, tuple([dnames[i] for i in ids]),
-                                          tuple([dsize[i] for i in ids]), t, begin,
-                                          bool(ids) and ids[0] == rec_id, afirst, an)
-        root.variables = variables
+        root._rows = {v[0]: v for v in vars_}
+        self._dims = dnames, dsize, rec_id
         self.root = root
+
+    def _variable(self, row):
+        """The NC3Variable of a row of the header."""
+        name, ids, afirst, an, t, begin = row
+        dnames, dsize, rec_id = self._dims
+        return NC3Variable(self, name, tuple([dnames[i] for i in ids]), tuple([dsize[i] for i in ids]),
+                           t, begin, bool(ids) and ids[0] == rec_id, afirst, an)
 
     # -- I/O
 
@@ -336,6 +358,8 @@ class NC3File:
         r = self._rd
         if r is None:
             with self._mlock:
+                if self._closed:                    # (by now its name may be another file's)
+                    raise ValueError('the file %s is closed' % self.path)
                 if self._rd is None:
                     self._rd = _IO(self)
                 r = self._rd
@@ -565,6 +589,22 @@ else:
     _IO = _Handles
 
 
+class Attrs(dict):
+    """A variable's attributes, and what masking would otherwise work out on
+    every read: those it may cast to the variable's type, and which of the
+    few that decide its plan there are (_maskscale asks for both by name)."""
+    __slots__ = ('safe', 'found', 'toma')
+
+    def __init__(self, values):
+        dict.__init__(self, values)
+        self.safe, self.found, self.toma = set(), None, {}
+
+    def among(self, names):
+        if self.found is None:
+            self.found = [n for n in names if n in self]
+        return self.found
+
+
 class NC3Group:
     """The root group of a netCDF3 file (fastnc's BackendGroup); netCDF3 has
     no other groups."""
@@ -574,7 +614,9 @@ class NC3Group:
         self.name = name
         self.groups = {}
         self.dimensions = {}
-        self.variables = {}
+        self._rows = {}                 # name -> its row of the header
+        self._made = {}                 # name -> NC3Variable, those asked for so far
+        self._variables = None
         self._att = (afirst, an)
         self._attrs = None
 
@@ -585,6 +627,26 @@ class NC3Group:
             f = self.file
             a = self._attrs = _decode_atts(f._header, self._att[0], self._att[1], f.version)
         return a
+
+    @property
+    def variables(self):
+        """Every variable, in the file's order."""
+        v = self._variables
+        if v is None:
+            make, made = self.file._variable, self._made
+            v = self._variables = {k: made.get(k) or make(row) for k, row in self._rows.items()}
+        return v
+
+    def peek(self, name):
+        """The variable called `name` alone (KeyError if there is none): a
+        read of one of WRF's 140 need not make the others."""
+        v = self._made.get(name)
+        if v is None:
+            v = self._made[name] = self.file._variable(self._rows[name])
+        return v
+
+    def holds_no_data(self):
+        return not self._rows and not self.dimensions
 
     def __repr__(self):
         return '<NC3Group %r>' % self.name
@@ -611,13 +673,14 @@ class NC3Variable:
         self._att = (afirst, an)
         self._attrs = None
         self._bstrides = None
+        self._quick = None
 
     @property
     def attrs(self):
         a = self._attrs
         if a is None:
             f = self.file
-            a = self._attrs = _decode_atts(f._header, self._att[0], self._att[1], f.version)
+            a = self._attrs = Attrs(_decode_atts(f._header, self._att[0], self._att[1], f.version))
         return a
 
     def _strides(self):
@@ -637,10 +700,22 @@ class NC3Variable:
     def __repr__(self):
         return '<NC3Variable %r %s %s>' % (self.name, self.shape, self.dtype)
 
-    def read(self, key=(), out=None):
+    probes = True                               # (read takes a Probe)
+
+    def read(self, key=(), out=None, probe=None):
         """Raw values for a basic index `key` (one int or slice per
         dimension), native byte order, shaped as numpy shapes x[key]; written
-        into `out` when given."""
+        into `out` when given. probe: a _maskscale.Probe, tested on the way."""
+        if out is None:
+            q = self._quick
+            if q is None:
+                f = self.file
+                q = self._quick = f._remote is None and small_reads(
+                    f, self.begin, self.shape, self._bstrides or self._strides(), self._big, self.dtype)
+            if q:
+                res = q(key, probe)
+                if res is not None:
+                    return res
         shape = self.shape
         if not isinstance(key, tuple):
             key = (key,)
@@ -684,16 +759,62 @@ class NC3Variable:
         else:
             res = _arena.empty(oshape, dtype)
         if res.size:
-            _read(self.file, self._big, es, base, dims, res)
+            _read(self.file, self._big, es, base, dims, res, probe)
         if out is not None and res is not out:
             np.copyto(out, res)
             return out
         return res
 
 
-def _read(f, big, es, base, dims, res):
+def small_reads(f, begin, shape, strides, big, native):
+    """A function of a key giving the values for it, or None for anything but
+    a slice of whole numbers a dimension (an integer, Ellipsis, a backward
+    step). A variable's layout does not change, so where its values lie is a
+    sum, and all a read going through `read` pays for besides that sum is
+    working out, each time, what the last read worked out. A read small enough
+    is a copy out of the mapping; any other is `_read`'s, with the sum done
+    here (done there as well, it cost a loop over time steps 8%). f: as for
+    _read; its mapping in f._src."""
+    plan = tuple(zip(shape, strides))
+    rank = len(shape)
+    es = big.itemsize
+    ndarray = np.ndarray
+    empty = _arena.empty
+
+    def read(key, probe=None, threads=None):
+        if key.__class__ is not tuple or len(key) != rank:
+            return None
+        at = begin
+        count, step = [], []
+        size = es
+        reach = es
+        for k, (n, b) in zip(key, plan):
+            if k.__class__ is not slice:
+                return None
+            s, e, st = k.start, k.stop, k.step
+            if s.__class__ is not int or e.__class__ is not int or st.__class__ is not int \
+                    or st < 1 or s < 0 or e > n or s >= e:
+                return None
+            c = (e - s - 1) // st + 1
+            at += s * b
+            count.append(c)
+            step.append(st * b)
+            size *= c
+            reach += (c - 1) * st * b
+        src = f._src
+        if src is not None and size <= MAP_MAX and at + reach <= f._size:
+            return ndarray(tuple(count), big, src, at, tuple(step)).astype(native)
+        res = empty(tuple(count), native)
+        _read(f, big, es, at, [d for d in zip(count, step) if d[0] != 1], res, probe, threads)
+        return res
+    return read
+
+
+def _read(f, big, es, base, dims, res, probe=None, threads=None):
     """res (C-contiguous, native) filled with the elements at base + sum(i_d *
-    stride_d) for i_d < count_d over dims [(count_d, stride_d)] (counts > 1)."""
+    stride_d) for i_d < count_d over dims [(count_d, stride_d)] (counts > 1).
+    big: the type as stored. f: this file, or anything with its _remote, _size,
+    _source and _readinto (HDF4's contiguous variables: the same sums)."""
     if f._remote is not None:                   # a remote file: its runs fetched first
         from ._remote import runs
         f._remote.fetch(*runs(base, dims, es))
@@ -709,20 +830,21 @@ def _read(f, big, es, base, dims, res):
         for c, _ in merged:
             nruns *= c
         if (nruns == 1 and run > MAP_MAX) or run >= RUN_MIN:
-            _read_runs(f, big, es, base, merged, run, nruns, res)
+            _read_runs(f, big, es, base, merged, run, nruns, res, probe, threads)
             return
         merged.append((run // es, es))          # (small: a copy out of the mapping)
-    _gather(f, big, es, base, merged, res)
+    _gather(f, big, es, base, merged, res, threads)
 
 
-def _read_runs(f, big, es, base, outer, run, nruns, res):
+def _read_runs(f, big, es, base, outer, run, nruns, res, probe=None, threads=None):
     """Contiguous runs of `run` bytes, at base + the outer dims' offsets, read
-    straight into res one after another, then swapped."""
+    straight into res one after another, then swapped; probe's values looked
+    for piece by piece, just swapped and still in cache."""
     total = run * nruns
     flat = res.reshape(-1)
     u8 = flat.view(np.uint8)
     addr = u8.ctypes.data
-    swap = es > 1
+    swap = es > 1 and not big.isnative
     kern = _kernels()
     if nruns == 1 and total <= PAR_MIN:
         f._readinto(u8, addr, 0, total, base)
@@ -746,16 +868,6 @@ def _read_runs(f, big, es, base, outer, run, nruns, res):
         nb = np.tile(sizes, nruns)
     else:
         nb = np.full(nruns, run, np.int64)
-    if kern and total > PAR_MIN and f._remote is None:
-        # one fused pass out of the mapping: read then swap in place took
-        # 53 ms for WRF d02's 800 MB; this 44, and 23 once its pages are
-        # mapped (a later read of the same open file)
-        src = f._source()
-        if int((offs + nb).max()) <= src.size:
-            ctr = np.zeros(1, np.int64)
-            _pool.share(lambda: _swap_copy(src, offs, u8, oo, nb, es, ctr),
-                        min(len(offs), _pool.threads()))
-            return
     fo, oo, nb = offs.tolist(), oo.tolist(), nb.tolist()
     npieces = len(fo)
     small = total <= SWAP_NUMPY or not swap
@@ -764,6 +876,10 @@ def _read_runs(f, big, es, base, outer, run, nruns, res):
     mode = 0 if small else (1 if kern else 2)
     ctr = iter(range(npieces))
     lock = threading.Lock()
+    test = probe is not None and mode == 1 and probe.values.dtype.itemsize == es
+    if test:
+        w0, w1, low = value_words(probe.values)
+    found = []
 
     def work():
         if mode == 2:
@@ -783,20 +899,33 @@ def _read_runs(f, big, es, base, outer, run, nruns, res):
                 f._readinto(u8, addr, o, n, fo[i])
                 if mode == 1:
                     _swap(u8, o, o + n, es)
+                    if test and holds_value(u8, o, o + n, w0, w1, low):
+                        found.append(i)
 
-    nt = 1 if total <= PAR_MIN else min(npieces, _pool.threads())
+    nt = 1 if total <= PAR_MIN else _pool.memory_threads(total, min(npieces, threads or _pool.threads()),
+                                                         _pool.PASS_SPEED)
     _pool.share(work, nt)
     if swap and small:
         res.byteswap(inplace=True)
+    if test and not found:
+        probe.proven = True
 
 
-def _gather(f, big, es, base, dims, res):
+def _gather(f, big, es, base, dims, res, threads=None):
     """Strided elements copied (and swapped) out of the file's mapping: by
     numpy's strided copy, or, for big requests once numba is loaded, by a
     kernel on the pool taking blocks of rows off a counter."""
     counts = tuple(c for c, _ in dims)
     strides = tuple(s for _, s in dims)
     last = base + sum((c - 1) * s for c, s in dims) + es
+    seen = f._spanned
+    if seen is not None and strides[0] <= 1 << 14 and last - base >= RUN_MIN and last <= f._size \
+            and (counts, strides) not in seen:
+        if len(seen) >= 64:
+            seen.clear()
+        seen.add((counts, strides))
+        _span(f, big, es, base, counts, strides, res, threads)
+        return
     src = f._source()
     if last > src.size:                         # past the end of the file: zeros there
         tmp = np.zeros(last - base, np.uint8)
@@ -808,23 +937,58 @@ def _gather(f, big, es, base, dims, res):
     nrows = total // (counts[-1] * es)
     rpb = max(1, GATHER_BLOCK // (counts[-1] * es))
     nblocks = -(-nrows // rpb)
-    if total > GATHER_PAR and nblocks > 1 and _pool.threads() > 1 and _kernels():
+    most = threads or _pool.threads()
+    # (the kernel reverses bytes: stored in native order, numpy's copy)
+    if total > GATHER_PAR and nblocks > 1 and most > 1 and (es == 1 or not big.isnative) and _kernels():
         ctr = np.zeros(1, np.int64)             # (on one thread numpy's copy is faster)
         c = np.array(counts, np.int64)
         s = np.array(strides, np.int64)
         dst = res.reshape(-1).view(np.uint8)
-        _pool.share(lambda: _gather_rows(src, base, c, s, es, dst, ctr, nrows, rpb), nblocks)
+        _pool.share(lambda: _gather_rows(src, base, c, s, es, dst, ctr, nrows, rpb), min(nblocks, most))
         return
     view = np.ndarray(counts, big, buffer=src, offset=base, strides=strides)
     np.copyto(res.reshape(counts), view)
 
 
+def _span(f, big, es, base, counts, strides, res, threads=None):
+    """Strided elements a few pages apart or less (the outer stride at most
+    four), read the first time a selection of this form comes: the bytes they
+    lie among read in pieces, each piece's elements copied out while it is in
+    cache. On a fresh mapping every page of them would fault, and be unmapped
+    at close: a variable of a file of small records, 8.3 ms that way, 4.3 on
+    one thread. The next such selection goes through the mapping (`_gather`):
+    what a read has faulted in stays, and many of them, at place after place,
+    come to more than the faults once."""
+    from ._chunks import _pybuf                 # (here: a line at the top would compile every kernel)
+    outer, step = counts[0], strides[0]
+    per = max(1, PIECE // step)                 # outer indexes to a read
+    one = sum((c - 1) * s for c, s in zip(counts[1:], strides[1:])) + es
+    size = (per - 1) * step + one
+    out = res.reshape(counts)
+    inner = counts[1:]
+    left = iter(range(0, outer, per))
+    lock = threading.Lock()
+
+    def work():
+        buf = _pybuf(size)
+        addr = buf.ctypes.data
+        while True:
+            with lock:
+                i = next(left, -1)
+            if i < 0:
+                return
+            m = min(per, outer - i)
+            f._readinto(buf, addr, 0, (m - 1) * step + one, base + i * step)
+            np.copyto(out[i:i + m], np.ndarray((m,) + inner, big, buf, 0, strides))
+    _pool.share(work, _pool.memory_threads((outer - 1) * step + one, threads or _pool.threads()))
+
+
 def _kernels():
-    """Whether to use the numba kernels: KERNELS, or (None) whether numba is
-    loaded already -- reading netCDF3 then never pays numba's import itself
+    """Whether to use the kernels: KERNELS, or (None) whether they are there
+    for the asking -- reading netCDF3 then never pays numba's import itself
     (most of a second in a fresh process), only gains once something did."""
     k = KERNELS
-    return _jit._numba is not None if k is None else k
+    return loaded() if k is None else k
 
 
 # ---------------------------------------------------------------- kernels
@@ -870,42 +1034,6 @@ def _swap(a, lo, hi, es):
             a[i + es - 1 - j] = t
         i += es
     return 0
-
-
-@njit(cache=True, nogil=True)
-def _swap_copy(src, fo, dst, oo, nb, es, ctr):
-    """Pieces taken off ctr[0]: dst[oo[i]:] = src[fo[i]:], nb[i] bytes of
-    es-byte values, big-endian to native in the one pass."""
-    n = fo.shape[0]
-    while True:
-        i = take(ctr, 0)
-        if i >= n:
-            return
-        a, b, m = fo[i], oo[i], nb[i]
-        n8 = m // 8
-        if es == 2:
-            for k in range(n8):
-                x = ld64(src, a + k * 8)
-                st64(dst, b + k * 8, ((x & _M8) << _S8) | ((x >> _S8) & _M8))
-        elif es == 4:
-            for k in range(n8):
-                x = ld64(src, a + k * 8)
-                x = ((x & _M8) << _S8) | ((x >> _S8) & _M8)
-                st64(dst, b + k * 8, ((x & _M16) << _S16) | ((x >> _S16) & _M16))
-        elif es == 8:
-            for k in range(n8):
-                x = ld64(src, a + k * 8)
-                x = ((x & _M8) << _S8) | ((x >> _S8) & _M8)
-                x = ((x & _M16) << _S16) | ((x >> _S16) & _M16)
-                st64(dst, b + k * 8, (x << _S32) | (x >> _S32))
-        else:
-            for k in range(n8):
-                st64(dst, b + k * 8, ld64(src, a + k * 8))
-        t = n8 * 8
-        while t < m:                            # the tail, value by value
-            for j in range(es):
-                dst[b + t + j] = src[a + t + es - 1 - j]
-            t += es
 
 
 @njit(cache=True, nogil=True)

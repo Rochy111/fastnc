@@ -1261,10 +1261,12 @@ def _keep(a):
     with _ARENA_LOCK:
         if _ARENA[0] is None or _ARENA[0].size < a.size:
             _ARENA[0] = a
+    _pool.wake(release)
 
 
 def release():
-    """Drop the scratch kept between calls."""
+    """Drop the scratch kept between calls. (At most 5 s on: all a loop of
+    whole streams loses is a fresh arena's faults that often.)"""
     with _ARENA_LOCK:
         _ARENA[0] = None
 

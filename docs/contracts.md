@@ -71,7 +71,8 @@ def workspace_size(chunk_nbytes):      # plain Python
   runs those on a thread pool.
 - Filter ids (HDF5): 1 deflate (`_inflate.zlib_inflate`), 2 shuffle,
   3 fletcher32, 4 szip, 5 n-bit, 6 scale-offset, 307 bzip2, 32000 lzf,
-  32001 blosc, 32004 lz4, 32008 bitshuffle, 32015 zstd, 32026 blosc2.
+  32001 blosc, 32004 lz4, 32008 bitshuffle, 32013 zfp, 32015 zstd,
+  32026 blosc2.
   Parameters as hdf5plugin / HDF5 write them (see their filter sources).
 - Each codec is tested byte-for-byte against the reference decoder on the
   real files' chunks (where present), `tests/data/filters.h5` and

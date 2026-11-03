@@ -26,7 +26,7 @@ from ._chunks import (F_DEFLATE, F_FLETCHER, F_SHUFFLE, MAXDIM, V_CBYTES, V_ESIZ
                       V_NST, V_RANK, V_STAGE0, V_SWAP, _place)
 from ._inflate import zlib_inflate
 from ._intrin import take
-from ._jit import njit
+from ._jit import bind, njit
 from ._maskscale import _fix_block, _flag_hits, _scale_block
 
 
@@ -36,7 +36,7 @@ def _prepare(var, key, threads, min_size):
     fletcher32 (or virtual chunks), every chunk stored, simple slices, at
     least min_size values and a chunk per thread."""
     from . import _h5read
-    if not _chunks._READY.is_set():
+    if not _chunks.loaded():
         return None
     bv = var._bv
     r = getattr(bv, '_reader', None)
@@ -48,7 +48,7 @@ def _prepare(var, key, threads, min_size):
         return None
     if not (ds.layout.cls == 2 or (ds.layout.cls == 1 and r.virtual)):
         return None
-    if any(f.id not in _chunks.SUPPORTED for f in ds.filters) or len(ds.filters) > _chunks.MAXSTAGE:
+    if not _chunks.fusable(ds):
         return None
     stored = t.dtype
     nat = _h5read.native(stored)
@@ -123,14 +123,14 @@ def read_lut(var, key, lut, threads=None, min_size=1 << 16):
     ctr = np.zeros(1, np.int64)
     maxsel = int(np.prod(count, axis=1).max())
     xproto = np.zeros(1, 'u%d' % nat.itemsize)
-    src = r.src
+    src, addr = _chunks.maybe_stage(ds, r.src, addr, size, threads, True)
     nthr = _pool.work_threads(max(int(np.prod(shape)) * lut.dtype.itemsize, 2 * int(size.sum())),
                               min(nthr, nch))
+    call = bind(_work_lut, (src, V, VD, addr, size, mask, needend, cstart, count, ostart, ctr, status)
+                + _chunks._scratch(nel * esize + 8) + (xproto, maxsel, of, tab), (12, 13, 14))
 
     def work():
-        sc, tb, iws = _chunks._scratch(nel * esize + 8)
-        _work_lut(src, V, VD, addr, size, mask, needend, cstart, count, ostart, ctr, status,
-                  sc, tb, iws, xproto, maxsel, of, tab)
+        call(*_chunks._scratch(nel * esize + 8))
     _pool.share(work, nthr)
     if status.any():
         bad = np.nonzero(status)[0][0]
@@ -181,16 +181,17 @@ def _run(var, r, ds, index, box, shape, final, nat, swap, pl, p, nthr):
     status = np.zeros(nch, np.int64)
     ctr = np.zeros(2, np.int64)
     maxsel = int(np.prod(count, axis=1).max())
-    src = r.src
+    src, addr = _chunks.maybe_stage(ds, r.src, addr, size, nthr, True)
     xproto = np.zeros(1, xdt)
     outbytes = int(np.prod(shape)) * max(esize, out.dtype.itemsize)
     nthr = _pool.work_threads(max(outbytes, 2 * int(size.sum())), min(nthr, nch))
+    call = bind(_work_ms, (src, V, VD, addr, size, mask, needend, cstart, count, ostart, ctr, status)
+                + _chunks._scratch(nel * esize + 8)
+                + (xproto, maxsel, of, m, maskonly, pl.eq, pl.eqcat, pl.neq, pl.lohi, pl.opts,
+                   pl.sc, pl.sc32, stats), (12, 13, 14))
 
     def work():
-        sc, tab, iws = _chunks._scratch(nel * esize + 8)
-        _work_ms(src, V, VD, addr, size, mask, needend, cstart, count, ostart, ctr, status,
-                 sc, tab, iws, xproto, maxsel, of, m, maskonly, pl.eq, pl.eqcat, pl.neq,
-                 pl.lohi, pl.opts, pl.sc, pl.sc32, stats)
+        call(*_chunks._scratch(nel * esize + 8))
     _pool.share(work, nthr)
     if status.any():
         bad = np.nonzero(status)[0][0]

@@ -88,6 +88,8 @@ def _normalize(key, shape):
                     need_post = True
         else:
             a = np.asarray(k)
+            if isinstance(k, (list, tuple)) and not len(k):
+                a = a.astype(np.int64)                  # (numpy takes it for floats)
             if a.dtype == bool:
                 if a.ndim != 1 or a.size != n:
                     raise IndexError('boolean index of length %d for dimension %d of size %d'

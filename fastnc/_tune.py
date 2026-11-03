@@ -115,12 +115,15 @@ def _thread_bytes():
 
 
 def _load_time():
-    """Load numba and the kernels in a fresh process: _chunks notes it."""
+    """Load numba and the kernels in a fresh process: _chunks notes it (the
+    last figure goes first: it only ever keeps a shorter one)."""
+    _hw.save_tuned(cpu={'load_s': None})
     code = 'import fastnc; fastnc.warm()'
     env = dict(os.environ)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env['PYTHONPATH'] = root + os.pathsep + env.get('PYTHONPATH', '')
     subprocess.run([sys.executable, '-c', code], env=env, capture_output=True, timeout=600)
+    _hw._found.pop('_tune_file', None)              # (that process wrote the file)
 
 
 def _gpu():
