@@ -1,8 +1,8 @@
-/* fastnc docs: fastgrib's quiet, neutral theme, with fastnc's own accent. */
+/* fastnc docs: a quiet, neutral theme with one accent colour, fastgrib's and fastplot's. */
 
 :root {
-  --accent: #0f766e;
-  --accent-soft: rgba(15, 118, 110, 0.08);
+  --accent: #1d5fa8;
+  --accent-soft: rgba(29, 95, 168, 0.08);
   --line: rgba(0, 0, 0, 0.09);
   --surface: #f6f7f9;
   --radius: 6px;
@@ -30,8 +30,8 @@
 }
 
 [data-md-color-scheme="slate"] {
-  --accent: #4fc3b4;
-  --accent-soft: rgba(79, 195, 180, 0.1);
+  --accent: #6aa6ec;
+  --accent-soft: rgba(106, 166, 236, 0.1);
   --line: rgba(255, 255, 255, 0.09);
   --surface: #161b22;
   --md-hue: 215;
