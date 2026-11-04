@@ -11,6 +11,7 @@ import pytest
 
 import fastnc
 from fastnc import _dataset, _fused, _maskscale
+from helpers import _bytes
 
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 FILES = sorted(os.path.basename(p) for p in glob.glob(os.path.join(DATA, '*.nc'))
@@ -37,13 +38,13 @@ def _outcome(fn):
             return ('raised', type(e).__name__, str(e)), [str(x.message) for x in w]
     if np.ma.isMaskedArray(r):
         m = r._mask
-        enc = ('ma', r.dtype.str, r.shape, np.ma.getdata(r).tobytes(),
+        enc = ('ma', r.dtype.str, r.shape, _bytes(np.ma.getdata(r)),
                None if m is np.ma.nomask else m.tobytes(), type(r.fill_value).__name__,
-               np.asarray(r.fill_value).tobytes())
+               _bytes(r.fill_value))
     else:
-        a = np.asarray(r)
+        a = np.asarray(r)                           # (_bytes: a compound's padding is uninitialized)
         enc = (type(r).__name__, a.dtype.str, a.shape,
-               repr(a.tolist()) if a.dtype.hasobject else a.tobytes())
+               repr(a.tolist()) if a.dtype.hasobject else _bytes(a))
     return enc, [str(x.message) for x in w]
 
 

@@ -8,8 +8,9 @@ import numpy as np
 import pytest
 
 import fastnc
+from helpers import _bytes
 
-DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+DATA =os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 FILES = ['nc4.nc', 'nc4_classic.nc', 'nc3_64bit.nc', 'idx_latest.h5', 'filters.h5']
 
 
@@ -41,13 +42,13 @@ def _value(ds, name, key, masked):
 def _same(a, b):
     if np.ma.isMaskedArray(a) or np.ma.isMaskedArray(b):
         return (np.array_equal(np.ma.getmaskarray(a), np.ma.getmaskarray(b))
-                and np.asarray(np.ma.getdata(a)).tobytes() == np.asarray(np.ma.getdata(b)).tobytes())
+                and _bytes(np.ma.getdata(a)) == _bytes(np.ma.getdata(b)))
     a, b = np.asarray(a), np.asarray(b)
     if a.dtype.kind == 'O':
         return a.shape == b.shape and all(
             np.array_equal(x, y) if isinstance(x, np.ndarray) else x == y
             for x, y in zip(a.ravel(), b.ravel()))
-    return a.dtype == b.dtype and a.shape == b.shape and a.tobytes() == b.tobytes()
+    return a.dtype == b.dtype and a.shape == b.shape and _bytes(a) == _bytes(b)  # (no compound padding)
 
 
 @pytest.mark.parametrize('name', FILES)

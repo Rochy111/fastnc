@@ -1,5 +1,10 @@
 # fastnc
 
+[![tests](https://github.com/Rochy111/fastnc/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/Rochy111/fastnc/actions/workflows/tests.yml)
+[![docs](https://github.com/Rochy111/fastnc/actions/workflows/docs.yml/badge.svg?branch=main)](https://rochy111.github.io/fastnc/)
+
+**Documentation: [rochy111.github.io/fastnc](https://rochy111.github.io/fastnc/)**
+
 A fast reader for netCDF and HDF5 in Python: netCDF-3 (classic, 64-bit
 offset, CDF-5), netCDF-4 and plain HDF5 (every chunk index, every common
 filter), HDF4, from local files, HTTP(S), S3 or file objects. It reads the
@@ -382,8 +387,11 @@ pay ~150 ms for numpy's import; fastnc's own import is ~15 ms, h5py's ~90).
 ## Install
 
 ```
-pip install -e ".[xarray]"      # add "gpu" for cupy (CUDA 12)
+pip install git+https://github.com/Rochy111/fastnc
+pip install "fastnc[xarray] @ git+https://github.com/Rochy111/fastnc"   # or [all] for cupy (CUDA 12) too
 ```
+
+From a clone: `pip install -e ".[xarray]"`.
 
 Python 3.9+, numpy 1.22+ (1.x and 2.x), numba 0.57+. No other dependency;
 h5py, netCDF4-python and hdf5plugin are needed only to regenerate the test
@@ -414,6 +422,7 @@ too. Not supported yet: the JPEG filter, blosc2 variable-length blocks; writing.
 
 ## More
 
+- [The documentation site](https://rochy111.github.io/fastnc/): guides, reference, performance and a gallery
 - [docs/internals.md](docs/internals.md): how it works, module by module
 - [docs/measurements.md](docs/measurements.md): what was measured before
   and while designing it, including what did not pay off

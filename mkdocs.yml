@@ -1,0 +1,105 @@
+site_name: fastnc
+site_description: Fast netCDF and HDF5 reading for Python, with the netCDF4-python, h5py and xarray APIs and bit-identical values, on every CPU core or an NVIDIA GPU.
+site_url: https://rochy111.github.io/fastnc/
+repo_url: https://github.com/Rochy111/fastnc
+repo_name: Rochy111/fastnc
+edit_uri: edit/main/docs/
+copyright: fastnc is released under the MIT licence.
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Dark theme
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Light theme
+  font:
+    text: IBM Plex Sans
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/database-arrow-down
+  features:
+    - navigation.tabs
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Rochy111/fastnc
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path: [docs/examples, .]
+      check_paths: true
+
+not_in_nav: |
+  /contracts.md
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Gallery:
+      - gallery/index.md
+      - Satellites:
+          - gallery/goes_full_disk.md
+          - gallery/viirs_window.md
+          - gallery/modis_melissa.md
+          - gallery/avhrr_andrew.md
+      - Models and speed:
+          - gallery/wrf_melissa.md
+          - gallery/speed_chart.md
+  - User guide:
+      - netCDF4-python's API: guide/netcdf4.md
+      - h5py's API: guide/h5py.md
+      - xarray: guide/xarray.md
+      - Many variables at once: guide/many-variables.md
+      - Remote files: guide/remote.md
+      - GPU, threads and hardware: guide/hardware.md
+  - Reference:
+      - Supported formats: reference/formats.md
+      - Accuracy: reference/accuracy.md
+      - Settings: reference/settings.md
+  - Performance: speed.md
+  - Development:
+      - Internals: internals.md
+      - Measurements: measurements.md
+      - Contributing: https://github.com/Rochy111/fastnc/blob/main/CONTRIBUTING.md
+      - Changelog: changelog.md

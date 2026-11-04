@@ -244,6 +244,7 @@ def test_a_kernel_s_error_is_numba_s():
     assert type(_image._raised(k, 1, buf, 3)) is RuntimeError
 
 
+@pytest.mark.skipif(not _image._x86_64(), reason='an image is linked only from x86-64 ELF objects')
 def test_the_runtime_has_what_kernels_may_call():
     """Growing buffers were not there: kernels that need them were not linked."""
     pytest.importorskip('numba')

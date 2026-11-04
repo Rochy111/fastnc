@@ -2,9 +2,10 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]     # (dev too: every Python and system, compiling fresh, before a release)
   pull_request:
   workflow_dispatch:
+  workflow_call:              # (release.yml runs them again on the tag)
 
 concurrency:
   group: tests-${{ github.ref }}
@@ -34,9 +35,9 @@ jobs:
           - {os: windows-latest, python: '3.12', numpy: 'numpy>=2.0', kernels: 'off'}
           - {os: macos-latest, python: '3.12', numpy: 'numpy>=2.0', kernels: 'off'}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -75,9 +76,9 @@ jobs:
     continue-on-error: true
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip

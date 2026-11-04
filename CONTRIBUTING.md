@@ -236,18 +236,56 @@ explain. Add a line to `CHANGELOG.md`'s Unreleased section.
 
 ## Branches and commits
 
-- **Work on a branch per change** (`perf/libdeflate-in-kernel`,
+- **Work on a branch per change off `dev`** (`perf/libdeflate-in-kernel`,
   `fix/fill-value-type`, `docs/benchmarks`) and commit as often as you
   like there.
-- **Land it on `main` as one commit**: `git merge --squash` the branch,
+- **Land it on `dev` as one commit**: `git merge --squash` the branch,
   then commit with an imperative subject of at most ~72 characters and a
-  short body saying why. Measurements and rejected alternatives go in
+  short body saying why, with its line under "Unreleased" in
+  `CHANGELOG.md`. Measurements and rejected alternatives go in
   `docs/measurements.md`, not in commit messages.
 - **Before it lands**: the suite passes under numpy 2 and numpy 1
   (`pytest`, `python tools/run_tests_numpy1.py`), with `--kernels off` and
   `--kernels numba`, and with `--gpu` where the GPU path is touched.
-- **A pull request** where it helps: a big or risky change worth reading
-  as a whole first, an outside contribution, or once CI is running again.
-- **`main` is not rewritten** once pushed, and releases are tagged on it
-  (`v0.1.0` ...) after `CHANGELOG.md`'s Unreleased section moves under the
-  version.
+- **CI runs on every push to `dev`**: every Python from 3.9 to 3.13, numpy
+  1 and 2, Linux, Windows and macOS, compiling fresh. Code commits never
+  carry `[skip ci]`.
+- **`main` holds releases only**, one squashed commit each, and is never
+  rewritten once pushed.
+- **Outside contributions** come as pull requests to `dev`.
+
+## Making a release
+
+Versions follow [semantic versioning](https://semver.org/). While fastnc
+is 0.x, the minor version (0.1.0 to 0.2.0) is for new features or changed
+behaviour, and the patch version (0.1.0 to 0.1.1) for fixes only. The
+version is `__version__` in `fastnc/__init__.py`.
+
+1. On `dev`, set `__version__`, turn "Unreleased" in `CHANGELOG.md` into
+   the version's heading with the date, and start a new empty "Unreleased"
+   above it. Push `dev` and wait for its tests to pass on every system.
+2. Squash `dev` onto `main`, tag it and push both:
+
+    ```bash
+    git switch main
+    git pull
+    git merge --squash dev
+    git commit -m "Release 0.2.0: what it brings"
+    git tag -a v0.2.0 -m "fastnc 0.2.0"
+    git push origin main v0.2.0
+    ```
+
+   The tag runs `release.yml`: the tests again, then the GitHub release,
+   with that version's changelog section as its notes. It stops if the
+   tests fail, the tag isn't on `main` or the changelog has no section for
+   it. The documentation site rebuilds from `main`.
+3. Record the squash in `dev`'s history, so the next squash brings only
+   what is new (`main`'s files are `dev`'s already):
+
+    ```bash
+    git switch dev
+    git merge -s ours origin/main -m "Record 0.2.0's squash on main"
+    git push origin dev
+    ```
+
+fastnc is not published to PyPI; it installs from GitHub.

@@ -4,6 +4,17 @@ All notable changes. Values read by fastnc stay bit-identical to
 netCDF4-python's and h5py's in every release; a change that alters them is
 a bug.
 
+## Unreleased
+
+### Added
+- **Documentation site** at https://rochy111.github.io/fastnc/: getting
+  started, a guide to each front end, remote files, the GPU and threads,
+  supported formats, accuracy, settings, every benchmark and a gallery of
+  real files.
+- **CI on every push to `dev`**, and releases from tags: a `v*` tag runs
+  the tests again on every system and publishes the GitHub release from
+  this file.
+
 ## 0.1.0 (2026-11-02)
 
 ### Added
