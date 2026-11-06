@@ -6,6 +6,8 @@ a bug.
 
 ## Unreleased
 
+## 0.1.1 (2026-11-05)
+
 ### Added
 - **Documentation site** at https://rochy111.github.io/fastnc/: getting
   started, a guide to each front end, remote files, the GPU and threads,
