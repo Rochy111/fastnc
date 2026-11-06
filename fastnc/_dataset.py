@@ -158,6 +158,20 @@ class VLType:
         return "<class 'fastnc.VLType'>: name = '%s', numpy dtype = %s" % (self.name, self.dtype)
 
 
+def _attribute(b, name):
+    """The netCDF attribute `name` of b (a backend variable or group), as
+    netCDF4-python's v.<name> gives it: '_' names too (v._FillValue,
+    v._Unsigned, hasattr(v, '_FillValue')), any that ncattrs() lists.
+    Python's special names (__array__, __dict__ ...) are never attributes,
+    nor is anything before b is set (an object half made or unpickled)."""
+    if b is None or (name[:2] == '__' and name[-2:] == '__'):
+        raise AttributeError(name)
+    attrs = b.attrs
+    if name in attrs:
+        return attrs[name]
+    raise AttributeError("NetCDF: Attribute not found: %s" % name)
+
+
 class Variable:
     """A netCDF variable (netCDF4.Variable), read-only. Indexing returns
     values with netCDF4-python's automatic masking and scaling unless
@@ -224,14 +238,7 @@ class Variable:
             raise AttributeError("NetCDF: Attribute not found: %s" % name) from None
 
     def __getattr__(self, name):
-        if name.startswith('_'):
-            raise AttributeError(name)
-        attrs = self.__dict__.get('_bv').attrs
-        if name in attrs:
-            return attrs[name]
-        if name == '__dict__':
-            raise AttributeError(name)
-        raise AttributeError("NetCDF: Attribute not found: %s" % name)
+        return _attribute(self.__dict__.get('_bv'), name)
 
     def __setattr__(self, name, value):
         if name.startswith('_') or name == 'name':
@@ -598,12 +605,7 @@ class Group:
             raise AttributeError("NetCDF: Attribute not found: %s" % name) from None
 
     def __getattr__(self, name):
-        if name.startswith('_'):
-            raise AttributeError(name)
-        attrs = self.__dict__.get('_bg').attrs
-        if name in attrs:
-            return attrs[name]
-        raise AttributeError("NetCDF: Attribute not found: %s" % name)
+        return _attribute(self.__dict__.get('_bg'), name)
 
     def __getitem__(self, path):
         g = self

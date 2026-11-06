@@ -22,6 +22,15 @@ a bug.
   way); it now gives what netCDF4-python gives for each, masked or not,
   and refuses what it refuses. `fastnc.File` refuses every index but `()`
   and `...` on a scalar dataset with h5py's `ValueError`.
+- **Attributes whose names start with `_`, as properties.**
+  `v._FillValue`, `v._Unsigned`, `v._Encoding` and `g._Gx` raised
+  `AttributeError` (`ncattrs()` listed them and `getncattr()` read them),
+  so `hasattr(v, '_FillValue')` was False and `getattr(v, '_Unsigned',
+  'false')` gave `'false'` on a GOES ABI file: readers written for
+  netCDF4-python silently skipped their fill handling and their unsigned
+  reinterpretation. They now give every attribute `ncattrs()` lists, as
+  netCDF4-python does; Python's special names (`__array_interface__` ...)
+  stay `AttributeError`s.
 
 ## 0.1.0 (2026-11-02)
 
