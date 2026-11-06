@@ -15,6 +15,14 @@ a bug.
   the tests again on every system and publishes the GitHub release from
   this file.
 
+### Fixed
+- **Scalar variables read with `v[:]`.** `fastnc.Dataset` raised
+  `IndexError: too many indices` for `v[:]`, `v[0]`, `v[0:1]` or `v[[0]]`
+  on a 0-d variable (GOES ABI files read their calibration constants this
+  way); it now gives what netCDF4-python gives for each, masked or not,
+  and refuses what it refuses. `fastnc.File` refuses every index but `()`
+  and `...` on a scalar dataset with h5py's `ValueError`.
+
 ## 0.1.0 (2026-11-02)
 
 ### Added

@@ -589,6 +589,8 @@ class Dataset(HLObject):
             v = self[rest if rest else ()]
             return v[names[0]] if len(names) == 1 else v[names]
         k = key if isinstance(key, tuple) else (key,)
+        if not self._ds.shape:
+            _select.scalar_h5(k)                    # (h5py: only () and Ellipsis)
         t = self._ds.type
         v = self._read(k)
         if t.cls == _hdf5.Datatype.COMPOUND and t.holds_vlen():

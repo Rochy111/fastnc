@@ -288,6 +288,16 @@ class Variable:
     def read(self, key=Ellipsis, out=None, device=None, threads=None):
         """Values for key (any netCDF4-python index), masked and scaled as
         set. device 'gpu' returns a cupy array (identical values)."""
+        if not self._bv.shape and not _select.whole_scalar(key) and not self._null:
+            # a scalar: v[:], v[0], v[[0]] give its value, as in netCDF4-python
+            # (a null dataset, no value at all, refuses them as too many indices)
+            asked = key
+            key, pick = _select.scalar_nc(key)
+            if pick:
+                if (device or self._device) == 'gpu':
+                    from . import _gpu
+                    return _gpu._host_then_upload(self, asked, threads)
+                return self._pick(threads)
         device = device or self._device
         if self._short():
             # past what is stored: fill values, as netCDF-C gives them
@@ -346,6 +356,20 @@ class Variable:
             raw = _select.finish(raw, post, drop)
         return self._post(raw, box, drop, threads, probe is not None and probe.proven)
 
+    def _pick(self, threads):
+        """v[0] (any integer from -1 up) of a scalar: netCDF4-python reads it
+        as the one value of a (1,) array, numpy's scalar, and masks and
+        scales that (a 0-d array where always_mask is off, np.void for a
+        compound ...), as for an integer index into an array variable."""
+        bv = self._bv
+        if hasattr(bv, '_reader'):
+            raw = bv.read((Ellipsis,)) if threads is None else bv.read((Ellipsis,), threads=threads)
+        else:
+            raw = bv.read(())
+        if type(raw) is np.ndarray and raw.ndim == 0:
+            raw = raw[()]
+        return self._post(raw, [(0, 1, 1)], (0,), threads, shape=(1,))
+
     def _probe(self, shape=None):
         """What a read of this shape (default: all of it) can test as it goes
         to spare the pass over its values, or None."""
@@ -387,9 +411,10 @@ class Variable:
                             ms._kind(bv.dtype, None if isinstance(dt, np.dtype) or dt is str else dt),
                             self._mask, self._scale, getattr(bv, 'no_fill', False))
 
-    def _post(self, raw, box, drop, threads=None, clean=False):
+    def _post(self, raw, box, drop, threads=None, clean=False, shape=None):
         """netCDF4-python's masking / scaling / char conversion of raw values;
-        clean: the read proved no value here is masked."""
+        clean: the read proved no value here is masked; shape: the variable's
+        as the index saw it (default: its own)."""
         if raw is None:
             return None                             # (see _null)
         bv = self._bv
@@ -400,7 +425,8 @@ class Variable:
         return _masking().apply(raw, bv.attrs, bv.dtype, mask=self._mask, scale=self._scale,
                                 always_mask=self._always_mask, chartostring=self._chartostring,
                                 var_dtype=None if isinstance(dt, np.dtype) or dt is str else dt,
-                                no_fill=getattr(bv, 'no_fill', False), var_shape=self.shape,
+                                no_fill=getattr(bv, 'no_fill', False),
+                                var_shape=self.shape if shape is None else shape,
                                 key=_norm_key(box, drop), threads=threads, clean=clean)
 
     def __array__(self, dtype=None, copy=None):

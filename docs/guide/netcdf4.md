@@ -31,7 +31,8 @@ with netCDF4.Dataset('wrfout_d01_2025-10-26_06_20_00.nc') as ds:
   - `filters()`, `chunking()`, `endian()`, `isunlimited()`, `group()`
 - **Indexing:** integers, slices with steps, negative indices, `Ellipsis`,
   integer and boolean arrays, and a list per dimension, all as
-  netCDF4-python interprets them.
+  netCDF4-python interprets them. A scalar variable takes them as one of
+  shape (1,) does: `v[:]`, `v[0]` and `v[0:1]` give its value.
 - **Reads into existing memory:** `var.read(key, out=array)`.
 
 Writing (`mode='w'`, `createVariable` and so on) raises an error: fastnc

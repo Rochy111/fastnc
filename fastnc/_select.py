@@ -40,6 +40,59 @@ def normalize(key, shape):
     return r
 
 
+def whole_scalar(key):
+    """Whether key is (), Ellipsis or (Ellipsis,), the indexes of a scalar's
+    whole value in every front end (without comparing arrays)."""
+    return key is Ellipsis or (type(key) is tuple and (not key or (len(key) == 1 and key[0] is Ellipsis)))
+
+
+def scalar_nc(key):
+    """netCDF4-python's reading of key on a scalar (0-d) variable: (k, pick),
+    k the index to read the scalar with (Ellipsis) and pick whether an
+    integer picked the value (a raw read then gives a numpy scalar, not a 0-d
+    array). Raises IndexError where the key selects nothing.
+
+    netCDF4-python indexes a scalar as if it had shape (1,): v[:], v[0:1],
+    v[[0]], v[()], v[...] all give the value. Its integers are not
+    bounds-checked (netCDF-C ignores a scalar's start), so any integer from
+    -1 up picks the value; a selection of no element (v[1:], v[[False]]) is
+    an IndexError. One difference: netCDF4-python 1.7 fails on v[::2] (an
+    IndexError of its own, 'tuple index out of range', from a strided slice
+    without a stop); here that is the value, as v[0:1:2] is in both."""
+    if whole_scalar(key):
+        return Ellipsis, False
+    k = key if isinstance(key, tuple) else (key,)
+    ints = []
+    for e in k:
+        if e is None or e is Ellipsis or isinstance(e, slice) or np.ndim(e):
+            ints.append(e)
+            continue
+        try:
+            i = int(e)                              # (bools, floats, digits: as netCDF4-python)
+        except (TypeError, ValueError):
+            raise IndexError('only integers, slices, Ellipsis and 1-d integer or boolean '
+                             'sequences are valid indices') from None
+        if i < -1:
+            raise IndexError('index %d is out of bounds for a scalar variable' % i)
+        ints.append(0)
+    if sum(e is not Ellipsis for e in k) > 1 and not any(e is None for e in k):
+        raise ValueError('slicing expression exceeds the number of dimensions of the variable')
+    box, _, drop = _normalize(tuple(ints), (1,))
+    if drop:
+        return Ellipsis, True
+    if box[0][0] == box[0][1]:
+        raise IndexError('index selects no element of a scalar variable')
+    return Ellipsis, False
+
+
+def scalar_h5(key):
+    """h5py's rule for a scalar dataset: only () and Ellipsis index it."""
+    if not whole_scalar(key):
+        if any(e is None for e in key):
+            raise TypeError('Indexing with None (or np.newaxis) is not supported')
+        raise ValueError('Illegal slicing argument for scalar dataspace')
+
+
 def _normalize(key, shape):
     rank = len(shape)
     # expand Ellipsis
