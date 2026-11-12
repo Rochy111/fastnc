@@ -79,12 +79,14 @@ def test_odd_types_cost_load_nothing(odd):
     with fastnc.Dataset(p) as d:
         got = d.load()
     assert np.array_equal(np.ma.getdata(got['values']), np.arange(5.0))
-    assert np.ma.getdata(got['array']).shape == (4, 3, 2)
+    assert 'array' not in got                       # (an HDF5 array type: netCDF-c shows no such variable)
     assert np.ma.getdata(got['f2']).tobytes() == x.tobytes()
+    with fastnc.File(p) as f:
+        assert f['array'][()].shape == (4, 3, 2)    # (h5py's view reads it)
 
 
 @pytest.mark.parametrize('masked', [True, False])
-@pytest.mark.parametrize('name', ['f2', 'f2_fill', 'f2_scaled', 'f2_range', 'array'])
+@pytest.mark.parametrize('name', ['f2', 'f2_fill', 'f2_scaled', 'f2_range'])
 def test_the_card_equals_the_cpu(odd, name, masked, request):
     if not request.config.getoption('--gpu'):
         pytest.skip('needs --gpu')

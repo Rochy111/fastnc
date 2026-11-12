@@ -211,6 +211,9 @@ SIGNATURES = {
     'fastnc._codecs.run_inflate': [
         (3,5,5,2,5,5,2,5,2,5,5,5,10,5),
     ],
+    'fastnc._codecs.run_jpeg': [
+        (3,5,5,2,5,5,2,5,2,5,5,5),
+    ],
     'fastnc._codecs.run_lz4': [
         (3,5,5,2,5,5,2,5,2,5,5,5),
     ],

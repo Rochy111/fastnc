@@ -1,0 +1,36 @@
+netcdf nc3_cdf5 {
+dimensions:
+	time = UNLIMITED ; // (5 currently)
+	y = 13 ;
+	x = 17 ;
+	nchar = 6 ;
+variables:
+	double time(time) ;
+		time:units = "hours since 2026-01-01" ;
+	float temp(time, y, x) ;
+		temp:_FillValue = -999.f ;
+		temp:units = "K" ;
+		temp:scale_note = "plain" ;
+	short packed(time, y, x) ;
+		packed:_FillValue = -32767s ;
+		packed:scale_factor = 0.01f ;
+		packed:add_offset = 100.f ;
+		packed:valid_min = -30000s ;
+		packed:valid_max = 30000s ;
+	byte ubyte_as_signed(y, x) ;
+		ubyte_as_signed:_Unsigned = "true" ;
+		ubyte_as_signed:missing_value = -1b ;
+	double missing(y, x) ;
+		missing:missing_value = 1.e+20, -1.e+20 ;
+		missing:valid_range = -500., 500. ;
+	char names(y, nchar) ;
+	int rec_int(time) ;
+	float scalar ;
+	uint64 u64(x) ;
+
+// global attributes:
+		:title = "fastnc test file" ;
+		:history = "made by tools/make_corpus.py" ;
+		:version = 3 ;
+		:ratio = 0.25 ;
+}

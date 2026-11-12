@@ -14,14 +14,28 @@ from helpers import REFERENCE_SETS, locate, references
 def pytest_addoption(parser):
     parser.addoption('--gpu', action='store_true', default=False,
                      help="also compare every read with fastnc.Dataset(path, device='gpu')")
-    parser.addoption('--kernels', default='on', choices=('on', 'numba', 'off'),
+    parser.addoption('--kernels', default='on', choices=('on', 'numba', 'off', 'shipped'),
                      help="on: the kernels loaded first, from this machine's image if it has one "
                           "(default); numba: from numba, the image left alone; off: never loaded "
                           "-- every read as a process with no image does it (libdeflate / zlib, "
-                          "numpy)")
+                          "numpy); shipped: only from the image shipped in fastnc/_kernels for "
+                          "this CPU, numba unable to load (FASTNC_IMAGE_FILE: that image instead)")
     parser.addoption('--refs', default=','.join(REFERENCE_SETS),
                      help='reference sets to test, of %s (default: all whose files are here)'
                           % ','.join(REFERENCE_SETS))
+
+
+def _block_numba():
+    """A machine where numba cannot be imported, as a wheel installed without
+    it: any kernel the image lacks fails its test with ImportError. Processes
+    the tests start inherit it (sitecustomize-free: an environment variable
+    _jit reads)."""
+    import sys
+    for name in ('numba', 'llvmlite'):
+        sys.modules[name] = None
+    os.environ['FASTNC_NO_NUMBA'] = '1'
+    if not os.environ.get('FASTNC_IMAGE_FILE'):
+        os.environ['FASTNC_IMAGE'] = 'shipped'
 
 
 def pytest_configure(config):
@@ -29,13 +43,21 @@ def pytest_configure(config):
     # (processes the tests start have caches of their own: each would start a
     # build of its own, minutes of compiling that no test wants)
     os.environ['FASTNC_IMAGE_BUILD'] = '0'
+    if config.getoption('--kernels') == 'shipped':
+        _block_numba()
     from fastnc import _chunks
-    if config.getoption('--kernels') != 'on':
+    if config.getoption('--kernels') not in ('on', 'shipped'):
         _chunks.IMAGE = False
     if config.getoption('--kernels') == 'off':
         _chunks.LOAD_AFTER = float('inf')
     else:
         _chunks.warm()
+    if config.getoption('--kernels') == 'shipped':
+        from fastnc import _jit
+        im = _jit.image()
+        if im is None:
+            raise pytest.UsageError('--kernels shipped: no image shipped for this machine and these sources')
+        print('kernels from %s (%s)' % (os.path.basename(im.file.name), im.level or 'this machine'))
     if os.environ.get('FASTNC_NEP50_WARN'):                  # tools/run_tests_numpy1.py --nep50
         import numpy as np
         if hasattr(np, '_set_promotion_state'):              # numpy 1.24-1.26 only

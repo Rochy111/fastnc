@@ -487,6 +487,79 @@ def test_small_reads_and_threads_with_kept_chunks():
     assert not bad
 
 
+@pytest.mark.parametrize('fn', FILES)
+def test_hdf4_datasets_are_the_variables(fn):
+    """With no name taken twice, hdf4_datasets() is variables' values."""
+    with fastnc.Dataset(os.path.join(DATA, fn)) as d:
+        sds = d.hdf4_datasets()
+        if len({v.name for v in sds}) == len(sds):
+            assert [v.name for v in sds] == list(d.variables)
+            assert all(v is d.variables[v.name] for v in sds)
+
+
+def test_hdf4_datasets_of_a_name_taken_twice(tmp_path):
+    """HDF-EOS files hold data sets of the same name (ASTER L1B: Latitude
+    per swath); netCDF-C keeps the last, and so does `variables`; all of them,
+    as pyhdf indexes them, through hdf4_datasets()."""
+    SD = pytest.importorskip('pyhdf.SD')
+    import pickle
+    p = str(tmp_path / 'twice.hdf')
+    sd = SD.SD(p, SD.SDC.WRITE | SD.SDC.CREATE)
+    made = []
+    for k, swath in enumerate(['VNIR', 'SWIR', 'TIR']):
+        for name in ('Latitude', 'Longitude'):
+            a = np.arange(12, dtype='i2').reshape(3, 4) * (k + 1) + (name == 'Longitude') * 100
+            s = sd.create(name, SD.SDC.INT16, a.shape)
+            s.dim(0).setname('GeoTrack:%s_Swath' % swath)
+            s.dim(1).setname('GeoXtrack:%s_Swath' % swath)
+            s[:] = a
+            s.scale_factor = 0.5
+            s.setfillvalue(-1 if swath != 'SWIR' else 2)
+            s.endaccess()
+            made.append((name, swath, a))
+    s = sd.create('ImageData', SD.SDC.UINT8, (2, 2))
+    s[:] = np.ones((2, 2), 'u1')
+    s.endaccess()
+    sd.end()
+    ref = SD.SD(p)
+    with fastnc.Dataset(p) as d:
+        sds = d.hdf4_datasets()
+        assert len(sds) == ref.info()[0] == 7
+        assert list(d.variables) == ['Latitude', 'Longitude', 'ImageData']
+        assert d.variables['Latitude'].dimensions == ('GeoTrack:TIR_Swath', 'GeoXtrack:TIR_Swath')
+        for i, v in enumerate(sds):
+            r = ref.select(i)
+            assert v.name == r.info()[0]
+            assert list(v.dimensions) == [r.dim(j).info()[0] for j in range(2)]
+            v.set_auto_maskandscale(False)
+            assert v[:].tobytes() == r.get().astype(v.dtype).tobytes()
+            v.set_auto_maskandscale(True)
+            assert v[1:3, ::2].tobytes() == np.ascontiguousarray(v[:][1:3, ::2]).tobytes()
+        for (name, swath, a), v in zip(made, sds):
+            got = v[:]
+            fill = -1 if swath != 'SWIR' else 2
+            assert np.array_equal(np.ma.getmaskarray(got), a == fill)
+            assert np.array_equal(np.ma.getdata(got)[a != fill], a[a != fill] * 0.5)
+        assert sds[4] is d.variables['Latitude'] and sds[6] is d.variables['ImageData']
+        assert sds[0] is not d.variables['Latitude']
+        assert d.hdf4_datasets()[2] is sds[2]               # (the same objects each time)
+        sds[2].set_auto_mask(False)
+        back = pickle.loads(pickle.dumps(sds[2]))
+        assert back.dimensions == ('GeoTrack:SWIR_Swath', 'GeoXtrack:SWIR_Swath')
+        assert not back._mask and back[:].tobytes() == sds[2][:].tobytes()
+        back.group().close()
+        v = sds[0]
+    with pytest.raises(ValueError):
+        v[:]                                                # (closed with the file)
+    ref.end()
+
+
+def test_hdf4_datasets_of_other_files():
+    with fastnc.Dataset(os.path.join(os.path.dirname(DATA), 'nc4.nc')) as d:
+        with pytest.raises(ValueError):
+            d.hdf4_datasets()
+
+
 def test_attributes_remembered():
     with fastnc.Dataset(os.path.join(DATA, 'types.hdf')) as d:
         v = d.variables['float32']
@@ -494,3 +567,26 @@ def test_attributes_remembered():
         v[1]
         assert isinstance(v._bv.attrs, _nc3.Attrs) and isinstance(v._bv.attrs, dict)
         assert v._bv.attrs is v._bv.attrs
+
+
+@pytest.mark.parametrize('kernels', [True, False])
+def test_szip(kernels, monkeypatch):
+    """HDF4's szip (tools/make_hdf4_szip.py: no HDF4 library at hand writes
+    it, nor reads it): both codings, 8- to 64-bit samples, and a data set
+    szip does not shrink, kept as is."""
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(DATA))), 'tools'))
+    try:
+        from make_hdf4_szip import values
+    finally:
+        sys.path.pop(0)
+    if not kernels:
+        monkeypatch.setattr(_chunks, 'ready', lambda: False)
+    with fastnc.Dataset(os.path.join(DATA, 'szip.hdf')) as d:
+        d.set_auto_maskandscale(False)
+        for name, (want, _) in values().items():
+            v = d[name]
+            assert v.dtype == want.dtype.newbyteorder('='), name
+            assert np.array_equal(v[:], want), name
+            assert np.array_equal(v[7:29:3, 50:], want[7:29:3, 50:]), name
+            assert np.array_equal(v[-1], want[-1]), name

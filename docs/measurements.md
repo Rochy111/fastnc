@@ -1249,3 +1249,292 @@ the index had no CRC, and a forked child moved its parent's file position. fastg
 answers are here now. Still 340 units, none left out: no kernel here needed a helper.
 Not measured: the check's speed step runs the last commit's code on the newest image,
 which a new image format turns away, so that step compared nothing this time.
+
+## Round 14 (2026-11-10): a corpus of satellite and model files
+
+33 kinds of satellite and model file: 683 files, 315 of them netCDF / HDF5 / HDF4,
+16 GB. Every variable read whole, masked, warm OS cache, fastnc's second read against
+netCDF4-python's first (`fastnc.File` against h5py for plain HDF5):
+
+| | netCDF4 / h5py | fastnc | bytes |
+|---|---|---|---|
+| `Dataset`, every variable | 42.7 s | 7.1 s | 14.9 GB |
+| `File`, every dataset | 1.77 s | 0.18 s | 1.3 GB |
+
+By kind, from 1.3x (GCOM AMSR2's small contiguous datasets) to 33x (GOES full disks);
+GCOM's netCDF total came out 0.7x, but timed in a loop each of its datasets is faster
+(`Land_Ocean Flag 89`, 3.8 MB: 0.91 ms against 1.59): one pass of a 2 ms read lands on
+parked cores. 22 variables were slower, all but two under 4 ms and equal in a loop.
+
+The two that were not: MODIS L1B night granules, whose reflective bands hold no data, so
+both readers return the fill value. fastnc wrote it a byte column at a time (`_fill_with`,
+`_chunks._fill`): 38 MB of 2-byte fill 48 ms, against 1.4 by numpy's `fill` on a word
+view. The same code fills HDF5 chunks never written:
+
+| 40 MB, nothing stored | h5py / netCDF4 | fastnc before | after |
+|---|---|---|---|
+| HDF5 int16, `File` | 5.9 ms | 49.8 | 1.7 |
+| HDF5 float32 NaN fill | 5.9 | 26.1 | 1.7 |
+| HDF5 >u2, `Dataset` masked | 6.0 (h5py raw) | 35.9 | 4.9 |
+| MODIS `EV_1KM_RefSB` raw | 9.6 | 54 | 1.5 |
+| MODIS `EV_1KM_RefSB` masked | 46 | 55 | 6.8 |
+
+Values: `tools/check.py` over the same corpus, netCDF4-python's and h5py's answers saved
+once: 226,166 reads, and the only differences are the masked reads of the 589 variables
+whose valid range is in unpacked units (GridSat-B1, HURSAT-AVHRR, HRD's TDR winds), on
+purpose (`_maskscale._unpacked_units`). None in raw reads, none elsewhere.
+
+## Round 15 (2026-11-10): kernels that come with the install
+
+Until now each machine built its own kernel image (`_image`): a fresh install compiled
+every kernel with numba, about 6 minutes in the background, reading without kernels
+meanwhile, and so did every numba or numpy upgrade and every edit of a kernel. The
+question: can the images come with the wheel instead, fast on any machine, under
+~100 MB? Python 3.12, numpy 2.5.4, numba 0.68.0 unless said; WSL Ubuntu 22.04 (Python
+3.10, numpy 1.26.4, numba 0.63.1) for Linux.
+
+**What an image holds.** This machine's image of the time, 51.1 MB: 158 kernels, 329
+units (one per kernel and argument types), none identical to another, 0.3 MB of it
+relocations. A unit carries every kernel it calls, so a codec's driver and each of its
+decoders each hold the whole decoder (`_blosc2.decode` 393 kB, `_fused._work_ms` 324 kB
+each, eight of them). Most of the bytes are the same code over and over, and pages of
+zeros between a unit's code and its data:
+
+| stored as | size | |
+|---|---|---|
+| raw (format 3) | 51.0 MB | |
+| zlib-9, each unit alone | 5.4 MB | 9.4x; all 329 decompressed in 59 ms (863 MB/s) |
+| xz-6, each unit alone | 4.3 MB | 11.8x, decompression several times slower |
+| xz-9e, all units in one stream | 0.7 MB | 71x: the units are mostly one another |
+
+Units are now zlib-compressed one by one (format 4; format 3 is still read), so they are
+still mapped one at a time when first called. Mapping one, warm file: 0.11 ms median raw,
+0.22 compressed (all 329: 42 and 90 ms; a read maps a handful). Opening an image: 1.3 ms.
+
+**CPU levels.** `tools/make_images.py` compiles each x86-64 level of the psABI in a
+process where numba compiles for it alone (`NUMBA_CPU_NAME=x86-64-v3`,
+`NUMBA_CPU_FEATURES` its features, so that numba adds none of the host's). At run time
+`levels()` takes the levels from CPUID and XGETBV. Images, all 329 units linked:
+
+| | Windows | Linux (numba 0.63) |
+|---|---|---|
+| x86-64-v3 (AVX2, FMA, BMI2) | 4.92 MB | 4.70 MB |
+| x86-64-v2 (SSE4.2, POPCNT) | 4.34 | 4.13 |
+| x86-64 (SSE2) | 4.33 | 4.12 |
+| this machine's own (raptorlake) | 5.59 | |
+
+Each level against this machine's own image, `tools/profile/ab.py --images`, processes
+by turns, 6 rounds, median of each process's best of 7 (ms; the rows read the real
+files whole or a window):
+
+| all threads | host | v3 | v2 | x86-64 |
+|---|---|---|---|---|
+| d02 load masked | 61.8 / 59.8 / 58.9 | 59.9 (0.97x) | 61.8 (1.03x) | 60.2 (1.02x) |
+| wrf load raw | 29.1 / 29.0 / 28.7 | 29.0 (1.00x) | 29.0 (1.00x) | 29.3 (1.02x) |
+| wrf load masked | 36.1 / 35.6 / 35.2 | 35.6 (0.99x) | 35.8 (1.00x) | 35.6 (1.01x) |
+| m250 var raw | 52.2 / 51.7 / 51.5 | 51.2 (0.98x) | 51.7 (1.00x) | 51.9 (1.01x) |
+| c13 var raw | 7.37 / 7.49 / 7.44 | 7.41 (1.01x) | 7.37 (0.98x) | 7.35 (0.99x) |
+| metop File window | 0.80 / 0.78 / 0.78 | 0.78 (0.98x) | 0.75 (0.96x) | 0.74 (0.95x) |
+
+(host: its own figure in each of the three comparisons.) The other twelve rows were
+within the same 0.95-1.03 either way; AVHRR's 1.6 ms raw read swung 0.83-1.08 in all
+three. On every core the level makes no difference: these reads wait on memory and on
+Huffman decoding, which has nothing to vectorize. On one thread (`FASTNC_THREADS=1`,
+same method), where the kernels themselves count:
+
+| one thread | host | v3 | v2 | x86-64 |
+|---|---|---|---|---|
+| d02 load masked (netCDF3: mask/scale only) | 172 | 171 (1.00x) | 195 (1.14x) | 202 (1.18x) |
+| wrf load raw (inflate) | 163 | 162 (0.99x) | 166 (1.03x) | 168 (1.03x) |
+| wrf load masked | 171 | 170 (0.99x) | 176 (1.03x) | 178 (1.04x) |
+| avhrr var masked | 8.20 | 8.20 (1.00x) | 8.41 (1.02x) | 8.59 (1.04x) |
+| m250 var raw (33 MB chunks, inflate) | 352 | 352 (1.00x) | | 354 (0.99x) |
+| c13 var raw | 56.4 | 56.8 (1.01x) | | 57.5 (1.01x) |
+| ku load raw (15k tiny chunks) | 18.8 | 18.6 (0.99x) | | 18.7 (1.01x) |
+
+x86-64-v3 is as fast as an image made for this very CPU, so a machine's own image
+earns nothing over the shipped one: `tune()` no longer builds one where a shipped image
+did the work. v2 buys 2-4% over plain x86-64 (4% where mask/scale vectorizes), not
+worth 4 MB per image. v4 (AVX-512) was not measured: this CPU has none; given v3 =
+host, little is to be expected, and an image this machine cannot run it cannot try
+either. Shipped: **x86-64-v3 and x86-64**.
+
+**Fresh processes**, import + open + read, kinds by turns, median of 5 (ms):
+
+| | shipped v3 | shipped x86-64 | own image | old 51 MB | numba loads | no kernels |
+|---|---|---|---|---|---|---|
+| GOES-19 C13 `Rad` | 198 | 200 | 198 | 192 | 1046 | 204 |
+| WRF d01 all | 233 | 232 | 231 | 245 | 1030 | 274 |
+| WRF d01 `T` | 190 | 175 | 191 | 184 | 971 | 171 |
+| AVHRR `avhrr_ch4` | 171 | 178 | 185 | 186 | 970 | 170 |
+
+Compression costs nothing to be seen here. What a shipped image changes is the first six
+minutes of an install and every rebuild: a session that keeps reading runs at full speed
+from its first read, never pays numba's 0.8 s, and never compiles.
+
+**What an image depends on.** Built twice from the same sources, units compared byte
+for byte:
+
+| A | B | units alike |
+|---|---|---|
+| numpy 2.5.4 | numpy 1.26.4 (same Python, numba) | 294 of 325; B lacks 4 |
+| Python 3.12, numpy 2.5.4 | Python 3.11, numpy 2.4.6 (same numba) | 170 of 325; B lacks the same 4 |
+| Python 3.12, numba 0.68.0 | Python 3.11, numba 0.68.1 | 174 of 329 |
+
+The four are `_xarray._gather` with unsigned index arrays, which numba 0.68 does not
+compile under numpy 1.26 or 2.4: under numpy 2.5 they are made, elsewhere such a read
+goes to numba. Bytes differ with the Python (its bytecode is what numba compiles), yet
+the code does the same: the suite under Python 3.11 and numpy 2.4.6 on the image built
+under 3.12 and 2.5.4 passes whole (below). So an image is keyed by system and numpy's
+major version only, and one image set serves every Python: one wheel per system.
+
+**The suite on shipped images, numba unable to load** (`pytest --kernels shipped`:
+`sys.modules['numba'] = None`, only `fastnc/_kernels`):
+
+| where | image | result |
+|---|---|---|
+| Windows, Python 3.12, numpy 2.5.4 | v3 np2 | 9,783 passed; 2 failed, both tests of numba itself (they now skip without it) |
+| Windows, Python 3.12, numpy 2.5.4 | x86-64 np2 | 9,784 passed |
+| Windows, Python 3.11, numpy 2.4.6 | the same v3 np2, built under 3.12 | 9,730 passed |
+| Windows, Python 3.12, numpy 1.26.4, no h5py/netCDF4/xarray | v3 np1 | 8,635 passed |
+| WSL Linux, Python 3.10, numpy 1.26.4 | v3 np1 linux | 5,513 passed; 1 failed with any kernels (h5py 3.14 raises TypeError where newer h5py raises ValueError: not the image) |
+| WSL Linux, the same | x86-64 np1 linux | the same |
+
+With numba there, `--kernels numba`, `off` and the default (which now takes the shipped
+image) each passed 9,780-9,786; the one test that failed in all three timed numba's load
+in a process that found the shipped image instead, and now turns images off.
+
+And as installed: `pip wheel .` with the images in `fastnc/_kernels`, retagged
+`py3-none-win_amd64` (`wheel tags`), into a new venv holding numpy and no numba: the
+process takes `site-packages/fastnc/_kernels/kernels-x86-64-v3-win-np2-*.img`, numba
+neither importable nor imported, WRF `T` bit-identical to netCDF4-python's, 156 ms
+import + open + read (671 ms the first time, Python compiling fastnc's own `.pyc`).
+
+**Size of a wheel**, one per system, every Python: v3 and x86-64 for numpy 1 and 2, four
+images, ~18.5 MB installed and downloaded (zlib data does not shrink in the zip). The
+wheel made above, three images: 13.4 MB. Adding v2 and v4 would make ~37 MB. Units alike
+across numpy's versions stored once would take the pair of v3 images from 9.8 to 6.1 MB
+(not done: a file of units shared between images is a format change, for later).
+
+**Decided: numba stays, nothing ships yet.** What shipping buys was narrower than
+hoped: nothing once a machine has its image, little for a one-shot script (reading
+without kernels is as fast for one variable), and the first ~6 minutes after an install
+or upgrade, plus a numba-free install. What it costs is every release: four images on
+two systems rebuilt and tested by hand (no CI minutes), and the image becomes the only
+engine where numba is absent. So numba stays a requirement and fastnc's wheel stays pure;
+each machine builds its image as before. Kept from this round, as they help every
+install: units compressed (an image on disk 51 -> 5 MB), reads that keep to numpy and
+zlib where numba cannot be imported, and the machinery for shipped images, which does
+nothing while `fastnc/_kernels` is empty. When fastnc goes to people for whom a
+numba-free, instant install matters, the steps below are what is left.
+
+How it would ship then: platform wheels `py3-none-win_amd64` and
+`py3-none-manylinux2014_x86_64` holding x86-64-v3 and x86-64 images for numpy 1 and 2,
+built locally (Windows here, Linux in WSL or a manylinux container) with one pinned
+numba; a pure `py3-none-any` wheel and the sdist for the rest. A Linux image needs only
+`malloc`, `free`, `realloc`, `memset`, `memcpy`, `memmove`, `pow`, `powf`, found by name
+at load time, so the manylinux2014 tag (and musllinux) holds. Fetching images on first
+use was considered and not taken: it needs the network at first read, a place to trust
+downloads from, and saves nothing that matters at 18 MB.
+
+**Open risks, if images ship.**
+- A unit missing for some argument types: with numba installed it compiles as before
+  (and a machine image is built in the background); without numba the read raises
+  ImportError naming the cause. The signatures come from the suite and
+  `tools/make_signatures.py`; reads the suite never makes could still meet one.
+- numpy 1 images lack four `_xarray._gather` units (above).
+- x86-64-v4 not built or measured; an image is never tried on a CPU that cannot run it,
+  so a level this machine cannot run would ship untested.
+- A Python whose objects are laid out otherwise (free-threaded builds) fails
+  `_direct_works`, and calls take the slower ctypes path (still correct).
+- Images built with a newer numba than a user's numba matters not (the image does not
+  load numba); but every kernel edit needs all images rebuilt before a release (the
+  name carries `kernel_stamp`, so stale ones are simply not taken).
+
+**Steps to ship images, when that time comes** (none done; `pip install` gives what it
+gave before):
+1. numba in the metadata. Required everywhere (simplest, as now; ~45 MB of numba and
+   llvmlite downloaded and never imported on Windows / Linux x86-64), or by marker,
+   `numba>=0.57; platform_machine not in "x86_64 AMD64" or sys_platform == "darwin"`,
+   with an extra `fastnc[numba]` for unusual argument types and local images. With the
+   marker an sdist install on Linux x86-64 has neither images nor numba: right values,
+   reads without kernels.
+2. The wheels: `[tool.setuptools.package-data] fastnc = ["_kernels/*.img"]` in
+   pyproject.toml (taken out again: the wheel is pure meanwhile), then
+   `pip wheel .` after `tools/make_images.py` in a numpy-2 and a numpy-1
+   environment with the same numba, then `python -m wheel tags --python-tag py3
+   --abi-tag none --platform-tag win_amd64` (Linux: `manylinux2014_x86_64`, built in WSL
+   or a manylinux container; `auditwheel` has nothing to repair, the images link no
+   library). Images stay out of git (`.gitignore`), so the release steps in
+   CONTRIBUTING.md need them.
+3. Before each release, `pytest --kernels shipped` on every image of the wheel
+   (`FASTNC_IMAGE_FILE=<image>` picks one), Windows and Linux: CI cannot run here.
+4. Whether to store units shared across numpy's versions once (9.8 -> 6.1 MB a pair),
+   and whether v2 / v4 ever earn a place (v4 needs an AVX-512 machine to measure).
+
+**macOS and ARM.** Not attempted. macOS x86-64: numba emits Mach-O there, so `_link`
+needs a Mach-O reader (its relocations: `X86_64_RELOC_UNSIGNED`, `BRANCH`, `SIGNED`)
+or numba told an ELF triple, and `_alloc` the `MAP_JIT` way under a hardened runtime.
+ARM64 (Linux aarch64, Apple Silicon): the linker knows only `R_X86_64_64` / `PC64`;
+ARM64's large code model brings `R_AARCH64_ABS64` and `MOVW_UABS_G0..G3`, calls
+`CALL26` (with veneers past 128 MB), the loader must flush the instruction cache, the
+CPU probe is `getauxval(AT_HWCAP)` / `sysctl` instead of CPUID, and the entry function
+and the `_CPUID` bytes are x86 code. A few days, and a machine of each kind to test on.
+Until then those platforms keep numba's own kernels, as today (they have no image of
+any kind).
+
+## Round 16 (2026-11-11): windows, as an imagery app reads
+
+Round 14 timed whole variables. An app showing images mostly reads windows, rows and
+subsamples, so the same corpus again, one file per case: 68 files, every variable of two
+dimensions or more, a 512 x 512 window in the middle, a row, every fourth point both ways
+and the first slice along the first axis; warm cache, best of three after a warm-up read
+by each library (so a library that keeps what it decoded shows it).
+
+| read | variables | netCDF4-python | fastnc |
+|---|---|---|---|
+| window | 1612 | 0.61 s | 0.35 s |
+| row | 1612 | 0.29 s | 0.15 s |
+| first slice | 1612 | 2.34 s | 0.44 s |
+| every fourth point | 1312 | 2777 s | 0.62 s |
+
+(netCDF4-python reads a strided selection a point at a time: a quarter of a 1015 x 1367
+WRF field 0.95 s, fastnc 1.5 ms. It was timed once, not three times, past 0.5 s, and not
+at all past 500,000 values, which left 300 variables out of that row.)
+
+47 reads were slower in fastnc, from three gaps, all in what is kept between reads:
+
+- **One big chunk** (GridSat: each image one 20-40 MB chunk). The cache of decoded chunks
+  takes none past half its 32 MB, and `_hold`, which keeps a region of what is read again,
+  left any read of 16 chunks or fewer to that cache. Each window, row or point decoded
+  the whole chunk: 36, 12 and 12 ms; netCDF4-python, whose chunk cache holds it, 1.2, 0.2
+  and 0.16. `_hold` now takes reads the cache would refuse.
+- **A few chunks that fit the cache one by one but not together** (a window across four
+  5 MB chunks: RADARSAT-2, Landsat, Sentinel-2): 2-3 ms a read against 0.4-0.6. The same
+  test, now as `_cached` makes it: by the chunks together. 0.14-0.23 ms.
+- **With the kernels loaded, scaled windows of many small chunks** (GOES ABI's rows of
+  12 x 10848): masked and scaled reads go through `_fused`, which decodes as it masks and
+  never looked at a kept region: 1.9 ms a read with the kernels, 0.3 without them,
+  netCDF4-python 0.8. `_fused` now leaves reads `_hold` keeps regions for (`_hold.holds`):
+  0.21-0.25 ms. One-off windows of 1/16 to 1/3 of a full disk, which `_fused` still
+  served before, time the same either way (two alternating runs, within their noise).
+
+The third gap first looked like a regression from the second fix: the A/B ran the last
+commit's code without kernels (its copied files had a stamp no image was built for) and
+the new code on the image. With `FASTNC_IMAGE_FILE` set for both, as round 13 says to,
+it was there in both, and the fix for it showed.
+
+Left: TRMM VIRS windows across 17 small chunks covering most of each, 0.6 ms against
+netCDF4-python's 0.2 (past `CACHE_CHUNKS`, and too much of their chunks for `_hold`).
+
+Also this round, by kind of read:
+
+| | netCDF4-python | fastnc |
+|---|---|---|
+| open, every attribute, shape and dtype, close (68 files) | 0.51 s | 0.24 s |
+| a pixel at random, GOES full disk (masked, scaled) | 471 us | 294 us |
+| a row, WRF T2 | 88 us | 21 us |
+| GOES full disk as NaN-filled float32 (`set_auto_nan`) | | 32 ms |
+| the same as `np.ma.filled(v[:], np.nan)` | | 53 ms |
+| the masked array itself | 157 ms | 25 ms |
+

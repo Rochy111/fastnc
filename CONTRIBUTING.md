@@ -12,7 +12,10 @@ netCDF4-python's in every rule -- `_FillValue` and default fill values,
 `add_offset` with their dtype promotion, `_Unsigned`, the masked array
 versus plain array choice, the fill value -- in the same float type. GPU
 reads equal CPU reads. A faster reader that is off by one ulp, or masks one
-point differently, is a bug.
+point differently, is a bug. The departures on purpose are listed in
+`docs/reference/accuracy.md` (a valid range in unpacked units is one); a new
+one needs a reference beyond fastnc (a convention, another reader) and a
+test of its own.
 
 ## Set up
 
@@ -23,7 +26,7 @@ pip install -e ".[xarray,test]"        # add 'gpu' (cupy) if you have an NVIDIA 
 pytest
 ```
 
-Python 3.9+, numpy 1.22+ (1.x and 2.x), numba 0.57+. The first `pytest`
+Python 3.9+, numpy 1.23+ (1.x and 2.x), numba 0.57+. The first `pytest`
 run compiles the numba kernels; later runs load them from numba's cache in
 `fastnc/__pycache__`, or, once one is built, from this machine's kernel image
 (`docs/internals.md`). The tests need neither h5py nor netCDF4-python:
@@ -69,6 +72,7 @@ pytest                                   # every set whose files are here
 pytest --refs corpus                     # tests/data only, as CI
 pytest -k "nc4.nc and masked"            # one file, one mode
 pytest --gpu                             # also compare fastnc.Dataset(path, device='gpu')
+pytest --kernels shipped                 # only an image in fastnc/_kernels (tools/make_images.py), numba unable to load
 python tools/run_tests_numpy1.py         # the same suite under numpy 1.26 (bench-wrf env)
 python tools/run_tests_numpy1.py --nep50 # ... and warn wherever numpy 2 would compute differently
 ```

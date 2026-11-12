@@ -67,6 +67,38 @@ def test_fused_equals_usual(name, threads, monkeypatch):
     assert not bad, bad[:5]
 
 
+def test_windows_read_again_are_kept_not_fused(tmp_path, monkeypatch):
+    """A small window of many small chunks, scaled, read again: the usual
+    read keeps its region (a copy each time after), where the fused one
+    decoded every chunk again for every read (GOES ABI's rows of chunks:
+    1.9 ms against 0.25)."""
+    h5py = pytest.importorskip('h5py')
+    from fastnc import _chunks, _hold
+    fastnc.warm()
+    p = str(tmp_path / 'rows.h5')
+    a = np.random.default_rng(5).integers(0, 4000, (2400, 2000), dtype='i2')
+    with h5py.File(p, 'w') as h:
+        d = h.create_dataset('Rad', data=a, chunks=(12, 2000), compression='gzip', shuffle=True)
+        d.attrs['scale_factor'] = np.float32(0.05)
+        d.attrs['add_offset'] = np.float32(-1.5)
+        d.attrs['_FillValue'] = np.int16(4095)
+    fused = []
+    real = _fused._run
+    monkeypatch.setattr(_fused, '_run', lambda *x, **k: fused.append(1) or real(*x, **k))
+    with fastnc.Dataset(p) as ds:
+        v = ds.variables['Rad']
+        k = (slice(944, 1456), slice(744, 1256))
+        want = a[k] * np.float32(0.05) + np.float32(-1.5)
+        for _ in range(4):
+            got = v[k]
+            assert np.array_equal(np.ma.getdata(got), want)
+        assert v._bv._reader.index in _hold._held
+        assert not fused
+        big = v[:, :]                                           # (all of it: still fused)
+        assert np.array_equal(np.ma.getdata(big), a * np.float32(0.05) + np.float32(-1.5))
+        assert fused
+
+
 def _attr_sets(v, x):
     """Mask / scale attributes for a variable of x's values (some of them hit)."""
     dt = x.dtype

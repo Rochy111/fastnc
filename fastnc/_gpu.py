@@ -181,7 +181,7 @@ def read(var, key, threads=None):
     cp = _cupy()
     bv = var._bv
     dt = bv.dtype
-    if (dt is str or not isinstance(var.datatype, np.dtype) or np.dtype(dt).kind in 'OSUV'
+    if (dt is str or not isinstance(var.datatype, np.dtype) or np.dtype(dt).kind in 'OSUVc'
             or np.dtype(dt).fields is not None):
         return _host_then_upload(var, key, threads)
     shape = var.shape
@@ -247,11 +247,6 @@ def _host_then_upload(var, key, threads):
     """Types the card has no use for as such (strings, compounds) and fancy
     indexes: read on the CPU, then upload what numpy can hold."""
     cp = _cupy()
-    old = var._device
-    var.__dict__['_device'] = 'cpu'
-    try:
-        res = var.read(key, threads=threads)
-    finally:
-        var.__dict__['_device'] = old
-    from ._maskscale_gpu import to_gpu
+    res = var.read(key, device='cpu', threads=threads)  # (not by switching the variable: other
+    from ._maskscale_gpu import to_gpu                   # threads may be reading it)
     return to_gpu(res)

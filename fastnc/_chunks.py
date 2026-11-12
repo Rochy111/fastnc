@@ -1061,6 +1061,9 @@ def ready():
             from . import _image
             if _image.coming():
                 return False
+        from . import _jit
+        if not _jit.can_load():                     # (no numba, no image: numpy and zlib it is)
+            return False
         warm(wait=True)
         return True
     return False
@@ -1105,7 +1108,8 @@ def warm(wait=True):
     without them has taken a second in all: see LOAD_AFTER). For a session
     that will read a lot, or worker processes:
     ProcessPoolExecutor(initializer=fastnc.warm)."""
-    if loaded():
+    from . import _jit
+    if loaded() or not _jit.can_load():             # (no numba here: an image or nothing)
         return
     _start_warm()
     if wait:
@@ -1247,6 +1251,8 @@ def read_batch(items, src, buf, threads=None, bands=None):
     bands (one item): (band of each of its plan's chunks, progress counts)
     -- chunks then go in band order, and progress[b] counts band b's
     chunks as they are placed (_gpu uploads each band once complete)."""
+    if src is None:
+        raise ValueError('the file is closed')      # (closed under a read: never None into a kernel)
     fused = [fusable(it.ds) for it in items]
     if not all(fused):
         # other filters (szip, scale-offset, n-bit, bzip2, ...), or more of them
@@ -2011,11 +2017,24 @@ def _fill(out, ds, swap=False):
     """The fill value in out, native if its chunks are being swapped as placed
     (HDF5 keeps it in the file's order; HDF4's datasets, native already, have no `file`)."""
     if ds.fill is not None and len(ds.fill) == ds.type.size:
-        v = np.frombuffer(ds.fill, np.uint8)
         swap = swap and getattr(ds, 'file', None) is not None
-        out.reshape(-1).view(np.uint8).reshape(-1, ds.type.size)[:] = v[::-1] if swap else v
+        fill_with(out, ds.fill[::-1] if swap else ds.fill)
     else:
         out.reshape(-1).view(np.uint8)[:] = 0
+
+
+def fill_with(out, elem):
+    """out (C-contiguous) holding the element `elem` (its bytes, as they
+    lie in memory) everywhere: a word at a time for elements of 1, 2, 4 or 8
+    bytes (numpy's fill: 38 MB of 2-byte fill took 48 ms a byte column at a
+    time, 1.4 ms so), a byte at a time for any other."""
+    flat = out.reshape(-1).view(np.uint8)
+    n = len(elem)
+    if n in (1, 2, 4, 8):
+        word = 'u%d' % n
+        flat.view(word).fill(np.frombuffer(bytes(elem), word)[0])
+    else:
+        flat.reshape(-1, n)[:] = np.frombuffer(bytes(elem), np.uint8)
 
 
 def swap_native(out, threads=None):
@@ -2275,7 +2294,13 @@ def _gather_grid(it, p, src):
     if int(np.prod(gn)) != n:
         return False
     order = np.argsort(np.ravel_multi_index(tuple((g - g0).T), tuple(gn)))
-    staged = np.concatenate([src[a:a + cb] for a in p.addr[order].tolist()])
+    parts = [src[a:a + cb] for a in p.addr[order].tolist()]
+    for k, x in enumerate(parts):
+        if len(x) < cb:
+            # (a contiguous dataset read as row blocks, ending the file: its last
+            # block runs past the end, where nothing is selected)
+            parts[k] = np.concatenate([x, np.zeros(cb - len(x), np.uint8)])
+    staged = np.concatenate(parts)
     if esize in (1, 2, 4, 8):
         u = np.dtype('u%d' % esize)
         A = staged.view(u.newbyteorder('S') if it.swap else u).reshape(tuple(gn) + C)

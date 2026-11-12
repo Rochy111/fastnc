@@ -1,0 +1,50 @@
+netcdf fletcher {
+types:
+  compound _AnonymousCompound1 {
+    double r ;
+    double i ;
+  }; // _AnonymousCompound1
+dimensions:
+	phony_dim_0 = 1001 ;
+	phony_dim_1 = 13 ;
+	phony_dim_2 = 11 ;
+	phony_dim_3 = 77 ;
+	phony_dim_4 = 50 ;
+	phony_dim_5 = 61 ;
+	phony_dim_6 = 5 ;
+	phony_dim_7 = 123 ;
+	phony_dim_8 = 1 ;
+	phony_dim_9 = 1439 ;
+	phony_dim_10 = 1441 ;
+	phony_dim_11 = 2 ;
+	phony_dim_12 = 3 ;
+	phony_dim_13 = 4099 ;
+	phony_dim_14 = 65537 ;
+	phony_dim_15 = 7 ;
+	phony_dim_16 = 719 ;
+	phony_dim_17 = 720 ;
+	phony_dim_18 = 721 ;
+	phony_dim_19 = 722 ;
+	phony_dim_20 = 8 ;
+variables:
+	short bzip2_like_odd(phony_dim_0) ;
+	short odd_be_i2(phony_dim_1, phony_dim_2) ;
+	double odd_f8(phony_dim_1, phony_dim_2) ;
+	_AnonymousCompound1 shuffle_c16(phony_dim_3) ;
+	float shuffle_gzip(phony_dim_4, phony_dim_5) ;
+	int64 shuffle_one(phony_dim_6) ;
+	string shuffle_s3(phony_dim_7) ;
+	ubyte u1_1(phony_dim_8) ;
+	ubyte u1_1439(phony_dim_9) ;
+	ubyte u1_1441(phony_dim_10) ;
+	ubyte u1_2(phony_dim_11) ;
+	ubyte u1_3(phony_dim_12) ;
+	ubyte u1_4099(phony_dim_13) ;
+	ubyte u1_65537(phony_dim_14) ;
+	ubyte u1_7(phony_dim_15) ;
+	ubyte u1_719(phony_dim_16) ;
+	ubyte u1_720(phony_dim_17) ;
+	ubyte u1_721(phony_dim_18) ;
+	ubyte u1_722(phony_dim_19) ;
+	ubyte u1_8(phony_dim_20) ;
+}

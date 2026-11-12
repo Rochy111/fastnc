@@ -5,6 +5,7 @@ enum-of-FALSE/TRUE as bool, {r, i} compounds as complex, attributes and
 links in name order unless the file tracks creation order), so code
 written for h5py.File runs unchanged for reading.
 """
+import itertools
 import mmap
 import os
 import posixpath
@@ -47,6 +48,43 @@ class Reference:
 
     def __repr__(self):
         return '<HDF5 object reference %d>' % self.address
+
+
+class HardLink:
+    """h5py.HardLink, as `group.get(name, getlink=True)` gives it."""
+
+    def __repr__(self):
+        return '<h5py.HardLink>'
+
+
+class SoftLink:
+    """h5py.SoftLink: a link by path."""
+
+    def __init__(self, path):
+        self.path = str(path)
+
+    def __repr__(self):
+        return '<SoftLink to "%s">' % self.path
+
+
+class ExternalLink:
+    """h5py.ExternalLink: a path in another file."""
+
+    def __init__(self, filename, path):
+        self.filename, self.path = str(filename), str(path)
+
+    def __repr__(self):
+        return '<ExternalLink to "%s" in file "%s">' % (self.path, self.filename)
+
+
+def _link_object(kind, target):
+    if kind == 'hard':
+        return HardLink()
+    if kind == 'soft':
+        return SoftLink(target)
+    if kind == 'external' and target is not None:
+        return ExternalLink(*target)
+    return None
 
 
 class RegionReference(Reference):
@@ -245,6 +283,12 @@ class AttributeManager:
         except KeyError:
             return default
 
+    def get_id(self, name):
+        """h5py's low-level attribute object, as far as reading uses it: its
+        `name` (bytes), `dtype`, `shape` (None for an empty attribute) and
+        `get_storage_size()`, without reading the value."""
+        return _AttrID(name, self._load()[name])
+
     def __contains__(self, name):
         return name in self._load()
 
@@ -265,6 +309,32 @@ class AttributeManager:
 
     def __repr__(self):
         return '<Attributes of HDF5 object (%d)>' % len(self)
+
+
+class _AttrID:
+    """attrs.get_id(name): an attribute's type and shape (h5py.h5a.AttrID)."""
+    valid = True
+
+    def __init__(self, name, a):
+        self._a = a
+        self.name = name.encode('utf-8')
+
+    def get_name(self):
+        return self.name
+
+    @property
+    def dtype(self):
+        return h5py_dtype(self._a.dtype)
+
+    @property
+    def shape(self):
+        return None if self._a.shape is None else tuple(self._a.shape)
+
+    def get_storage_size(self):
+        n = 0 if self._a.shape is None else int(np.prod(self._a.shape, dtype=np.int64)) * self._a.dtype.size
+        if not n:
+            raise RuntimeError('Unspecified error in H5Aget_storage_size (return value ==0)')
+        return n
 
 
 class Empty:
@@ -310,6 +380,11 @@ class HLObject:
     @property
     def parent(self):
         return self.file[posixpath.dirname(self.name) or '/']
+
+    @property
+    def ref(self):
+        """An object reference to this object (h5py's `obj.ref`): `file[obj.ref]` is obj."""
+        return Reference(self._address)
 
     def __eq__(self, other):
         return isinstance(other, HLObject) and other.file is self.file and other._address == self._address
@@ -374,11 +449,65 @@ class Group(HLObject):
         return g
 
     def get(self, name, default=None, getclass=False, getlink=False):
+        """The object at name, or default; getclass: its class; getlink: the
+        link itself (HardLink, SoftLink with its path, ExternalLink with its
+        file and path), or its class with getclass too (h5py's)."""
+        if getlink:
+            head, _, last = name.rstrip('/').rpartition('/')
+            try:
+                g = self[head] if head else (self if not name.startswith('/') else self.file)
+            except KeyError:
+                return default
+            link = g._g.link(last) if isinstance(g, Group) and last else None
+            if link is None:
+                return default
+            obj = _link_object(*link)
+            if obj is None:
+                return default
+            return type(obj) if getclass else obj
         try:
             obj = self[name]
         except KeyError:
             return default
         return type(obj) if getclass else obj
+
+    def require_group(self, name):
+        """The group at name, which must be there already (read-only)."""
+        obj = self.get(name)
+        if obj is None:
+            raise ValueError('Unable to create group (no write intent on file)')
+        if not isinstance(obj, Group):
+            raise TypeError('Incompatible object (%s) already exists' % type(obj).__name__)
+        return obj
+
+    def visit_links(self, func):
+        """func(name) for every link below, soft and external ones too
+        (followed into no group but by hard links); stops at a value
+        other than None (h5py's)."""
+        return self.visititems_links(lambda name, link: func(name))
+
+    def visititems_links(self, func):
+        """func(name, link) for every link below, with the link object
+        (HardLink, SoftLink, ExternalLink): h5py's visititems_links."""
+        seen = {self._address}
+
+        def walk(g, prefix):
+            links = g._linkmap()
+            for k in sorted(links):                 # (by name, as H5Lvisit: not creation order)
+                kind, target = links[k]
+                rel = prefix + k
+                r = func(rel, _link_object(kind, target))
+                if r is not None:
+                    return r
+                if kind == 'hard' and target not in seen:
+                    seen.add(target)
+                    obj = g.file._object(target, posixpath.join(g.name, k))
+                    if isinstance(obj, Group):
+                        r = walk(obj, rel + '/')
+                        if r is not None:
+                            return r
+            return None
+        return walk(self, '')
 
     def __contains__(self, name):
         try:
@@ -441,6 +570,9 @@ class Datatype(HLObject):
     @property
     def dtype(self):
         return h5py_dtype(self.file._f.message_datatype(self._header.first(3)))
+
+    def __repr__(self):
+        return '<HDF5 named type "%s" (dtype %s)>' % (self.name.rsplit('/', 1)[-1], self.dtype.str)
 
 
 class Dataset(HLObject):
@@ -557,10 +689,16 @@ class Dataset(HLObject):
     @property
     def fillvalue(self):
         t = self._ds.type
+        f = self._ds.file
+        if f.fill_undefined(self._ds.header):
+            raise RuntimeError("Can't get fill value (fill value is undefined)")     # (as h5py)
         if t.cls == _hdf5.Datatype.VLEN:
+            fill = self._ds.fill
+            if fill is not None and len(fill) >= t.size and _hdf5._uint(fill, 4, f.O):
+                return f.decode_values(t, (1,), fill, strings=bytes)[0]     # (in the global heap)
             if t.vlen_string:
                 return b''
-            return None if self._ds.fill is None else np.array([], _h5read.native(t.base.dtype))
+            return None if fill is None else np.array([], _h5read.native(t.base.dtype))
         dt = t.h5py_dtype
         if self._ds.fill is None or dt is None or t.cls == _hdf5.Datatype.REFERENCE:
             return np.zeros((), dt)[()] if dt is not None and t.cls not in (9, 7) else None
@@ -591,8 +729,15 @@ class Dataset(HLObject):
         k = key if isinstance(key, tuple) else (key,)
         if not self._ds.shape:
             _select.scalar_h5(k)                    # (h5py: only () and Ellipsis)
+        if any(isinstance(x, (float, np.floating)) for x in k):
+            raise TypeError('Illegal index: %r (floats are no index, as in h5py and numpy)' % (key,))
         t = self._ds.type
-        v = self._read(k)
+        try:
+            v = self._read(k)
+        except Exception:
+            if self.file._f._closed:                # (closed while this read was under way)
+                raise ValueError('the file of dataset %s is closed' % self.name) from None
+            raise
         if t.cls == _hdf5.Datatype.COMPOUND and t.holds_vlen():
             v = self.file._f.decode_members(t, v)
         v = _to_h5py(v, t)
@@ -666,9 +811,249 @@ class Dataset(HLObject):
         for i in range(len(self)):
             yield self[i]
 
+    def read_async(self, key=()):
+        """self[key] on a worker of fastnc's: a concurrent.futures.Future of
+        the values (fastnc's, not h5py's)."""
+        from . import _async
+        return _async.submit(self.__getitem__, key)
+
+    def memmap(self):
+        """The stored values in place, with no copy (fastnc's, not h5py's): a
+        read-only numpy array over the file's mapping, for a contiguous
+        dataset of a local file, in the stored dtype and byte order. ValueError
+        for chunked or compressed data, a remote file, or types that are not
+        their bytes (variable-length strings, references). Valid while
+        anything holds it, the file closed or not."""
+        v = self._reader.view()
+        if v is None:
+            raise ValueError('%s is not stored in one uncompressed piece of a local file: '
+                             'there is nothing to view in place (read it instead)' % self.name)
+        hd = self.dtype
+        if hd != v.dtype and hd.kind != 'O' and hd.itemsize == v.dtype.itemsize:
+            # h5py's type for the same bytes ({r, i} compounds as complex, FALSE /
+            # TRUE enums as bool), in the stored byte order
+            fields = [v.dtype.fields[n][0] for n in v.dtype.names] if v.dtype.names else [v.dtype]
+            order = next((f.byteorder for f in fields if f.byteorder in '<>'), '=')
+            v = v.view(hd.newbyteorder(order) if hd.byteorder != '|' else hd)
+        return v
+
+    def len(self):
+        """The length of the first dimension (h5py's, for lengths past what len() takes)."""
+        return int(self.__len__())
+
+    def asstr(self, encoding=None, errors='strict'):
+        """A view reading strings as str, decoded (by default with the
+        dataset's own encoding), as h5py's `dset.asstr()[...]`."""
+        dt = self.dtype
+        vlen = dt.metadata.get('vlen') if dt.metadata else None
+        if not (dt.kind == 'S' or vlen in (str, bytes)):
+            raise TypeError('dset.asstr() can only be used on datasets with an HDF5 string datatype')
+        if encoding is None:
+            encoding = 'utf-8' if self._ds.type.charset == 1 else 'ascii'
+        return _AsStr(self, encoding, errors)
+
+    def astype(self, dtype):
+        """A view reading values converted to dtype, as h5py's `dset.astype(t)[...]`."""
+        return _AsType(self, np.dtype(dtype))
+
+    def fields(self, names):
+        """A view reading only these fields of a compound, as h5py's
+        `dset.fields(['a', 'b'])[...]` (one name: that field's array)."""
+        if self.dtype.names is None:
+            raise TypeError('dset.fields() can only be used on datasets with a compound datatype')
+        return _Fields(self, names)
+
+    def iter_chunks(self, sel=None):
+        """The selection of each chunk that sel (default: everything) touches,
+        as tuples of slices, in the order of the chunks (h5py's)."""
+        if self.chunks is None:
+            raise TypeError('Dataset is not chunked')
+        shape = self.shape
+        if sel is None:
+            sel = tuple(slice(0, n) for n in shape)
+        elif not isinstance(sel, tuple):
+            sel = (sel,)
+        sel = tuple(sel) + tuple(slice(0, n) for n in shape[len(sel):])
+        spans = []
+        for s, n, c in zip(sel, shape, self.chunks):
+            if isinstance(s, slice):
+                a, b, st = s.indices(n)
+                if st != 1:
+                    raise TypeError('iter_chunks takes slices with a step of 1')
+            else:
+                a, b = int(s), int(s) + 1
+            spans.append([(max(a, k), min(b, k + c)) for k in range(a // c * c, b, c)])
+        for parts in itertools.product(*spans):
+            yield tuple(slice(a, b, 1) for a, b in parts)
+
+    @property
+    def dims(self):
+        """The dimension scales attached to each dimension (h5py's `dset.dims`)."""
+        return _Dims(self)
+
+    @property
+    def is_scale(self):
+        """Whether this dataset is a dimension scale (CLASS = DIMENSION_SCALE)."""
+        c = self.attrs.get('CLASS')
+        return c is not None and _decoded(c) == 'DIMENSION_SCALE'
+
+    def refresh(self):
+        """(h5py's, for SWMR readers: nothing to do here)"""
+
+    def flush(self):
+        """(h5py's: nothing to write)"""
+
     def __repr__(self):
         return '<HDF5 dataset "%s": shape %s, type "%s">' % (
             posixpath.basename(self.name), self.shape, self.dtype.str if self.dtype is not None else '?')
+
+
+class _View:
+    """What dset.asstr() / astype() / fields() give: indexed as the dataset is."""
+
+    def __init__(self, dset):
+        self._dset = dset
+
+    def __len__(self):
+        return len(self._dset)
+
+    def __array__(self, dtype=None, copy=None):
+        a = np.asarray(self[()])
+        return a.astype(dtype) if dtype is not None else a
+
+
+class _AsStr(_View):
+    def __init__(self, dset, encoding, errors):
+        _View.__init__(self, dset)
+        self.encoding, self.errors = encoding, errors
+
+    def __getitem__(self, key):
+        b = self._dset[key]
+        if isinstance(b, (bytes, np.bytes_)):
+            return bytes(b).decode(self.encoding, self.errors)
+        return np.array([bytes(x).decode(self.encoding, self.errors) for x in b.flat],
+                        dtype=object).reshape(b.shape)
+
+
+class _AsType(_View):
+    def __init__(self, dset, dtype):
+        _View.__init__(self, dset)
+        self.dtype = dtype
+
+    def __getitem__(self, key):
+        v = _convert(np.asarray(self._dset[key]), self.dtype)
+        return v[()] if v.ndim == 0 and key is not Ellipsis else v
+
+
+def _convert(v, dt):
+    """v as dtype dt the way HDF5 converts: to an integer type, floats
+    truncated toward zero and anything out of range saturated, where numpy
+    wraps (NaN, and floats past float16's range, as numpy has them: HDF5's
+    answers there are its hardware's)."""
+    out = v.astype(dt)
+    if dt.kind in 'iu' and v.dtype.kind in 'iuf' and v.size and \
+            (v.dtype.kind == 'f' or not np.can_cast(v.dtype, dt)):
+        info = np.iinfo(dt)
+        with np.errstate(invalid='ignore'):
+            if v.dtype.kind == 'f':
+                out[v >= float(info.max)] = info.max
+                out[v <= float(info.min)] = info.min
+            else:
+                out[v > info.max] = info.max
+                out[v < info.min] = info.min
+    return out
+
+
+class _Fields(_View):
+    def __init__(self, dset, names):
+        _View.__init__(self, dset)
+        self.names = names
+
+    def __getitem__(self, key):
+        v = self._dset[key]
+        if isinstance(self.names, str):
+            return v[self.names]
+        from numpy.lib import recfunctions
+        return recfunctions.repack_fields(v[list(self.names)])
+
+
+def _decoded(v):
+    if isinstance(v, np.ndarray):
+        v = v.reshape(-1)[0] if v.size else b''
+    if isinstance(v, (bytes, np.bytes_)):
+        return bytes(v).split(b'\0', 1)[0].decode('utf-8', 'surrogateescape')
+    return str(v)
+
+
+class _Dims:
+    """dset.dims: a _Dim for each dimension."""
+
+    def __init__(self, dset):
+        self._dset = dset
+
+    def __len__(self):
+        return self._dset.ndim
+
+    def __getitem__(self, i):
+        n = len(self)
+        if not -n <= i < n:
+            raise IndexError('Index out of range')
+        return _Dim(self._dset, i % n)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+    def __repr__(self):
+        return '<Dimensions of HDF5 object at %d>' % self._dset._address
+
+
+class _Dim:
+    """One dimension's scales and label (h5py's DimensionProxy, read-only)."""
+
+    def __init__(self, dset, i):
+        self._dset, self._i = dset, i
+
+    @property
+    def label(self):
+        labels = self._dset.attrs.get('DIMENSION_LABELS')
+        if labels is None:
+            return ''
+        return _decoded(np.asarray(labels, dtype=object).reshape(-1)[self._i])
+
+    def _scales(self):
+        dl = self._dset.attrs.get('DIMENSION_LIST')
+        if dl is None:
+            return []
+        refs = np.asarray(dl, dtype=object).reshape(-1)[self._i]
+        f = self._dset.file
+        return [f[r] for r in np.asarray(refs, dtype=object).reshape(-1) if r]
+
+    def items(self):
+        return [(_decoded(s.attrs['NAME']) if 'NAME' in s.attrs else '', s) for s in self._scales()]
+
+    def keys(self):
+        return [k for k, _ in self.items()]
+
+    def values(self):
+        return [s for _, s in self.items()]
+
+    def __len__(self):
+        return len(self._scales())
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            return self._scales()[item]
+        for k, s in self.items():
+            if k == item:
+                return s
+        raise KeyError('Invalid dimension scale name: %r' % (item,))
+
+    def __repr__(self):
+        return '<"%s" dimension %d of HDF5 dataset at %d>' % (self.label, self._i, self._dset._address)
 
 
 class _Member:
@@ -826,6 +1211,24 @@ class File(Group):
     @property
     def libver(self):
         return ('earliest', 'latest') if self._f.sb_version < 2 else ('v108', 'latest')
+
+    @property
+    def driver(self):
+        """h5py's name for how the file is read: 'windows' or 'sec2' for a
+        local file, 'fileobj' for a remote one or a file object."""
+        if self._source is not None:
+            return 'fileobj'
+        return 'windows' if os.name == 'nt' else 'sec2'
+
+    @property
+    def userblock_size(self):
+        """Bytes before the superblock (h5py's)."""
+        return self._f.superblock
+
+    swmr_mode = False
+
+    def flush(self):
+        """(h5py's: nothing to write)"""
 
     def _follow(self, target, name):
         """What an external link names: the object in that file, which is

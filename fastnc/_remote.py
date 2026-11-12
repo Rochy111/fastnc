@@ -78,6 +78,55 @@ def open_source(name, storage_options=None):
     return None
 
 
+def sibling(source, name, initial=1, tail=0):
+    """A Source for the file `name` stands for beside a remote file (HDF5's
+    external storage and virtual dataset sources, HDF4's external elements):
+    a relative name against the file's URL, an absolute one's last part
+    beside it, over the same connection settings. None for a file object,
+    or when the server has no such file. Kept with `source`, closed with it."""
+    t = source.t
+    if not isinstance(t, HTTP):
+        return None
+    rel = name.replace('\\', '/')
+    if rel.startswith('/') or re.match(r'^[A-Za-z]:', rel):
+        rel = rel.rsplit('/', 1)[-1]
+    url = urllib.parse.urljoin(t.url, urllib.parse.quote(rel, safe='/~'))
+    with source._lock:
+        kin = source.__dict__.setdefault('siblings', {})
+    if url in kin:
+        return kin[url]
+    try:
+        s = Source(HTTP(url, headers=t.headers, timeout=t.timeout, retries=t.retries), url,
+                   block_size=source.block, gap=source.gap, part=source.part, initial=initial, tail=tail)
+        # (raw data: one byte, which brings the size; an HDF5 file: its header's blocks)
+    except RemoteError as ex:
+        if getattr(ex, 'status', None) not in (403, 404, 410):
+            raise
+        s = None                                        # (S3 says 403 for a key it does not have)
+    kin[url] = s
+    return s
+
+
+class SourceRaw:
+    """A Source with the positional reads `_pio.Reader` gives a local file
+    (`size`, `_io.read(out, base, at, n, offset)`), for HDF5 external storage."""
+
+    def __init__(self, source):
+        self.src = source
+        self.size = source.size
+        self._io = self
+
+    def read(self, out, base, at, n, offset):
+        n = max(0, min(n, self.size - offset))
+        if n:
+            self.src.fetch([offset], [n])
+            out[at:at + n] = self.src.buf[offset:offset + n]
+        return n
+
+    def close(self):
+        pass                                            # (closed with the source it came from)
+
+
 def readonly(source):
     """The source's buffer as a read-only array: the kernels then see the
     type they see for a mapped file (numba compiles writable arrays apart)."""
@@ -326,6 +375,9 @@ class Source:
                 raise OSError('reading %s: %s' % (self.name, err)) from err
 
     def close(self):
+        for s in self.__dict__.pop('siblings', {}).values():
+            if s is not None:
+                s.close()
         self.t.close()
 
 
@@ -522,8 +574,10 @@ class HTTP:
                     body = r.read(500)
                     c.close()
                     msg = re.sub(rb'\s+', b' ', body).decode('utf-8', 'replace')[:300]
-                    raise RemoteError('HTTP %d %s for %s%s' % (st, r.reason, self.url,
-                                                                ': ' + msg if msg else ''))
+                    err = RemoteError('HTTP %d %s for %s%s' % (st, r.reason, self.url,
+                                                               ': ' + msg if msg else ''))
+                    err.status = st
+                    raise err
                 out = handle(r)
                 self._release(c)
                 return out

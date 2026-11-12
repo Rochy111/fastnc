@@ -1,0 +1,22 @@
+netcdf h5py {
+types:
+  compound _AnonymousCompound1 {
+    double r ;
+    double i ;
+  }; // _AnonymousCompound1
+  compound _AnonymousCompound2 {
+    float r ;
+    float i ;
+  }; // _AnonymousCompound2
+dimensions:
+	phony_dim_0 = 4 ;
+	phony_dim_1 = 60 ;
+	phony_dim_2 = 80 ;
+	phony_dim_3 = 2 ;
+	phony_dim_4 = 3 ;
+variables:
+	_AnonymousCompound1 big_endian(phony_dim_0) ;
+	_AnonymousCompound1 chunked(phony_dim_1, phony_dim_2) ;
+	_AnonymousCompound1 s ;
+	_AnonymousCompound2 z64(phony_dim_3, phony_dim_4) ;
+}

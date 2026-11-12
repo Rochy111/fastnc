@@ -30,29 +30,55 @@ gpu = ds['T'].read(device='gpu')                         # a cupy array, same va
 
 Read-only. Switching from netCDF4-python or h5py is an import change.
 
+## Install
+
+```
+pip install git+https://github.com/Rochy111/fastnc
+pip install "fastnc[xarray] @ git+https://github.com/Rochy111/fastnc"   # or [all] for cupy (CUDA 12) too
+```
+
+From a clone: `pip install -e ".[xarray]"`.
+
+Python 3.9+, numpy 1.23+ (1.x and 2.x), numba 0.57+. No other dependency;
+h5py, netCDF4-python and hdf5plugin are needed only to regenerate the test
+references. The first second of reading after an install starts a low-priority
+process that compiles the kernels (a few minutes, once per machine and
+version; `fastnc.tune()` does it and waits). `FASTNC_IMAGE=0` keeps kernels in
+numba alone.
+
 ## Values
 
 Bit-identical to the reference readers, and checked:
 
 - **raw** values equal h5py's and netCDF4-python's with mask and scale off,
-  byte for byte (fastnc returns native byte order, as netCDF4-python does);
+  byte for byte (fastnc returns native byte order, where netCDF4-python
+  keeps big-endian netCDF-4 / HDF4 variables so and h5py keeps the stored
+  order: the values are equal, only the byte-order flag differs);
 - **masked / scaled** values follow every rule of netCDF4-python 1.7 --
   `_FillValue` and default fill values, `missing_value`, `valid_min` /
   `valid_max` / `valid_range`, `scale_factor` / `add_offset` with their
   dtype promotion (which differs between numpy 1 and 2), `_Unsigned`, the
   masked array vs plain array choice and its fill value -- in the same
-  float type;
+  float type; except that a valid range typed like `scale_factor` /
+  `add_offset` is applied in unpacked units, as the netCDF User Guide and CF
+  say (netCDF4-python applies it to the stored integers and masks nearly
+  everything in such files);
 - **GPU** reads equal CPU reads;
 - **metadata** as each reference gives it: netCDF-c's dimensions (phony
-  ones included), variable order, attribute values and types, user types;
-  h5py's link and attribute order, dtypes and their metadata.
+  ones included), variable order, attribute values and types, user types
+  (unnamed ones named as netCDF-c names them), and `print()`; h5py's link
+  and attribute order, dtypes and their metadata, fill values and reprs.
+  Across a corpus of 357 real satellite and model files, the metadata of
+  every HDF5 dataset is h5py's (492,000 items), and every variable's is
+  netCDF4-python's (342,000) but for the byte-order flag above and
+  `quantization()` of HDF4 variables, which netCDF4-python refuses.
 
 `tests/test_references.py` compares every variable and HDF5 object of the
 test corpus (`tests/data`: every layout, chunk index, group and attribute
 storage, datatype and filter), of a synthetic corpus and of real WRF and
 satellite files (MODIS, VIIRS, Metop-SG, AVHRR, RCM, a Ku-band
 scatterometer) with what netCDF4-python and h5py read, from stored
-digests: about 6,900 tests, raw and masked, on numpy 1 and 2 (each test a
+digests: about 7,000 tests, raw and masked, on numpy 1 and 2 (each test a
 variable or object, whole and in three selections). The GOES-19 ABI files
 (not in the repository) were checked the same way against both readers
 directly, with `tools/check/`.
@@ -384,29 +410,20 @@ Where it is no faster: a file of a few tiny variables (opening costs about
 the same as the references'), and a fresh process reading little (both
 pay ~150 ms for numpy's import; fastnc's own import is ~15 ms, h5py's ~90).
 
-## Install
-
-```
-pip install git+https://github.com/Rochy111/fastnc
-pip install "fastnc[xarray] @ git+https://github.com/Rochy111/fastnc"   # or [all] for cupy (CUDA 12) too
-```
-
-From a clone: `pip install -e ".[xarray]"`.
-
-Python 3.9+, numpy 1.22+ (1.x and 2.x), numba 0.57+. No other dependency;
-h5py, netCDF4-python and hdf5plugin are needed only to regenerate the test
-references. The first second of reading after an install starts a low-priority
-process that compiles the kernels (a few minutes, once per machine and
-version; `fastnc.tune()` does it and waits). `FASTNC_IMAGE=0` keeps kernels in
-numba alone.
-
 ## Use
 
 | | |
 |---|---|
-| `fastnc.Dataset(path_or_url)` | netCDF4.Dataset: `variables`, `dimensions`, `groups`, attributes, `set_auto_maskandscale` and friends, `filters()`, `chunking()`, `endian()`, user types |
-| `fastnc.File(path_or_url)` | h5py.File: groups, datasets, `attrs`, `chunks`, `compression`, `fillvalue`, `read_direct`, `visititems` |
+| `fastnc.Dataset(path_or_url)` | netCDF4.Dataset: `variables`, `dimensions`, `groups`, attributes, `set_auto_maskandscale` and friends, `filters()`, `chunking()`, `endian()`, user types, `auto_complex=True`, `get_variables_by_attributes()`, `print()` |
+| `fastnc.File(path_or_url)` | h5py.File: groups, datasets, `attrs`, `chunks`, `compression`, `fillvalue`, `read_direct`, `visititems`, `asstr()`, `astype()`, `fields()`, `iter_chunks()`, `.dims`, references and links |
+| `fastnc.MFDataset(files)` | netCDF4.MFDataset, for any file fastnc opens (netCDF4-python's takes netCDF-3 and classic only) |
 | `Group.load(names=None, recursive=False)` | many variables decoded in one pass |
+| `Variable.read(key, mask=, scale=, nan=)` | those settings for this read alone, nothing changed for other threads; `out=` decodes into your array |
+| `set_auto_nan(True)` | masked floats as NaN in plain arrays, as xarray gives them, filled while decoding |
+| `memmap()` | an uncompressed variable as a read-only view of the file, no copy (every netCDF-3 variable, contiguous HDF5 / HDF4 ones) |
+| `read_async(key)`, `load_async()` | the read on a worker, a `Future` of its result: the next frame is read while this one is used |
+| `Dataset.tocdl()` | the header as `ncdump -h` prints it, byte for byte, without the ncdump program |
+| `Dataset.hdf4_datasets()` | every HDF4 data set, those sharing a name included (netCDF-c shows only the last) |
 | `Variable.read(key, device='gpu')` | values as a cupy array (masked results: data and mask on the card, `.get()` for numpy) |
 | `xr.open_dataset(p, engine='fastnc', preload=False)` | xarray, same Dataset as `engine='netcdf4'` |
 | `fastnc.set_threads(n)`, `FASTNC_THREADS` | how many threads (default: every logical CPU) |
@@ -418,7 +435,9 @@ numba alone.
 
 HDF5 virtual datasets (same-file, cross-file, unlimited, %b names), external
 storage and links, region references and shared object header messages read
-too. Not supported yet: the JPEG filter, blosc2 variable-length blocks; writing.
+too, a remote file's external and virtual sources fetched from beside its URL.
+Every common filter, the JPEG filter and blosc2's dictionaries and
+variable-length blocks included. Not supported: writing.
 
 ## More
 

@@ -14,6 +14,8 @@ __pycache__/
 *.py[cod]
 *.nbi
 *.nbc
+# kernel images built by tools/make_images.py: in platform wheels, never in git
+fastnc/_kernels/
 *.egg-info/
 build/
 dist/
@@ -23,4 +25,5 @@ site/
 
 # agent worktrees and local tool state
 .claude/
+CLAUDE.local.md
 extra/

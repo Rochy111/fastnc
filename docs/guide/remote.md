@@ -31,6 +31,13 @@ whose layout it reads in one go:
 So reading a window of a big file fetches little more than the chunks under
 the window.
 
+Files a remote file points to are fetched from beside it: the raw files of
+HDF5 external storage, the files an HDF5 virtual dataset reads from, and
+HDF4 external elements. A name relative to the file is taken against its
+URL (an absolute one by its last part), over the same headers, timeout and
+retries; a file the server does not have is missing, as it would be
+locally.
+
 ## Options
 
 S3 access is anonymous, which is how NOAA's and NASA's open-data buckets

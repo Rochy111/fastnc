@@ -141,6 +141,7 @@ class H4File:
         self.n = len(buf)
         self.path = path
         self.src = None
+        self.source = None                              # (a remote file's Source: external elements)
         if self.n < 4 or bytes(self.b[:4]) != MAGIC:
             self.b.release()
             raise FormatError('not an HDF4 file (no magic number)')
@@ -455,7 +456,7 @@ class H4File:
         if e.kind in ('plain', 'linked'):
             return self._gather(e.pieces, n)
         if e.kind == 'ext':
-            return read_external(self.path, e.path, e.offset, n)
+            return read_external(self.path, e.path, e.offset, n, self.source)
         if e.kind == 'comp':
             out = np.zeros(n, np.uint8)
             decode_into(self, e, out)
@@ -573,9 +574,19 @@ class H4File:
         return sorted(r for (t, r) in self.dd if t == T_VG)
 
 
-def read_external(base, name, offset, n):
+def read_external(base, name, offset, n, source=None):
     """n bytes at offset of an external file, found as HDF4 would: the name
-    as given, else next to the HDF file."""
+    as given, else next to the HDF file (beside its URL, for a remote one:
+    `source`)."""
+    if source is not None:
+        from . import _remote
+        s = _remote.sibling(source, name)
+        if s is None:
+            raise FileNotFoundError('external data file %r not found beside %s' % (name, source.name))
+        if offset + n > s.size:
+            raise FormatError('external file %s too short' % s.name)
+        s.fetch([offset], [n])
+        return s.buf[offset:offset + n].tobytes()
     cands = [name]
     if base and not os.path.isabs(name):
         cands.insert(0, os.path.join(os.path.dirname(os.path.abspath(base)), name))
@@ -615,7 +626,7 @@ def _stream(f, data_elem):
         raw = np.frombuffer(f._gather(e.pieces, e.length), np.uint8)
         return raw, 0, raw.size
     if e.kind == 'ext':
-        raw = np.frombuffer(read_external(f.path, e.path, e.offset, e.length), np.uint8)
+        raw = np.frombuffer(read_external(f.path, e.path, e.offset, e.length, f.source), np.uint8)
         return raw, 0, raw.size
     raise FormatError('compressed data stored as %s' % e.kind)
 
@@ -723,7 +734,7 @@ class _DS:
         return fill[::-1] if self.lay.swap else fill
 
 
-def _attr_value(f, vd, name):
+def _attr_value(f, vd, name, stored=None):
     """An Attr0.0 Vdata's value as netCDF-c gives it and netCDF4-python
     returns it."""
     if not vd.fields:
@@ -737,7 +748,10 @@ def _attr_value(f, vd, name):
             return a[0] if a.size == 1 else a
         if name == '_FillValue':
             return bytes(data)
-        return data.decode('utf-8', 'replace').replace('\x00', '')
+        text = data.decode('utf-8', 'replace')
+        if '\x00' in text.rstrip('\x00') and stored is not None:
+            stored[name] = text.rstrip('\x00')      # (ncdump prints the NULs inside)
+        return text.replace('\x00', '')
     dt = nt_dtype(t)
     count = vd.nrec                                 # one value a record (order 1)
     a = np.frombuffer(raw, dt, min(count, len(raw) // dt.itemsize)).astype(dt.newbyteorder('='))
@@ -747,15 +761,16 @@ def _attr_value(f, vd, name):
 
 
 def _attrs(f, vg):
-    """The Attr0.0 Vdatas of a Vgroup, in order: name -> value."""
-    out = {}
+    """The Attr0.0 Vdatas of a Vgroup, in order: name -> value (and in
+    `stored`, text holding NULs as stored)."""
+    out = _nc3.Attrs({})
     for t, r in zip(vg.tags, vg.refs):
         if t != T_VH:
             continue
         vd = f.vdata(r)
         if vd.cls != 'Attr0.0':
             continue
-        v = _attr_value(f, vd, vd.name)
+        v = _attr_value(f, vd, vd.name, out.stored)
         if v is not None:
             out[vd.name] = v
     return out
@@ -802,7 +817,7 @@ class Variable:
     def attrs(self):
         a = self._attrs
         if a.__class__ is not _nc3.Attrs:
-            a = self._attrs = _nc3.Attrs(a if isinstance(a, dict) else _attrs(self.nc.f, a))
+            a = self._attrs = _nc3.Attrs(a) if isinstance(a, dict) else _attrs(self.nc.f, a)
         return a
 
     @property
@@ -934,6 +949,18 @@ class Variable:
             self._layout = _layout(self)
         return self._layout
 
+    def view(self):
+        """The stored values in place: a read-only array over the file's
+        bytes, in the stored byte order, no copy; None unless the data set is
+        one uncompressed array holding every record."""
+        if self.nc.f.src is None:
+            raise ValueError('the file of variable %s is closed' % self.name)
+        lay = self.layout()
+        if lay.kind != 'file' or lay.base is None or tuple(lay.ds.shape) != tuple(self.shape):
+            return None
+        return np.ndarray(tuple(int(n) for n in self.shape), self.stored, buffer=lay.src, offset=lay.base,
+                          strides=lay.strides)
+
     def _predecode(self, lay, box, threads):
         """Decode the chunks the box touches (coders the chunk engine does not
         run, or bytes not in one piece) into one buffer, on the pool; the
@@ -981,9 +1008,8 @@ class Variable:
 def _fill_with(a, fill):
     if a.size == 0:
         return
-    esize = a.dtype.itemsize
-    if len(fill) == esize:
-        a.reshape(-1).view(np.uint8).reshape(-1, esize)[:] = np.frombuffer(fill, np.uint8)
+    if len(fill) == a.dtype.itemsize:
+        _chunks.fill_with(a, fill)
     else:
         a.reshape(-1).view(np.uint8)[:] = 0
 
@@ -1339,6 +1365,8 @@ class Group:
         self.variables = {}
         self.groups = {}
         self.attrs = {}
+        self.sds = []                               # every SD data set, in pyhdf's index order
+                                                    # (variables keeps the last of a name, as netCDF-c)
 
     def peek(self, name):
         return self.variables[name]
@@ -1384,7 +1412,7 @@ class HDF4File:
             r.close()
         f.src = None
         f.io.close()
-        for v in self.root.variables.values():
+        for v in self.root.sds:                     # (the variables, and data sets of a name taken twice)
             lay = v._layout
             if lay is not None:
                 lay.src = None
@@ -1426,6 +1454,7 @@ class HDF4File:
                     dims[d.name] = (sizes[d.name], False)
             v.shape = tuple(sizes[sddims[di].name] for di in dimidx)
             self.root.variables[v.name] = v
+            self.root.sds.append(v)
 
     def _dims(self, cdf):
         """hdf_read_dims: the file's SD dimensions (size 0: unlimited)."""

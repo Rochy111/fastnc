@@ -371,6 +371,22 @@ class _Linked:
             self.fh = None
 
 
+class _LinkedRemote:
+    """A source file of a virtual dataset beside a remote file, its bytes
+    fetched as read (the Source itself is closed with the parent's)."""
+
+    def __init__(self, source):
+        from . import _remote
+        self.src = _remote.readonly(source)
+        self.h5 = _hdf5.H5File(self.src, source=source)
+
+    def close(self):
+        h5, self.h5 = getattr(self, 'h5', None), None
+        if h5 is not None:
+            h5.close()
+        self.src = None
+
+
 def close_linked(linked):
     """Close what H5File.linked holds (called by H5File.close)."""
     for v in linked.values():
@@ -427,6 +443,13 @@ def open_hdf5(f, name):
     """The H5File (and its bytes) of a source file named `name`, found as
     HDF5 finds it, kept open with f; None when there is none."""
     linked = _linked(f)
+    if f.source is not None and not (os.path.isabs(name) and os.path.isfile(name)):
+        from . import _remote
+        key = ('h5-url', name)
+        if key not in linked:
+            s = _remote.sibling(f.source, name, _remote.INITIAL, _remote.TAIL)
+            linked[key] = None if s is None else _LinkedRemote(s)
+        return linked[key]
     for path in _candidates(f, name, 'HDF5_VDS_PREFIX'):
         key = ('h5', os.path.normcase(os.path.abspath(path)))
         if key in linked:
@@ -1077,6 +1100,16 @@ def _raw(f, name):
     file, kept open with f."""
     from . import _pio
     linked = _linked(f)
+    if f.source is not None and not (os.path.isabs(name) and os.path.isfile(name)):
+        from . import _remote
+        key = ('raw-url', name)
+        if key not in linked:
+            s = _remote.sibling(f.source, name)
+            if s is None:
+                raise FileNotFoundError('external raw data file %r of an HDF5 dataset not found beside %s'
+                                        % (name, f.source.name))
+            linked[key] = _remote.SourceRaw(s)
+        return linked[key]
     cands = []
     if not os.path.isabs(name):
         pre = os.environ.get('HDF5_EXTFILE_PREFIX')

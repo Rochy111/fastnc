@@ -393,5 +393,59 @@ def test_source_ranges():
     assert s.has(0, 512) and not s.has(0, 513)
 
 
+def _outcome(fn):
+    try:
+        return fn()
+    except Exception as e:                          # noqa: BLE001
+        return 'raises %s' % type(e).__name__
+
+
+@pytest.mark.parametrize('name', ['vds/ext.h5', 'vds/vds_cross.h5', 'vds/vds_same.h5', 'vds/vds_v2.h5',
+                                  'vds/vds_unlim_earliest.h5', 'vds/vds_unlim_latest.h5',
+                                  'vds/vds_lowlevel_latest.h5'])
+@pytest.mark.parametrize('opts', ['TINY', None])
+def test_files_beside_a_remote_file(server, name, opts):
+    """External raw storage and virtual datasets' source files are fetched
+    from beside the file's URL, as they are found beside a local file: every
+    value and every refusal as the local read's."""
+    local = os.path.join(DATA, name)
+    with fastnc.File(local) as a, fastnc.File(server + name, storage_options=globals().get(opts)) as b:
+        names = []
+        a.visititems(lambda n, o: names.append(n) if isinstance(o, fastnc._h5py.Dataset) else None)
+        assert names
+        for n in names:
+            assert b[n].shape == a[n].shape, n
+            for key in ((), (slice(1, None),)) if a[n].shape else ((),):
+                compare(_outcome(lambda: a[n][key]), _outcome(lambda: b[n][key]), n)
+
+
+def test_hdf4_external_element_beside_a_remote_file(server):
+    local = os.path.join(DATA, 'hdf4', 'layout.hdf')
+    with fastnc.Dataset(local) as a, fastnc.Dataset(server + 'hdf4/layout.hdf') as b:
+        a.set_auto_maskandscale(False)
+        b.set_auto_maskandscale(False)
+        assert list(a.variables) == list(b.variables)
+        for n in a.variables:
+            compare(_outcome(lambda: a[n][:]), _outcome(lambda: b[n][:]), n)
+        assert 'external' in a.variables and b['external'][:].tobytes() == a['external'][:].tobytes()
+
+
+def test_a_missing_file_beside_a_remote_file(server, tmp_path):
+    h5py = pytest.importorskip('h5py')
+    p = tmp_path / 'lonely.h5'
+    with h5py.File(p, 'w') as h:
+        h.create_dataset('x', (10,), 'i4', external=[('nowhere.bin', 0, 40)])
+    name = 'lonely_%d.h5' % os.getpid()
+    dst = os.path.join(DATA, name)
+    with open(p, 'rb') as fh, open(dst, 'wb') as out:
+        out.write(fh.read())
+    try:
+        with fastnc.File(server + name) as f:
+            with pytest.raises(FileNotFoundError):
+                f['x'][()]
+    finally:
+        os.remove(dst)
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))

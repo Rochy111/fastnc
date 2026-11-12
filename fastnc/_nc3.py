@@ -593,11 +593,12 @@ class Attrs(dict):
     """A variable's attributes, and what masking would otherwise work out on
     every read: those it may cast to the variable's type, and which of the
     few that decide its plan there are (_maskscale asks for both by name)."""
-    __slots__ = ('safe', 'found', 'toma')
+    __slots__ = ('safe', 'found', 'toma', 'stored')
 
     def __init__(self, values):
         dict.__init__(self, values)
         self.safe, self.found, self.toma = set(), None, {}
+        self.stored = {}                            # (HDF4 text with NULs inside: as stored, for tocdl)
 
     def among(self, names):
         if self.found is None:
@@ -696,6 +697,25 @@ class NC3Variable:
             strides.append(self.file._recsize)
         st = self._bstrides = tuple(reversed(strides))
         return st
+
+    def view(self):
+        """The stored values in place: a read-only array over the file's
+        mapping, in the file's (big-endian) byte order, records strided as
+        they lie; no copy. None where there is no such mapping (a remote
+        file) or the file is shorter than the header says."""
+        if self.file._remote is not None:
+            return None
+        if self.file._closed:
+            raise ValueError('the file of variable %s is closed' % self.name)
+        src = self.file._source()
+        shape = tuple(int(n) for n in self.shape)
+        st = self._bstrides or self._strides()
+        if 0 in shape:
+            return np.zeros(shape, self._big)
+        last = self.begin + sum((n - 1) * s for n, s in zip(shape, st)) + self.dtype.itemsize
+        if last > src.size:
+            return None
+        return np.ndarray(shape, self._big, buffer=src, offset=self.begin, strides=st)
 
     def __repr__(self):
         return '<NC3Variable %r %s %s>' % (self.name, self.shape, self.dtype)

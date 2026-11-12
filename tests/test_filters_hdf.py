@@ -106,6 +106,10 @@ def test_every_chunk_has_a_reference():
 # ------------------------------------------------------------------ szip
 
 def _szlib_cases():
+    import sys
+    if not hasattr(np, '_core'):                # (pickled under numpy 2; numpy < 1.26 calls it core)
+        sys.modules.setdefault('numpy._core', np.core)
+        sys.modules.setdefault('numpy._core.multiarray', np.core.multiarray)
     z = np.load(os.path.join(FH, 'szlib_cases.npz'), allow_pickle=True)
     return z['params'], z['streams'], z['decoded_sha']
 

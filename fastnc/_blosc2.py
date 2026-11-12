@@ -160,8 +160,7 @@ def decode(src, p, pend, dst, o, oend, cd, ws):
     gflags = np.int64(src[p + 25])
     if (src[p + 26] & 15) != 0 or ((gflags >> 4) & 3) != 1:
         return ERR_DATA                         # not contiguous, offsets not 64-bit
-    if gflags & 0x80:
-        return ERR_DATA                         # variable-length blocks
+    # (gflags & 0x80: chunks of variable-length blocks; each chunk says so itself)
     nbytes = _be(src, p + 30, 8)
     cbytes = _be(src, p + 39, 8)
     ts = _be(src, p + 48, 4)

@@ -494,6 +494,8 @@ class Dataset:
         self.header = h
         f = file
         b = f.b
+        if f._closed:
+            raise ValueError('the file of dataset %s is closed' % name)
         m = h.first(1)
         if m and m[1] & 2:                              # (its bytes are a reference, not a shape)
             raise FormatError('shared object header messages (SOHM) are not supported')
@@ -622,6 +624,8 @@ class H5File:
         self.need(sb, 256)
         v = b[sb + 8]
         self.sb_version = v
+        self._closed = False
+        self.superblock = sb                # (where it is: past a user block of this size)
         self.readers = []               # of datasets (see close)
         self._headers = {}
         self._attr_refs = {}
@@ -691,7 +695,11 @@ class H5File:
         self.readers = []
         for cache in (self._attr_refs, self._compact, self._fheaps, self._gheaps, self._bt2_cache):
             cache.clear()
-        self.b = self.buf = None
+        # (a released view, not None: anything parsed late, from a read already
+        # under way on another thread, fails with ValueError as a closed file's should)
+        closed = memoryview(b'')
+        closed.release()
+        self.b, self.buf, self._closed = closed, None, True
 
     # -- remote files: bytes asked for before they are read (local: no-ops)
     def need(self, at, n):
@@ -719,6 +727,8 @@ class H5File:
         if h is not None:
             return h
         b = self.b
+        if self._closed:
+            raise ValueError('the file is closed')
         at = self.addr(address)
         remote = self.source is not None
         if remote:
@@ -999,6 +1009,18 @@ class H5File:
             n = _u32(b, m[2])[0]
             return bytes(b[m[2] + 4:m[2] + 4 + n]) if n else None
         return None
+
+    def fill_undefined(self, h):
+        """Whether the fill value is undefined, as HDF5 decodes the message,
+        rather than the default (zeros): h5py's fillvalue then raises."""
+        b = self.b
+        m = h.first(5)
+        if m is None:
+            return False
+        p = m[2]
+        if b[p] in (1, 2):
+            return not b[p + 3]
+        return bool(b[p + 1] & 16)
 
     # -- groups
     def group_links(self, g):

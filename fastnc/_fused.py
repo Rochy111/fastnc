@@ -35,7 +35,7 @@ def _prepare(var, key, threads, min_size):
     read: an HDF5 dataset of numbers, chunked deflate / shuffle /
     fletcher32 (or virtual chunks), every chunk stored, simple slices, at
     least min_size values and a chunk per thread."""
-    from . import _h5read
+    from . import _h5read, _hold
     if not _chunks.loaded():
         return None
     bv = var._bv
@@ -65,6 +65,10 @@ def _prepare(var, key, threads, min_size):
     if not final or n < min_size:
         return None
     index = r.index
+    if _hold.holds(ds, index, box, nat.itemsize):
+        return None                                 # (a small part of many chunks: the usual
+                                                    # read keeps a region for it, so a read
+                                                    # again is a copy, not a decode of them all)
     p = _chunks.plan(index, ds.shape, box)
     if p.fill_needed or not len(p.addr):
         return None

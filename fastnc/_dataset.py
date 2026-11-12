@@ -6,6 +6,7 @@ Dataset opens netCDF-3 (classic, 64-bit offset, CDF-5) through `_nc3`,
 netCDF-4 / plain HDF5 through `_nc4` and HDF4 (SD) through `_hdf4`;
 each gives backend objects (docs/contracts.md, section 2) wrapped here.
 """
+import itertools
 import math
 import mmap
 import os
@@ -115,9 +116,10 @@ class Dimension:
         return self._group
 
     def __repr__(self):
+        # (netCDF4-python's quotes the class: it prints it with %r)
         if self._unlimited:
-            return "<class 'fastnc.Dimension'> (unlimited): name = '%s', size = %d" % (self.name, self._size)
-        return "<class 'fastnc.Dimension'>: name = '%s', size = %d" % (self.name, self._size)
+            return "\"<class 'fastnc.Dimension'>\" (unlimited): name = '%s', size = %d" % (self.name, self._size)
+        return "\"<class 'fastnc.Dimension'>\": name = '%s', size = %d" % (self.name, self._size)
 
 
 class CompoundType:
@@ -181,10 +183,14 @@ class Variable:
         ds = group._dataset
         self.__dict__.update(_group=group, _bv=bv, name=bv.name, _mask=ds._auto_mask,
                              _scale=ds._auto_scale, _always_mask=ds._always_mask,
-                             _chartostring=ds._chartostring, _device=ds._device, _quick=None)
+                             _chartostring=ds._chartostring, _device=ds._device, _quick=None,
+                             _nan=ds._auto_nan)
 
     def __reduce__(self):
-        return _variable_in, (self._group, self.name, self._mask, self._scale, self._always_mask, self._chartostring)
+        flags = (self._mask, self._scale, self._always_mask, self._chartostring, self._nan)
+        if '_sds_index' in self.__dict__:           # (a data set whose name another holds)
+            return _sds_in, (self._group, self.__dict__['_sds_index']) + flags
+        return _variable_in, (self._group, self.name) + flags
 
     # -- metadata
     @property
@@ -269,6 +275,10 @@ class Variable:
     def get_var_chunk_cache(self):
         return (0, 0, 0.0)
 
+    def set_var_chunk_cache(self, size=None, nelems=None, preemption=None):
+        """Accepted and ignored: fastnc's chunk cache sizes itself to the
+        machine (netCDF4-python's sets netCDF-C's per-variable cache)."""
+
     def set_auto_maskandscale(self, flag):
         self._mask = self._scale = bool(flag)
 
@@ -284,17 +294,168 @@ class Variable:
     def set_auto_chartostring(self, flag):
         self._chartostring = bool(flag)
 
-    def isunlimited(self):
+    # (netCDF4-python's view of the switches, read-only here as there: set_auto_*)
+    mask = property(lambda self: self._mask)
+    scale = property(lambda self: self._scale)
+    always_mask = property(lambda self: self._always_mask)
+    chartostring = property(lambda self: self._chartostring)
+    auto_complex = property(lambda self: self._group._dataset._auto_complex)
+
+    def get_dims(self):
+        """The Dimension of each of this variable's dimensions, looked up from
+        its group outwards, as netCDF4-python's."""
+        out = []
+        for name in self.dimensions:
+            g = self._group
+            while g is not None and name not in g.dimensions:
+                g = g.parent
+            out.append(g.dimensions[name] if g is not None else None)
+        return tuple(out)
+
+    def get_fill_value(self):
+        """The fill value: `_FillValue`, else netCDF's default for the type
+        (None where filling is off, or for a type without one), as
+        netCDF4-python's."""
         bv = self._bv
-        return any(d is not None and d.unlimited for d in getattr(bv, 'dims', ()))
+        if getattr(bv, 'no_fill', False):
+            return None
+        if '_FillValue' in bv.attrs:
+            return bv.attrs['_FillValue']
+        dt = self.datatype
+        if not isinstance(dt, np.dtype) or dt.str[1:] not in _masking().DEFAULT_FILLVALS:
+            return None
+        # (a 0-d array of the type, as netCDF4-python gives it; native order, so
+        # the value is right where netCDF4-python byte-swaps big-endian HDF4's)
+        return np.array(_masking().DEFAULT_FILLVALS[dt.str[1:]], dt.newbyteorder('='))
+
+    def quantization(self):
+        """(significant digits or bits, algorithm) of a quantized variable,
+        from netCDF-C's attributes, else None (netCDF4-python's)."""
+        for att, alg in (('_QuantizeBitGroomNumberOfSignificantDigits', 'BitGroom'),
+                         ('_QuantizeGranularBitRoundNumberOfSignificantDigits', 'GranularBitRound'),
+                         ('_QuantizeBitRoundNumberOfSignificantBits', 'BitRound')):
+            if att in self._bv.attrs:
+                return int(self._bv.attrs[att]), alg
+        return None
+
+    def getValue(self):
+        """A scalar variable's value (netCDF4-python's)."""
+        if self.dimensions:
+            raise IndexError('to retrieve values from a non-scalar variable, use slicing')
+        return self[slice(None)]
+
+    def set_auto_nan(self, flag):
+        """Masked float values as NaN in a plain array, xarray's way, instead
+        of a numpy masked array (off by default, as netCDF4-python has it).
+        Applies where masking is on; integer results (not scaled to floats)
+        stay masked arrays, having no NaN."""
+        self._nan = bool(flag)
+
+    def isunlimited(self):
+        """Whether one of the variable's dimensions is unlimited (fastnc's:
+        netCDF4-python's Variable has no such method)."""
+        bv = self._bv
+        dims = getattr(bv, 'dims', None)
+        if dims is not None:                        # (netCDF-4: the backend knows them)
+            return any(d is not None and d.unlimited for d in dims)
+        return any(d is not None and d.isunlimited() for d in self.get_dims())
 
     # -- values
     def __getitem__(self, key):
         return self.read(key)
 
-    def read(self, key=Ellipsis, out=None, device=None, threads=None):
+    def read(self, key=Ellipsis, out=None, device=None, threads=None, mask=None, scale=None,
+             nan=None):
         """Values for key (any netCDF4-python index), masked and scaled as
-        set. device 'gpu' returns a cupy array (identical values)."""
+        set. device 'gpu' returns a cupy array (identical values).
+
+        mask, scale, nan: for this read alone, in place of the variable's
+        set_auto_mask / set_auto_scale / set_auto_nan (`v.read(k, mask=False,
+        scale=False)` is a raw read, and changes nothing another thread sees).
+        out: an array of the read's shape and dtype exactly, which gets the
+        values: a raw read of a box (ints and slices) is decoded straight
+        into it; any other is copied in. Returns out (a masked result: a
+        masked array whose data is out)."""
+        if mask is not None or scale is not None or nan is not None:
+            v = object.__new__(Variable)
+            v.__dict__.update(self.__dict__)
+            for name, flag in (('_mask', mask), ('_scale', scale), ('_nan', nan)):
+                if flag is not None:
+                    v.__dict__[name] = bool(flag)
+            return v.read(key, out, device, threads)
+        try:
+            if out is not None:
+                return self._read_out(key, out, device, threads)
+            r = self._values(key, device, threads)
+        except Exception:
+            # closed while this read was under way: whatever that made of it
+            # (a parser's TypeError, numba typing the bytes that were let go)
+            if not self._group._dataset.isopen():
+                raise ValueError('the file of variable %s is closed' % self.name) from None
+            raise
+        if self._nan and self._mask:
+            return _nan_filled(self, r, threads)
+        return r
+
+    def _read_out(self, key, out, device, threads):
+        """read(key, out=...)."""
+        if (device or self._device) == 'gpu':
+            raise ValueError("out= takes a numpy array: it reads to the CPU (device='cpu')")
+        if not isinstance(out, np.ndarray) or not out.flags.writeable:
+            raise TypeError('out must be a writable numpy array')
+        bv = self._bv
+        chars = self._chartostring and bv.dtype == np.dtype('S1') and '_Encoding' in bv.attrs
+        scales = self._scale and any(a in bv.attrs for a in ('scale_factor', 'add_offset', '_Unsigned'))
+        if (not (self._mask or scales or chars) and bv.shape and isinstance(bv.dtype, np.dtype)
+                and out.flags.c_contiguous and not self._short() and not self._null):
+            k = key if isinstance(key, tuple) else (key,)
+            box, post, drop = _select.normalize(k, bv.shape)
+            if post is None:                        # (a box: the backend writes into out)
+                full = _select.box_shape(box)
+                _check_out(out, [n for i, n in enumerate(full) if i not in drop], bv.dtype)
+                if hasattr(bv, '_reader'):
+                    r = bv.read(k, out=out) if threads is None else bv.read(k, out=out, threads=threads)
+                else:
+                    r = bv.read(tuple(s if i in drop else slice(s, e, st)
+                                      for i, (s, e, st) in enumerate(box)), out=out)
+                if r is not out:
+                    np.copyto(out, r)
+                return out
+        return _into(self.read(key, device='cpu', threads=threads), out)
+
+    def read_async(self, key=Ellipsis, **kwargs):
+        """read(key, **kwargs) on a worker of fastnc's: a
+        concurrent.futures.Future of its result (fastnc's own), so the next
+        read can be under way while this one's values are used."""
+        from . import _async
+        return _async.submit(self.read, key, **kwargs)
+
+    def memmap(self):
+        """The stored values in place, with no copy: a read-only numpy array
+        over the file's mapping, for a variable stored uncompressed in one
+        piece (netCDF-3 variables, record ones too; contiguous netCDF-4 /
+        HDF5 and HDF4 ones). Raw: no mask or scale, the file's byte order,
+        and slicing it reads only what is touched. ValueError where there is
+        no such piece (compressed or chunked data, a remote file). It stays
+        valid while anything holds it, the file closed or not."""
+        if not self._group._dataset.isopen():
+            raise ValueError('the file of variable %s is closed' % self.name)
+        bv = self._bv
+        r = getattr(bv, '_reader', None)
+        v = r.view() if r is not None else (bv.view() if hasattr(bv, 'view') else None)
+        if v is None:
+            raise ValueError('%s is not stored in one uncompressed piece of a local file: '
+                             'there is nothing to view in place (read it instead)' % self.name)
+        return v
+
+    def _result_dtype(self):
+        """The dtype a read of this variable gives (masked or not)."""
+        bv = self._bv
+        r = _masking().apply(np.zeros(1, bv.dtype), bv.attrs, bv.dtype, mask=False, scale=self._scale)
+        return np.asarray(r).dtype
+
+    def _values(self, key, device, threads):
+        """read() without out or nan."""
         if not self._bv.shape and not _select.whole_scalar(key) and not self._null:
             # a scalar: v[:], v[0], v[[0]] give its value, as in netCDF4-python
             # (a null dataset, no value at all, refuses them as too many indices)
@@ -426,8 +587,8 @@ class Variable:
             return None                             # (see _null)
         bv = self._bv
         chars = self._chartostring and bv.dtype == np.dtype('S1') and '_Encoding' in bv.attrs
-        if not (self._mask or self._scale or chars):
-            return raw
+        if not (self._mask or self._scale or chars) or getattr(bv, 'kind', None) == 'compound':
+            return raw                              # (complex compounds: as any compound, as they are)
         dt = self.datatype
         return _masking().apply(raw, bv.attrs, bv.dtype, mask=self._mask, scale=self._scale,
                                 always_mask=self._always_mask, chartostring=self._chartostring,
@@ -441,8 +602,43 @@ class Variable:
         return a.astype(dtype) if dtype is not None else a
 
     def __repr__(self):
-        return "<class 'fastnc.Variable'>\n%s %s(%s)\nshape = %s" % (
-            self.dtype, self.name, ', '.join(self.dimensions), self.shape)
+        """As netCDF4-python prints a variable: type, dimensions, attributes,
+        unlimited dimensions, shape and whether it is filled."""
+        out = ["<class 'fastnc.Variable'>"]
+        dt = self.datatype
+        kind = ('compound' if isinstance(dt, CompoundType) else 'vlen' if isinstance(dt, VLType) or dt is str
+                else 'enum' if isinstance(dt, EnumType) else None)
+        out.append('%s %s(%s)' % (kind or self.dtype, self.name, ', '.join(self.dimensions)))
+        for name in self.ncattrs():
+            out.append('    %s: %s' % (name, self.getncattr(name)))
+        if kind:
+            out.append('%s data type: %s' % (kind, self.dtype))
+        unlim = [n for n, d in zip(self.dimensions, self.get_dims()) if d is not None and d.isunlimited()]
+        if self._group.path != '/':
+            out.append('path = %s' % self._group.path)
+        out.append('unlimited dimensions: %s' % ', '.join(unlim))
+        out.append('current shape = %r' % (self.shape,))
+        if not kind:
+            if getattr(self._bv, 'no_fill', False):
+                out.append('filling off')
+            elif '_FillValue' in self._bv.attrs:
+                out.append('filling on')
+            else:
+                key = np.dtype(self.dtype).str[1:]
+                fv = _masking().DEFAULT_FILLVALS.get(key)
+                out.append('filling on, default _FillValue of %s %s' % (fv, 'ignored' if key in ('u1', 'i1') else 'used'))
+        return '\n'.join(out)
+
+
+def _variable(group, bv):
+    """The Variable of backend variable bv: of complex values where the file
+    opened with auto_complex=True stores them so (_complex)."""
+    if group._dataset._auto_complex:
+        from . import _complex
+        k = _complex.kind(bv)
+        if k is not None:
+            return Variable(group, _complex.ComplexBackend(bv, k, group))
+    return Variable(group, bv)
 
 
 class _Variables(dict):
@@ -465,7 +661,7 @@ class _Variables(dict):
         dict.clear(self)
         for name, bv in g._bg.variables.items():
             v = found.get(name)
-            dict.__setitem__(self, name, Variable(g, bv) if v is None else v)
+            dict.__setitem__(self, name, _variable(g, bv) if v is None else v)
         self.whole = True
 
     def __missing__(self, name):
@@ -475,7 +671,7 @@ class _Variables(dict):
         if bv is None:
             self.fill()
             return dict.__getitem__(self, name)
-        return dict.setdefault(self, name, Variable(self.group, bv))
+        return dict.setdefault(self, name, _variable(self.group, bv))
 
     def __contains__(self, name):
         try:
@@ -543,7 +739,7 @@ class Group:
         if hasattr(bg, 'peek'):
             self.variables = _Variables(self)
         else:
-            self.variables = {name: Variable(self, bv) for name, bv in bg.variables.items()}
+            self.variables = {name: _variable(self, bv) for name, bv in bg.variables.items()}
 
     def __reduce__(self):
         return _group_at, (self._dataset, self.path)
@@ -631,6 +827,44 @@ class Group:
         for sub in self.groups.values():
             yield from sub._walk()
 
+    keepweakref = False                             # (netCDF4-python's, read-only)
+    auto_complex = property(lambda self: self._dataset._auto_complex)
+
+    # (netCDF4-python's: whether the library can decode these; fastnc's own decoders can)
+    def has_blosc_filter(self):
+        return True
+
+    def has_zstd_filter(self):
+        return True
+
+    def has_bzip2_filter(self):
+        return True
+
+    def has_szip_filter(self):
+        return True
+
+    def get_variables_by_attributes(self, **kwargs):
+        """This group's variables whose attributes match every keyword: equal
+        to the value given, or the value a callable taking the attribute (None
+        where there is none) and saying whether it matches. netCDF4-python's
+        code, so its quirks too (any attribute getattr finds)."""
+        vs = []
+        has_value_flag = False
+        for vname, var in self.variables.items():
+            for k, v in kwargs.items():
+                if callable(v):
+                    has_value_flag = v(getattr(var, k, None))
+                    if has_value_flag is False:
+                        break
+                elif hasattr(var, k) and getattr(var, k) == v:
+                    has_value_flag = True
+                else:
+                    has_value_flag = False
+                    break
+            if has_value_flag is True:
+                vs.append(var)
+        return vs
+
     def load(self, names=None, recursive=False, threads=None):
         """{name: values} for the named variables (default: all of this group,
         and of its subgroups too if recursive, keyed by path), each as
@@ -700,48 +934,104 @@ class Group:
         for k, v in todo:
             if k not in got:
                 got[k] = v._post(raws[k], [(0, n, 1) for n in v._bv.shape], (), threads, k in clean)
-        return {k: fused[k] if k in fused else got[k] for k, _ in vs}
+        res = {}
+        for k, v in vs:
+            r = fused[k] if k in fused else got[k]
+            res[k] = _nan_filled(v, r, threads) if v._nan and v._mask else r
+        return res
+
+    def load_async(self, names=None, recursive=False, threads=None):
+        """load() on a worker of fastnc's: a concurrent.futures.Future of its
+        {name: values} (fastnc's own)."""
+        from . import _async
+        return _async.submit(self.load, names, recursive, threads)
+
+    def _set_all(self, method, flag, *defaults):
+        """A setter over every variable of this group and those below; on the
+        Dataset also its HDF4 data sets and the default of variables made later."""
+        for g in self._walk():
+            for v in g.variables.values():
+                getattr(v, method)(flag)
+        if self is self._dataset:
+            for v in self.__dict__.get('_sds') or ():
+                getattr(v, method)(flag)
+            for d in defaults:
+                self.__dict__[d] = bool(flag)
 
     def set_auto_maskandscale(self, flag):
-        for g in self._walk():
-            for v in g.variables.values():
-                v.set_auto_maskandscale(flag)
+        self._set_all('set_auto_maskandscale', flag, '_auto_mask', '_auto_scale')
 
     def set_auto_mask(self, flag):
-        for g in self._walk():
-            for v in g.variables.values():
-                v.set_auto_mask(flag)
+        self._set_all('set_auto_mask', flag, '_auto_mask')
 
     def set_auto_scale(self, flag):
-        for g in self._walk():
-            for v in g.variables.values():
-                v.set_auto_scale(flag)
+        self._set_all('set_auto_scale', flag, '_auto_scale')
 
     def set_always_mask(self, flag):
-        for g in self._walk():
-            for v in g.variables.values():
-                v.set_always_mask(flag)
+        self._set_all('set_always_mask', flag, '_always_mask')
 
     def set_auto_chartostring(self, flag):
-        for g in self._walk():
-            for v in g.variables.values():
-                v.set_auto_chartostring(flag)
+        self._set_all('set_auto_chartostring', flag, '_chartostring')
+
+    def set_auto_nan(self, flag):
+        """Masked float values as NaN in plain arrays, for every variable
+        (Variable.set_auto_nan)."""
+        self._set_all('set_auto_nan', flag, '_auto_nan')
+
+    def _user_types(self, cls):
+        """{name: CompoundType / EnumType / VLType} of this group's types of
+        HDF5 class cls, as netCDF4-python gives them (they were the backend's
+        own datatype objects, without name, dtype or enum_dict)."""
+        got = self.__dict__.setdefault('_types', {})
+        if cls not in got:
+            from ._h5read import native
+            from ._nc4 import nc_dtype
+            out = {}
+            every = getattr(self._bg, 'all_types', None)    # (with those netCDF-c names: _Anonymous...)
+            for k, t in every if every is not None else getattr(self._bg, 'types', {}).items():
+                if t.cls != cls:
+                    continue
+                if cls == 6:
+                    out[k] = CompoundType(k, nc_dtype(t))
+                elif cls == 8:
+                    out[k] = EnumType(k, native(t.base.dtype), dict(t.enum))
+                else:
+                    out[k] = VLType(k, native(t.base.dtype) if t.base.dtype is not None else str)
+            got[cls] = out
+        return dict(got[cls])
 
     @property
     def cmptypes(self):
-        return {k: t for k, t in getattr(self._bg, 'types', {}).items() if t.cls == 6}
+        return self._user_types(6)
 
     @property
     def enumtypes(self):
-        return {k: t for k, t in getattr(self._bg, 'types', {}).items() if t.cls == 8}
+        return self._user_types(8)
 
     @property
     def vltypes(self):
-        return {k: t for k, t in getattr(self._bg, 'types', {}).items() if t.cls == 9}
+        return self._user_types(9)
 
     def __repr__(self):
-        return "<class 'fastnc.Group'>\ngroup %s:\n    dimensions: %s\n    variables: %s\n    groups: %s" % (
-            self.path, ', '.join(self.dimensions), ', '.join(self.variables), ', '.join(self.groups))
+        return _group_repr(self, "<class 'fastnc.Group'>")
+
+
+def _group_repr(g, typ):
+    """print(group) as netCDF4-python prints one: attributes, dimensions with
+    their sizes, variables with their types and dimensions, groups."""
+    out = [typ]
+    if g.path == '/':
+        out.append('root group (%s data model, file format %s):' % (g.data_model, g.disk_format))
+    else:
+        out.append('group %s:' % g.path)
+    for name in g.ncattrs():
+        out.append('    %s: %s' % (name, g.getncattr(name)))
+    out.append('    dimensions(sizes): %s' % ', '.join('%s(%s)' % (n, len(d)) for n, d in g.dimensions.items()))
+    out.append('    variables(dimensions): %s' % ', '.join(
+        '%s %s%s' % (v.dtype, n, str(tuple(v.dimensions)).replace(',)', ')').replace("'", ''))
+        for n, v in g.variables.items()))
+    out.append('    groups: %s' % ', '.join(g.groups))
+    return '\n'.join(out)
 
 
 def _norm_key(box, drop):
@@ -770,10 +1060,101 @@ def _group_at(ds, path):
     return g
 
 
-def _variable_in(group, name, mask, scale, always_mask, chartostring):
+def _variable_in(group, name, mask, scale, always_mask, chartostring, nan=False):
     v = group.variables[name]
-    v.__dict__.update(_mask=mask, _scale=scale, _always_mask=always_mask, _chartostring=chartostring)
+    v.__dict__.update(_mask=mask, _scale=scale, _always_mask=always_mask, _chartostring=chartostring,
+                      _nan=nan)
     return v
+
+
+def _sds_in(dataset, index, mask, scale, always_mask, chartostring, nan=False):
+    v = dataset.hdf4_datasets()[index]
+    v.__dict__.update(_mask=mask, _scale=scale, _always_mask=always_mask, _chartostring=chartostring,
+                      _nan=nan)
+    return v
+
+
+class _Flag(int):
+    """A bool that can be called for itself (Dataset.isopen)."""
+
+    def __call__(self):
+        return bool(self)
+
+    def __bool__(self):
+        return int(self) != 0
+
+    def __repr__(self):
+        return repr(bool(self))
+
+
+NAN_BLOCK = 1 << 18             # values a pool thread fills with NaN at a time
+
+
+def _fill_nan(data, mask, threads=None):
+    """NaN into data (float, writable) where mask is True, on the pool for big arrays."""
+    if data.size < 4 * NAN_BLOCK or not (data.flags.c_contiguous and mask.flags.c_contiguous):
+        np.copyto(data, np.nan, where=mask)
+        return
+    d, m = data.reshape(-1), mask.reshape(-1)
+    n = d.size
+    blocks = itertools.count()
+    nblk = (n + NAN_BLOCK - 1) // NAN_BLOCK
+
+    def work():
+        while True:
+            b = next(blocks)
+            if b >= nblk:
+                return
+            s = slice(b * NAN_BLOCK, min(n, (b + 1) * NAN_BLOCK))
+            np.copyto(d[s], np.nan, where=m[s])     # (numpy lets go of the GIL)
+    _pool.share(work, _pool.memory_threads(data.nbytes, min(nblk, threads or _pool.threads())))
+
+
+def _nan_filled(var, r, threads=None):
+    """A masked float result as a plain array with NaN where it is masked
+    (set_auto_nan); anything else as it is: integers have no NaN."""
+    if isinstance(r, np.ma.MaskedArray):
+        if r is np.ma.masked:                       # (one value, masked: of the read's type)
+            dt = var._result_dtype()
+            return dt.type(np.nan) if dt.kind == 'f' else r
+        if r.dtype.kind != 'f':
+            return r
+        data, m = r.data, r._mask
+        if m is np.ma.nomask or not m.any():
+            return data
+        if not data.flags.writeable:                # (a view of the file: not ours to change)
+            data = data.copy()
+        _fill_nan(data, m, threads)
+        return data
+    if type(r).__name__ == 'MaskedArray' and type(r).__module__.endswith('_maskscale_gpu'):
+        if r.data.dtype.kind != 'f':
+            return r
+        if r.mask is not None:
+            r.data[r.mask] = np.nan
+        return r.data
+    return r
+
+
+def _into(r, out):
+    """A read's result r in `out` (its shape and dtype exactly): out itself,
+    or for a masked result a masked array whose data is out."""
+    if r is None or r is np.ma.masked:
+        return r
+    data = r.data if isinstance(r, np.ma.MaskedArray) else np.asarray(r)
+    _check_out(out, data.shape, data.dtype)
+    np.copyto(out, data)
+    if isinstance(r, np.ma.MaskedArray):
+        res = out.view(type(r))
+        res.__dict__.update(r.__dict__)
+        res._mask = r._mask
+        return res
+    return out
+
+
+def _check_out(out, shape, dtype):
+    if out.shape != tuple(shape) or out.dtype != dtype:
+        raise ValueError('out has shape %s and dtype %s; this read gives shape %s, dtype %s'
+                         % (out.shape, out.dtype, tuple(shape), dtype))
 
 
 class Dataset(Group):
@@ -796,6 +1177,8 @@ class Dataset(Group):
         self._auto_mask = self._auto_scale = True
         self._always_mask = True
         self._chartostring = True
+        self._auto_nan = False
+        self._auto_complex = bool(kwargs.get('auto_complex', False))
         self._device = device
         self._fh = self._mm = None
         self._readaheads = []                       # (each group's: see Group._readahead)
@@ -826,6 +1209,7 @@ class Dataset(Group):
             from ._hdf4 import HDF4File
             self._fh, self._mm = _open_bytes(self._filepath) if src is None else (None, _remote.whole(src))
             self._backend = HDF4File(self._mm, np.frombuffer(self._mm, np.uint8), self._filepath)
+            self._backend.f.source = src                # (external elements beside a remote file)
             self.file_format = self._backend.data_model
             self.disk_format = 'HDF4'
         else:
@@ -839,22 +1223,61 @@ class Dataset(Group):
 
     def __reduce__(self):
         return _reopened, self._opened + ({k: self.__dict__[k] for k in (
-            '_auto_mask', '_auto_scale', '_always_mask', '_chartostring')},)
+            '_auto_mask', '_auto_scale', '_always_mask', '_chartostring', '_auto_nan')},)
 
     def filepath(self):
         return self._filepath
 
+    def tocdl(self, coordvars=False, data=False, outfile=None):
+        """The file's CDL header, as `ncdump -h` prints it (netCDF4-python's
+        tocdl runs the ncdump program; fastnc writes it itself). outfile: a
+        path to write it to, else it is returned. Data (data=True,
+        coordvars=True) is not written."""
+        if data or coordvars:
+            raise NotImplementedError('tocdl writes the header only (data=False, coordvars=False)')
+        from ._cdl import tocdl
+        cdl = tocdl(self)
+        if outfile is None:
+            return cdl
+        with open(outfile, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(cdl)
+
+    def hdf4_datasets(self):
+        """Every SD data set of an HDF4 file, in the file's order: the i-th is
+        the one pyhdf's `SD(path).select(i)` reads. `variables` holds one data
+        set of a name, the last, as netCDF-C does; HDF-EOS files can hold
+        several (ASTER L1B: a `Latitude` and a `Longitude` per swath), told
+        apart by their dimensions ('GeoTrack:VNIR_Swath' ...). Those in
+        `variables` come back as the same Variable objects. ValueError for a
+        file that is not HDF4."""
+        sds = getattr(self._bg, 'sds', None)
+        if sds is None:
+            raise ValueError('not an HDF4 file: %s' % (self._filepath,))
+        got = self.__dict__.get('_sds')
+        if got is None:
+            got = []
+            for i, bv in enumerate(sds):
+                v = self.variables.get(bv.name)
+                if v is None or v._bv is not bv:
+                    v = Variable(self, bv)
+                    v.__dict__['_sds_index'] = i
+                got.append(v)
+            self.__dict__['_sds'] = got
+        return list(got)
+
     @property
     def isopen(self):
-        return getattr(self, '_backend', None) is not None
+        """Whether the file is open: `ds.isopen()` as in netCDF4-python, and
+        `ds.isopen` as fastnc had it, both."""
+        return _Flag(getattr(self, '_backend', None) is not None)
 
     def close(self):
         for ra in self.__dict__.get('_readaheads', ()):
             ra.cache.clear()                        # (what was decoded ahead is the file's too)
         b = getattr(self, '_backend', None)
+        self._backend = None                        # (closed first: a read failing meanwhile says so)
         if b is not None:
             b.close()
-        self._backend = None
         mm, self._mm = getattr(self, '_mm', None), None
         if mm is not None and hasattr(mm, 'close'):
             try:
@@ -875,6 +1298,6 @@ class Dataset(Group):
         self.close()
 
     def __repr__(self):
-        return "<class 'fastnc.Dataset'>\nroot group (%s data model, file format %s):\n    dimensions: %s\n    variables: %s\n    groups: %s" % (
-            self.data_model, self.disk_format, ', '.join(self.dimensions), ', '.join(self.variables),
-            ', '.join(self.groups))
+        if not self.isopen():
+            return "<class 'fastnc.Dataset'>\nroot group (closed): %s" % self._filepath
+        return _group_repr(self, "<class 'fastnc.Dataset'>")

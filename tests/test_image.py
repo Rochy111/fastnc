@@ -157,7 +157,7 @@ def test_direct_entry_takes_only_what_it_should():
     """The unit's own code reads each array: whatever is not what it takes is
     turned down and goes the long way, which refuses it."""
     from fastnc import _chunks
-    if not _chunks.IMAGE or _image.current() is None:
+    if not _chunks.IMAGE or _image.find() is None:
         pytest.skip('no image here')
     im = _image.open_image()
     k = next(x for x in _jit.every_kernel() if x.__name__ == 'holds_value')
@@ -183,7 +183,7 @@ def test_direct_entry_takes_only_what_it_should():
 def test_arrays_of_any_class_go_by_address(tmp_path):
     """A memmap went to the unit as int() of its one element: an address."""
     from fastnc import _chunks
-    if not _chunks.IMAGE or _image.current() is None:
+    if not _chunks.IMAGE or _image.find() is None:
         pytest.skip('no image here')
     im = _image.open_image()
     k = next(x for x in _jit.every_kernel() if x.__name__ == 'holds_value')
@@ -342,10 +342,9 @@ def test_each_overload_is_linked_from_its_own_object():
     """numba names a library after its kernel, overloads alike; an image built
     from whichever loaded last has calls to nothing. Whole, this is what
     check.py's image step sees."""
-    pytest.importorskip('numba')
-    if _image.current() is None:
+    if _image.find() is None:
         pytest.skip('no image of these sources here')
-    im = _image.Image(_image.current())
+    im = _image.Image(_image.find())
     try:
         assert not im.left
         assert not [n for n in im.externals if n.startswith('_ZN')]
@@ -393,7 +392,7 @@ def test_a_build_under_way_is_not_started_again(starts):
 def test_a_first_read_of_any_filter_needs_no_numba(tmp_path, kw):
     """In a fresh process, by whichever path it comes to a kernel: reads not by
     deflate came to one before anything had looked for the image."""
-    if _image.current() is None:
+    if _image.find() is None:
         pytest.skip('no image of these sources here')
     h5py = pytest.importorskip('h5py')
     p = str(tmp_path / 'f.h5')
@@ -485,7 +484,7 @@ def test_read_through_an_image_without_numba(tmp_path):
     values, and numba never imported."""
     netCDF4 = pytest.importorskip('netCDF4')
     from fastnc import _chunks
-    if not _chunks.IMAGE or _image.current() is None:
+    if not _chunks.IMAGE or _image.find() is None:
         pytest.skip('no image here')
     f = str(tmp_path / 'one.nc')
     vals = np.ma.masked_equal(np.arange(100 * 40, dtype=np.int32).reshape(100, 40) % 977, 5)
@@ -495,7 +494,7 @@ def test_read_through_an_image_without_numba(tmp_path):
         v = d.createVariable('values', 'i4', ('a', 'b'), zlib=True, shuffle=True, chunksizes=(10, 8),
                              fill_value=5)
         v[...] = vals
-    env = dict(os.environ, FASTNC_IMAGE='1')
+    env = dict(os.environ, FASTNC_IMAGE=os.environ.get('FASTNC_IMAGE', '1'))
     r = subprocess.run([sys.executable, '-c', READ_THROUGH_IMAGE, f], capture_output=True, text=True, env=env, cwd=ROOT)
     assert r.returncode == 0, r.stderr
     numba, whole, window, raw = r.stdout.split()
@@ -503,6 +502,155 @@ def test_read_through_an_image_without_numba(tmp_path):
     assert int(whole) == zlib.crc32(np.ma.getdata(vals).tobytes())
     assert int(window) == zlib.crc32(np.ma.getdata(vals[3:40, 5:9]).tobytes())
     assert int(raw) == zlib.crc32(vals.filled(5).tobytes())
+
+
+def _cpu(monkeypatch, ecx1=0, edx1=0, ebx7=0, ecx_ext=0, xcr0=None):
+    regs = {(1, 0): [0, 0, ecx1, edx1], (7, 0): [0, ebx7, 0, 0], (0x80000001, 0): [0, 0, ecx_ext, 0]}
+    if xcr0 is not None:
+        regs['xcr0'] = xcr0
+    monkeypatch.setattr(_image, '_regs', regs)
+    monkeypatch.setattr(_image, '_cpu', ['cafe0000'])
+
+
+V2_ECX = 1 << 0 | 1 << 9 | 1 << 13 | 1 << 19 | 1 << 20 | 1 << 23     # sse3 ssse3 cx16 sse4.1 sse4.2 popcnt
+V3_ECX = V2_ECX | 1 << 12 | 1 << 22 | 1 << 26 | 1 << 27 | 1 << 28 | 1 << 29   # fma movbe xsave osxsave avx f16c
+V3_EBX7 = 1 << 3 | 1 << 5 | 1 << 8                                    # bmi1 avx2 bmi2
+V4_EBX7 = V3_EBX7 | 1 << 16 | 1 << 17 | 1 << 28 | 1 << 30 | 1 << 31
+
+
+@pytest.mark.parametrize('cpu, want', [
+    (dict(edx1=1 << 26), ['x86-64']),                                   # (qemu64: no SSE4.2, no POPCNT)
+    (dict(edx1=1 << 26, ecx1=V2_ECX, ecx_ext=1), ['x86-64-v2', 'x86-64']),
+    (dict(edx1=1 << 26, ecx1=V3_ECX, ebx7=V3_EBX7, ecx_ext=0x21, xcr0=0x7), ['x86-64-v3', 'x86-64-v2', 'x86-64']),
+    # (AVX the CPU has but the OS does not save: no v3)
+    (dict(edx1=1 << 26, ecx1=V3_ECX, ebx7=V3_EBX7, ecx_ext=0x21, xcr0=0x3), ['x86-64-v2', 'x86-64']),
+    (dict(edx1=1 << 26, ecx1=V3_ECX, ebx7=V4_EBX7, ecx_ext=0x21, xcr0=0xE7),
+     ['x86-64-v4', 'x86-64-v3', 'x86-64-v2', 'x86-64']),
+    (dict(edx1=1 << 26, ecx1=V3_ECX, ebx7=V4_EBX7, ecx_ext=0x21, xcr0=0x7), ['x86-64-v3', 'x86-64-v2', 'x86-64']),
+    (dict(edx1=1 << 26, ecx1=V3_ECX & ~(1 << 23), ebx7=V4_EBX7, ecx_ext=0x21, xcr0=0xE7), ['x86-64']),  # (no POPCNT)
+], ids=['v1', 'v2', 'v3', 'v3-not-saved', 'v4', 'v4-not-saved', 'gap'])
+def test_levels_from_cpuid(monkeypatch, cpu, want):
+    """A level counts only with every level below it, and with the OS saving
+    the registers it uses."""
+    _cpu(monkeypatch, **cpu)
+    assert _image.levels() == want
+
+
+def test_this_machine_runs_some_level():
+    if _image.cpu_id() is None:
+        pytest.skip('no image on this machine')
+    assert 'x86-64' in _image.levels()
+
+
+def test_level_features_are_numba_s_form():
+    f = _image.level_features('x86-64-v3')
+    assert f.startswith('+avx,+avx2,') and f.endswith(',+sse2') and '+popcnt' in f and 'avx512' not in f
+    assert _image.level_features('x86-64') == '+sse2'
+
+
+def test_the_best_shipped_level_is_taken(monkeypatch, tmp_path):
+    _cpu(monkeypatch, edx1=1 << 26, ecx1=V3_ECX, ebx7=V3_EBX7, ecx_ext=0x21, xcr0=0x7)
+    monkeypatch.setattr(_image, 'SHIPPED', str(tmp_path))
+    assert _image.shipped() is None
+    for level in ('x86-64', 'x86-64-v2', 'x86-64-v4'):
+        (tmp_path / _image.shipped_name(level)).write_bytes(b'')
+    (tmp_path / _image.shipped_name('x86-64-v3', '00000000')).write_bytes(b'')   # (other sources)
+    assert os.path.basename(_image.shipped()) == _image.shipped_name('x86-64-v2')
+    (tmp_path / _image.shipped_name('x86-64-v3')).write_bytes(b'')
+    assert os.path.basename(_image.shipped()) == _image.shipped_name('x86-64-v3')
+
+
+def test_shipped_images_are_named_by_the_kernels_source():
+    """Not by the files' times, which an install sets."""
+    assert _image.kernel_stamp() == _jit.kernel_stamp()
+    assert _jit.kernel_stamp() in _image.shipped_name('x86-64-v3')
+
+
+def test_a_compressed_unit_is_mapped(tmp_path):
+    """Format 4: a unit stored zlib-compressed is the same unit."""
+    code = bytearray(2 << 16)
+    code[:4] = b'\x31\xc0\xc3\x90'                  # xor eax, eax; ret
+    stored = zlib.compress(bytes(code), 9)
+    rec = dict(at=_image.HEAD.size, stored=len(stored), raw=len(code), size=len(code), nrel=0,
+               crc=zlib.crc32(stored), rodata=1 << 16, entry=0, fast=None, nslots=1, ret=None, ext=[])
+    tail = __import__('marshal').dumps(dict(stamp=0, externals=[], kernels={'m.k': {('i8',): rec}}))
+    p = str(tmp_path / 'z.img')
+    with open(p, 'wb') as f:
+        f.write(_image.HEAD.pack(_image.MAGIC, 4, zlib.crc32(tail), _image.HEAD.size + len(stored) + len(tail),
+                                 _image.HEAD.size + len(stored), len(tail)))
+        f.write(stored)
+        f.write(tail)
+    if _image.cpu_id() is None:
+        pytest.skip('no executable memory to be had here')
+
+    def k():
+        pass
+    k.__module__, k.__qualname__ = 'm', 'k'
+
+    class Kernel:
+        fn = k
+        fast = {}
+    im = _image.Image(p)
+    assert im.call(Kernel, (1,)) is None            # (it ran: returned 0, and no value)
+    im.file.close()
+
+
+def test_tune_builds_nothing_over_a_shipped_image(monkeypatch, tmp_path):
+    """A machine's own image runs no faster than the level shipped for it."""
+    ran = []
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: ran.append(a))
+    monkeypatch.setenv('FASTNC_CACHE_DIR', str(tmp_path))
+    monkeypatch.delenv('FASTNC_IMAGE_BUILD', raising=False)
+    monkeypatch.delenv('FASTNC_IMAGE', raising=False)
+    if _image.path() is None:
+        pytest.skip('no image on this machine')
+    monkeypatch.setattr(_image, 'shipped', lambda: str(tmp_path / 'shipped.img'))
+    monkeypatch.setitem(sys.modules, 'numba', None)
+    _image.build_now()
+    assert not ran
+    monkeypatch.setattr(_image, 'shipped', lambda: None)
+    _image.build_now()
+    assert len(ran) == 1
+
+
+def test_no_numba_means_no_load(monkeypatch):
+    """A wheel installed without numba: reads keep to numpy and zlib."""
+    monkeypatch.setattr(_jit, '_CAN', [])
+    monkeypatch.setenv('FASTNC_NO_NUMBA', '1')
+    if _jit._numba is not None:
+        pytest.skip('numba is loaded in this process')
+    assert _jit.can_load() is False
+    with pytest.raises(ImportError, match='numba'):
+        _jit.load()
+
+
+NO_NUMBA = r'''
+import sys
+sys.modules['numba'] = None
+import numpy as np, fastnc
+from fastnc import _chunks, _jit
+_chunks.LOAD_AFTER = 0.0
+with fastnc.Dataset(sys.argv[1]) as d:
+    for _ in range(3):
+        x = d['values'][...]
+print(int(np.ma.getdata(x).sum()), _jit.image() is None, sys.modules['numba'] is not None)
+'''
+
+
+def test_no_numba_and_no_image_reads_without_kernels(tmp_path):
+    netCDF4 = pytest.importorskip('netCDF4')
+    f = str(tmp_path / 'one.nc')
+    vals = np.arange(100 * 40, dtype=np.int32).reshape(100, 40)
+    with netCDF4.Dataset(f, 'w') as d:
+        d.createDimension('a', 100)
+        d.createDimension('b', 40)
+        d.createVariable('values', 'i4', ('a', 'b'), zlib=True, chunksizes=(10, 8))[...] = vals
+    env = dict(os.environ, FASTNC_IMAGE='0', FASTNC_IMAGE_BUILD='0')
+    env.pop('FASTNC_IMAGE_FILE', None)
+    r = subprocess.run([sys.executable, '-c', NO_NUMBA, f], capture_output=True, text=True, env=env, cwd=ROOT,
+                       timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert r.stdout.split() == [str(int(vals.sum())), 'True', 'False']
 
 
 def test_no_image_when_turned_off(monkeypatch):

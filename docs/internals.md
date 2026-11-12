@@ -10,6 +10,10 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 |---|---|
 | `_dataset` | The netCDF4-python front end: `Dataset`, `Group`, `Variable`, `Dimension`, `CompoundType` / `EnumType` / `VLType`; `Group.load()` (many variables in one pass) |
 | `_h5py` | The h5py front end: `File`, `Group`, `Dataset`, `AttributeManager`, `Datatype`, `Reference`, `Empty` |
+| `_complex` | `auto_complex=True`: a variable holding complex numbers as a compound `{r, i}` or a last dimension of two (nc-complex's conventions) wrapped as one of complex values |
+| `_mf` | `MFDataset`: files joined along an aggregation dimension, for any file fastnc opens |
+| `_cdl` | `Dataset.tocdl()`: the header in CDL, as `ncdump -h` prints it, from what fastnc read |
+| `_async` | `read_async()` / `load_async()`: reads handed to two workers of fastnc's, a `Future` back |
 | `_xarray` | `engine='fastnc'`: a data store over `_dataset`, xarray's CF decoding on top; `preload=True`, URLs, file objects |
 | `_nc4` | netCDF-4 as netCDF-c reads it out of HDF5: dimension scales, `_Netcdf4Dimid`, `DIMENSION_LIST`, phony dimensions, hidden attributes, NC_CHAR / NC_STRING, compounds with `align=True`, user types, `no_fill` |
 | `_nc3` | netCDF-3 classic, 64-bit offset, CDF-5: header; positional reads straight into the output, swapped in place |
@@ -29,7 +33,7 @@ does and how fast; `docs/measurements.md` says why it is built this way;
 | `_select` | numpy / netCDF4 indexes reduced to boxes, then post-indexing |
 | `_inflate` | Deflate / zlib in numba; whole streams through libdeflate, where installed, called from the kernel by function pointer (`_intrin.call_inflate`) with this inflate as the fallback |
 | `_pinflate` | One deflate stream inflated on many threads (speculative, verified) |
-| `_lzf`, `_lz4`, `_zstd`, `_blosc`, `_blosc2`, `_bitshuffle`, `_szip`, `_scaleoffset`, `_nbit`, `_fletcher32`, `_bzip2`, `_shuffle`, `_zfp` | The other HDF5 filters, each `decode(src, p, pend, dst, o, oend, cd, ws)` |
+| `_lzf`, `_lz4`, `_zstd`, `_blosc`, `_blosc2`, `_bitshuffle`, `_szip`, `_scaleoffset`, `_nbit`, `_fletcher32`, `_bzip2`, `_shuffle`, `_zfp`, `_jpeg` | The other HDF5 filters, each `decode(src, p, pend, dst, o, oend, cd, ws)` |
 | `_maskscale` | netCDF4-python's masking and scaling: its own rules carried over line for line, a fused numba kernel for the common cases, and `Probe`, the test a read makes to prove nothing is masked; `_maskscale_gpu` the same on the card |
 | `_gpu` | Reads straight to cupy arrays: one decode pass, each band uploaded as its last chunk lands |
 | `_arena` | Big output arrays carved from pooled, already-mapped memory |
@@ -331,6 +335,31 @@ A build must never be seen. On Windows it runs with `CREATE_NO_WINDOW`, not
 (its self-test) each open a window. One build at a time per cache directory
 (`.lock`); a process finding the lock starts none.
 
+**Images shipped with fastnc.** A platform wheel can carry images in
+`fastnc/_kernels/`, one per x86-64 level of the psABI
+(`kernels-x86-64-v3-win-np2-<kernel stamp>.img`), so a fresh install compiles
+nothing and needs no numba. None ships yet: numba stays a requirement and the wheel
+pure until a numba-free install is worth a release step of its own (measurements,
+round 15, has the numbers and what is left). `tools/make_images.py` builds them: each level in
+a process where numba compiles for that level and no more (`NUMBA_CPU_NAME`,
+`NUMBA_CPU_FEATURES` from `LEVELS`), in a numba cache of its own (numba's cache
+tells Python versions apart but not numpy's). At run time `levels()` reads the
+levels this CPU runs from the CPUID words `_cpu_id` reads anyway, and XGETBV:
+AVX registers the OS does not save do not count. `shipped()` takes the best
+image there is. A shipped image is named by `kernel_stamp` -- the kernels'
+source, not the files' times, which an install sets -- kept in the cache by
+`source_stamp` (5 ms to compute, 1 ms to look up). Order of choice:
+`FASTNC_IMAGE_FILE`, this machine's own image if one was built, the shipped
+one; `FASTNC_IMAGE=shipped` takes only a shipped one (the tests' `--kernels
+shipped` does, numba made unimportable). An image records where its Python
+keeps a tuple's items; a Python that keeps them elsewhere takes the long way
+in. Units are stored zlib-compressed (format 4): a tenth of the size, 0.1 ms
+more to map one. A machine's own image runs no faster than x86-64-v3
+(`docs/measurements.md`, round 15), so `tune()` builds none where a shipped
+image did the work. Where numba is not installed and the image lacks a unit,
+the read raises ImportError saying so; with no image and no numba, reads stay
+on the paths without kernels.
+
 numba's cache checks only the source file of a kernel itself, not of the
 kernels it calls in other modules: after an edit of `_inflate.py` (or an
 upgrade: pip leaves `.nbi`/`.nbc` files behind) the engine kept running
@@ -412,15 +441,15 @@ reference digests.
 
 Where fastnc differs on purpose: `Variable.filters()` reports zstd /
 bzip2 / blosc when the file uses them (netCDF4-python reports False when
-its plugin is not loadable); values come back in native byte order (as
-netCDF4-python; h5py keeps the stored order -- the values are equal);
+its plugin is not loadable); values come back in native byte order
+(netCDF4-python keeps big-endian netCDF-4 / HDF4 variables so, h5py the
+stored order everywhere -- the values are equal);
 reading past a variable's records in HDF4 gives the fill value where
 netCDF-c errors.
 
-## Not supported (yet)
+## Not supported
 
-HDF4 szip; zstd dictionaries; blosc2 variable-length blocks and
-dictionaries; external storage next to a remote file; writing.
+Writing; progressive, lossless and 12-bit JPEG.
 
 ## Reading before the kernels are there
 

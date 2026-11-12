@@ -9,12 +9,14 @@
 | netCDF-3 64-bit data (CDF-5) | `Dataset`, xarray | the unsigned and 64-bit integer types |
 | netCDF-4 and netCDF-4 classic | `Dataset`, `File`, xarray | groups, user types, phony dimensions |
 | HDF5 | `Dataset`, `File`, xarray | any HDF5 file, including HDF-EOS5 and files with a user block |
-| HDF4 (SD) | `Dataset`, xarray | the scientific data sets, as netCDF-c shows them |
+| HDF4 (SD) | `Dataset`, xarray | the scientific data sets, as netCDF-c shows them; all of them, names taken twice included, by `hdf4_datasets()`; contiguous, chunked, linked and external storage; deflate, RLE, N-bit, skipping Huffman and szip |
 
 ## HDF5 storage
 
 - **Layouts:** compact, contiguous, chunked, virtual (same file, other
-  files, unlimited, `%b` names) and external raw storage.
+  files, unlimited, `%b` names) and external raw storage. A remote file's
+  external storage and virtual dataset sources are fetched from beside its
+  URL, over the same connection settings.
 - **Chunk indexes:** B-tree v1 and v2, fixed array, extensible array,
   single chunk and implicit, with unlimited dimensions anywhere.
 - **Metadata:** superblocks 0 to 3, old and new style groups (symbol
@@ -43,16 +45,13 @@ of them run in numba on every core:
 | blosc | 32001 | with its internal codecs |
 | bzip2 | 307 | |
 | LZ4 | 32004 | |
-| bitshuffle | 32008 | with LZ4 |
+| bitshuffle | 32008 | with LZ4 or zstd |
 | zfp | 32013 | |
 | zstd | 32015 | |
-| blosc2 | 32026 | |
+| JPEG | 32019 | as libjpeg decodes with its defaults (libjpeg-turbo's and IJG 6b's colours; IJG's libjpeg 7–9 upsample chroma a little differently); baseline images, as the filter writes them |
+| blosc2 | 32026 | dictionaries (zstd, LZ4) and variable-length blocks included |
 
-## Not supported yet
+## Not supported
 
-- the JPEG filter
-- zstd dictionaries
-- blosc2's variable-length blocks and dictionaries
-- szip in HDF4 files
-- external storage next to a remote file
 - writing any file: fastnc reads only
+- progressive, lossless and 12-bit JPEG (the JPEG filter writes none)

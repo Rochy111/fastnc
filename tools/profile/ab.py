@@ -80,6 +80,10 @@ def child(root, want):
             fn()
             best = min(best, time.perf_counter() - t)
         out[name] = best * 1e3
+    from fastnc import _jit
+    im = _jit.image()
+    out['image:'] = os.path.basename(im.file.name) if im is not None else None
+    out['numba:'] = 'numba' in sys.modules
     print(json.dumps(out))
 
 
@@ -90,22 +94,32 @@ def main():
     ap.add_argument('--rounds', type=int, default=4)
     ap.add_argument('--rows', default='')
     ap.add_argument('--child', action='store_true')
+    ap.add_argument('--images', nargs=2, metavar=('OLD', 'NEW'),
+                    help='one tree, two kernel image files (FASTNC_IMAGE_FILE), e.g. a shipped level '
+                         'against this machine\'s own')
     a = ap.parse_args()
     if a.child:
         child(a.old, a.rows)
         return
-    old, new = os.path.abspath(a.old), os.path.abspath(a.new)
+    old, new = os.path.abspath(a.old), os.path.abspath(a.new or a.old)
     env = dict(os.environ)
     got = {'old': [], 'new': []}
     for r in range(a.rounds):
         for tag, root in (('old', old), ('new', new)) if r % 2 == 0 else (('new', new), ('old', old)):
-            if old == new:
+            if a.images:
+                env['FASTNC_IMAGE_FILE'] = os.path.abspath(a.images[tag == 'new'])
+            elif old == new:
                 env['FASTNC_IMAGE'] = '0' if tag == 'old' else '1'
             o = subprocess.run([sys.executable, os.path.abspath(__file__), root, '--child', '--rows', a.rows],
                                capture_output=True, text=True, env=env, cwd=root)
             if o.returncode:
                 sys.exit(o.stderr[-600:])
             got[tag].append(json.loads(o.stdout.strip().splitlines()[-1]))
+    for tag in got:                                 # (which image each process really ran on)
+        ran = {(g.pop('image:'), g.pop('numba:')) for g in got[tag]}
+        print('%s: %s' % (tag, ', '.join('%s%s' % (i, ' + numba' if n else '') for i, n in ran)))
+        if a.images and any(n or i != os.path.basename(a.images[tag == 'new']) for i, n in ran):
+            sys.exit('%s did not run on its image alone' % tag)
     print('%-20s %8s %8s %7s' % ('ms', 'old', 'new', ''))
     for k in got['old'][0]:
         x = statistics.median(g[k] for g in got['old'])

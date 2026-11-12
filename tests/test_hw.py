@@ -130,7 +130,9 @@ def test_load_threshold_is_this_machines(fresh, monkeypatch):
 
 
 def _warm_in_a_new_process(code):
-    env = dict(os.environ, PYTHONPATH=os.path.dirname(os.path.dirname(fastnc.__file__)))
+    # (no image, shipped or built: what is timed is numba's load)
+    env = dict(os.environ, PYTHONPATH=os.path.dirname(os.path.dirname(fastnc.__file__)), FASTNC_IMAGE='0')
+    env.pop('FASTNC_IMAGE_FILE', None)
     subprocess.run([sys.executable, '-c', code], env=env, check=True, timeout=300)
     _hw._found.pop('_tune_file', None)              # (it wrote the file)
     return _hw.tuned().get('load_s')
@@ -139,6 +141,9 @@ def _warm_in_a_new_process(code):
 def test_only_a_cold_load_is_timed(fresh):
     """With numba imported already a load is a fraction of what it costs a
     fresh process; timed anyway, reads would start it far too soon."""
+    from fastnc import _jit
+    if not _jit.can_load():
+        pytest.skip('no numba here')
     assert _warm_in_a_new_process('import numba, fastnc; fastnc.warm()') is None
     # (a load past LOAD_MOST is not kept: a machine busy with other tests may take that)
     assert any(_warm_in_a_new_process('import fastnc; fastnc.warm()') for _ in range(3))

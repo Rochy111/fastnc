@@ -321,6 +321,27 @@ class Reader:
         self.record = None                          # ... and records in this dtype: netCDF's, the same but aligned
         f.readers.append(self)
 
+    def view(self):
+        """The stored values in place: a read-only array over the file's
+        mapping, in the stored dtype (its byte order), no copy; None unless
+        the dataset is one contiguous run of a local file, of a type numpy
+        holds as it lies (no strings or sequences of variable length,
+        references or odd bit widths)."""
+        ds, f = self.ds, self.f
+        lay, t = ds.layout, ds.type
+        if self.src is None:
+            raise ValueError('the file of dataset %s is closed' % ds.name)
+        if (ds.null or lay.cls != 1 or ds.external or f.source is not None
+                or t.dtype is None or t.holds_vlen() or t.cls == _hdf5.Datatype.REFERENCE or reduced(t)):
+            return None
+        shape = tuple(int(n) for n in ds.shape)
+        if lay.address == f.undef:
+            return None                             # (never written: fill values, no bytes)
+        a = f.addr(lay.address)
+        if a + math.prod(shape) * t.dtype.itemsize > self.src.size:
+            return None
+        return np.ndarray(shape, t.dtype, buffer=self.src, offset=a)
+
     @property
     def index(self):
         if self._index is None:

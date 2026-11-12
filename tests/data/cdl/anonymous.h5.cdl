@@ -1,0 +1,38 @@
+netcdf anonymous {
+types:
+  ubyte enum _AnonymousEnum1 {G = 1, R = 0} ;
+  compound _AnonymousCompound2 {
+    int a ;
+    double b ;
+  }; // _AnonymousCompound2
+  compound _AnonymousCompound3 {
+    float r ;
+    float i ;
+  }; // _AnonymousCompound3
+  compound _AnonymousCompound4 {
+    double r ;
+    double i ;
+  }; // _AnonymousCompound4
+  int(*) _AnonymousVlen5 ;
+dimensions:
+	phony_dim_1 = 2 ;
+variables:
+	_AnonymousEnum1 a_e(phony_dim_1) ;
+	_AnonymousCompound2 b_first(phony_dim_1) ;
+	_AnonymousCompound3 c_c8(phony_dim_1) ;
+	_AnonymousCompound4 d_be(phony_dim_1) ;
+	_AnonymousCompound4 e_c16(phony_dim_1) ;
+	_AnonymousVlen5 f_vl(phony_dim_1) ;
+
+group: g {
+  types:
+    compound _AnonymousCompound6 {
+      ubyte x ;
+    }; // _AnonymousCompound6
+  dimensions:
+  	phony_dim_0 = 2 ;
+  variables:
+  	_AnonymousCompound2 again(phony_dim_0) ;
+  	_AnonymousCompound6 inner(phony_dim_0) ;
+  } // group g
+}

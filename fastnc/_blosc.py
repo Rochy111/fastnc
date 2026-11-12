@@ -15,6 +15,13 @@ Codecs: blosclz, lz4 / lz4hc, snappy (blosc1), zlib, zstd. Filters undone
 after the codec, per block: byte shuffle, bit shuffle, (blosc2) delta and
 truncated precision (nothing to undo).
 
+blosc2 chunks may also carry a dictionary (use_dict: after the block
+starts, an int32 size and the dictionary; lz4 / lz4hc streams decoded with
+it as their history, zstd ones with it as a zstd dictionary), and may hold
+variable-length blocks (blosc2_vlcompress: the block size field counts the
+blocks, and each block is one stream led by its decoded size, its end the
+next block's start).
+
 The rules follow the libraries exactly, including their differences: c-blosc
 1.x splits a block only when the type has at most 16 bytes and the block
 at least 128 elements, and bit-unshuffles a block only when its element
@@ -29,7 +36,7 @@ from ._inflate import ERR_DATA, ERR_INPUT, ERR_SPACE, FIXED, IWS_SIZE, TAB_SIZE,
 from ._intrin import ld64, st64
 from ._jit import njit
 from ._lz4 import copy_bytes, copy_match, lz4_block
-from ._zstd import WS_SIZE as ZWS, zstd_decompress
+from ._zstd import WS_SIZE as ZWS, load_dict, zstd_decompress, zstd_frames
 
 # scratch layout (bytes); the block buffers follow at W_BLK
 W_Y = 0                                 # bit transpose scratch, 64 uint64
@@ -42,7 +49,12 @@ W_BLK += (-W_BLK) % 64
 
 # int64 scratch (indices)
 I_FLT = 0                               # filters (6), then their meta (6)
+I_DICT = 12                             # (blosc2) where the chunk's dictionary is in src, 0: none
+I_DSZ = 13                              # its size
+I_VL = 14                               # variable-length blocks
+I_NBLK = 15                             # the chunk's blocks
 I_GEO = 16                              # b2nd geometry (see _blosc2)
+MAXDICT = 128 * 1024                    # BLOSC2_MAXDICTSIZE
 
 NAN32 = 0x7FC00000
 NAN64 = 0x7FF8000000000000
@@ -261,6 +273,9 @@ def unshuffle(src, s, dst, d, n, ts):
 def _codec(fmt, src, p, pend, dst, o, n, ws):
     """Decode one stream with codec `fmt` into exactly n bytes at dst[o:o+n]:
     0 or an error."""
+    flt = ws[W_INT:W_INT + 2048].view(np.int64)
+    if flt[I_DICT] > 0 and (fmt == 1 or fmt == 4):
+        return _codec_dict(fmt, src, p, pend, dst, o, n, ws, flt[I_DICT], flt[I_DSZ])
     if fmt == 0:
         r = blosclz(src, p, pend, dst, o, o + n)
     elif fmt == 1:
@@ -280,6 +295,39 @@ def _codec(fmt, src, p, pend, dst, o, n, ws):
         return r
     if r != o + n:
         return ERR_DATA
+    return 0
+
+
+@njit(cache=True, nogil=True)
+def _codec_dict(fmt, src, p, pend, dst, o, n, ws, dp, dsz):
+    """A stream compressed with the chunk's dictionary src[dp:dp+dsz] (c-blosc2
+    use_dict): LZ4 with the dictionary as the history before the output
+    (LZ4_decompress_safe_usingDict), zstd with it as a zstd dictionary
+    (ZSTD_decompress_usingDDict). Decoded after a copy of that history,
+    then moved into place. 0 or an error."""
+    if fmt == 1:
+        t = np.empty(dsz + n + 64, np.uint8)
+        copy_bytes(src, dp, t, 0, dsz)
+        r = lz4_block(src, p, pend, t, 0, dsz, dsz + n)
+        if r < 0:
+            return r
+        if r != dsz + n:
+            return ERR_DATA
+        copy_bytes(t, dsz, dst, o, n)
+        return 0
+    zws = ws[W_Z:W_Z + ZWS]
+    cs = load_dict(src, dp, dp + dsz, zws)
+    if cs < 0:
+        return cs
+    clen = dp + dsz - cs
+    t = np.empty(clen + n + 64, np.uint8)
+    copy_bytes(src, cs, t, 0, clen)
+    r = zstd_frames(src, p, pend, t, clen, clen + n, zws, src, dp, dp + dsz, clen)
+    if r < 0:
+        return r
+    if r != clen + n:
+        return ERR_DATA
+    copy_bytes(t, clen, dst, o, n)
     return 0
 
 
@@ -318,7 +366,7 @@ def block(src, p, cend, j, bsize, leftover, hdr, v, fa, fo, ra, ro, ws, a, b):
     else:
         if off <= 0 or off >= cend - p:
             return ERR_DATA
-        split = (flags & 0x10) == 0 and not leftover
+        split = (flags & 0x10) == 0 and not leftover and flt[I_VL] == 0   # (VL blocks: one stream)
     ns = ts if split else 1
     neb = bsize // ns
     if neb == 0:
@@ -339,6 +387,21 @@ def block(src, p, cend, j, bsize, leftover, hdr, v, fa, fo, ra, ro, ws, a, b):
         ca = ws
         co = a
     q = p + off
+    if flt[I_VL]:
+        # a variable-length block: its decoded size, then its stream up to the
+        # next block's start (or the chunk's end)
+        nxt = _le32(src, p + hdr + 4 * (j + 1)) if j + 1 < flt[I_NBLK] else cend - p
+        if nxt < off + 4 or nxt > cend - p:
+            return ERR_DATA
+        cb = nxt - off - 4
+        q += 4
+        if cb == bsize:
+            copy_bytes(src, q, ca, co, bsize)
+        else:
+            e = _codec(fmt, src, q, q + cb, ca, co, bsize, ws)
+            if e < 0:
+                return e
+        ns = 0                                  # (the streams' loop: nothing left)
     for k in range(ns):
         if q + 4 > cend:
             return ERR_INPUT
@@ -440,7 +503,7 @@ def header(src, p, pend, ws):
     cbytes = _le32(src, p + 12)
     if nbytes < 0 or cbytes < 16 or ts == 0:
         return ERR_DATA, 0, 0, 0, 0, 0
-    for i in range(12):
+    for i in range(16):
         flt[I_FLT + i] = 0
     special = 0
     hdr = 16
@@ -466,10 +529,31 @@ def header(src, p, pend, ws):
             f2 = np.int64(src[p + 30])
             bf = np.int64(src[p + 31])
             special = (bf >> 4) & 7
-            if f2 & 1 or bf & 1 or bf & 8 or special > 4:
-                return ERR_DATA, 0, 0, 0, 0, 0   # VL blocks, dictionaries, lazy chunks
+            if f2 & ~1 or bf & 8 or special > 4:
+                return ERR_DATA, 0, 0, 0, 0, 0   # lazy chunks, flags of later versions
             if fmt_of(flags) == 6 or fmt_of(flags) == 7:
                 return ERR_DATA, 0, 0, 0, 0, 0   # user-defined codecs
+            if f2 & 1:
+                # variable-length blocks: the block size field counts them
+                if special or flags & 2:
+                    return ERR_DATA, 0, 0, 0, 0, 0
+                for i in range(6):
+                    if flt[I_FLT + i] == 3:
+                        return ERR_DATA, 0, 0, 0, 0, 0   # (delta needs blocks alike)
+                flt[I_VL] = 1
+                flt[I_NBLK] = bsize
+            elif nbytes > 0:
+                flt[I_NBLK] = (nbytes + bsize - 1) // bsize
+            if bf & 1 and not special and not flags & 2 and nbytes > 0:
+                # a dictionary after the block starts: int32 size, then itself
+                at = p + hdr + 4 * flt[I_NBLK]
+                if at + 4 > p + cbytes or at + 4 > pend:
+                    return ERR_INPUT, 0, 0, 0, 0, 0
+                dsz = _le32(src, at)
+                if dsz <= 0 or dsz > MAXDICT or at + 4 + dsz > p + cbytes:
+                    return ERR_DATA, 0, 0, 0, 0, 0
+                flt[I_DICT] = at + 4
+                flt[I_DSZ] = dsz
         else:
             if flags & 1:
                 flt[I_FLT + 5] = 1
@@ -477,7 +561,7 @@ def header(src, p, pend, ws):
                 flt[I_FLT + 5] = 2
             if flags & 8:
                 flt[I_FLT + 4] = 3
-        if nbytes > 0 and bsize > nbytes:
+        if nbytes > 0 and bsize > nbytes and not flt[I_VL]:
             bsize = nbytes
     if cbytes > pend - p:
         return ERR_INPUT, 0, 0, 0, 0, 0
@@ -549,6 +633,9 @@ def chunk(src, p, pend, dst, o, oend, ws, a):
             return ERR_DATA
         copy_bytes(src, p + hdr, dst, o, nbytes)
         return o + nbytes
+    flt = ws[W_INT:W_INT + 2048].view(np.int64)
+    if flt[I_VL]:
+        return _vl_chunk(src, p, cend, dst, o, nbytes, bsize, hdr, v, ws, a)
     nblocks = (nbytes + bsize - 1) // bsize
     if hdr + 4 * nblocks > cbytes:
         return ERR_DATA
@@ -560,6 +647,39 @@ def chunk(src, p, pend, dst, o, oend, ws, a):
         e = block(src, p, cend, j, n, n < bsize, hdr, v, dst, o + j * bsize, dst, o, ws, a, b)
         if e < 0:
             return e
+    return o + nbytes
+
+
+@njit(cache=True, nogil=True)
+def _vl_chunk(src, p, cend, dst, o, nbytes, nblocks, hdr, v, ws, a):
+    """A chunk of variable-length blocks (c-blosc2 blosc2_vlcompress): each
+    block's decoded size leads its stream; the blocks laid end to end make
+    the chunk's bytes. The end of the output or an error."""
+    if nblocks <= 0 or hdr + 4 * nblocks > cend - p:
+        return ERR_DATA
+    most = 0
+    total = 0
+    for j in range(nblocks):
+        off = _le32(src, p + hdr + 4 * j)
+        if off <= 0 or off + 4 > cend - p:
+            return ERR_DATA
+        bn = _le32(src, p + off)
+        if bn <= 0:
+            return ERR_DATA
+        most = max(most, bn)
+        total += bn
+    if total != nbytes:
+        return ERR_DATA
+    b = a + most + 64
+    if b + most > ws.shape[0]:
+        return ERR_SPACE
+    at = o
+    for j in range(nblocks):
+        bn = _le32(src, p + _le32(src, p + hdr + 4 * j))
+        e = block(src, p, cend, j, bn, False, hdr, v, dst, at, dst, o, ws, a, b)
+        if e < 0:
+            return e
+        at += bn
     return o + nbytes
 
 

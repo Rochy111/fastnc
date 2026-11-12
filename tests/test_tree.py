@@ -105,4 +105,6 @@ def test_python_edits_keep_the_kernels():
     line added above a kernel orphans it without a word (it did)."""
     a = _jit.kernel_stamp()
     assert a == _jit.kernel_stamp() and len(a) == 8
+    if not _jit.can_load():
+        pytest.skip('no numba here')
     assert _jit._locate_by_kernels()

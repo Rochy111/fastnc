@@ -5,12 +5,15 @@ chunk as the output of ZSTD_compress -- one zstd frame, no header of its
 own (cd value: the compression level). Bitshuffle and blosc use the same
 frames for their zstd blocks. ERA5, CMIP and Zarr archives are zstd.
 
-Everything the format allows, except dictionaries: skippable frames,
-several frames in a row, raw / RLE / compressed blocks, raw / RLE /
-Huffman (one or four streams, tree described or repeated) literals, FSE
-sequences in predefined, RLE, described and repeated modes, repeat
-offsets, any window size (the whole frame is decoded into the output, so
-the window is everything before). The content checksum is skipped.
+Everything the format allows: skippable frames, several frames in a row,
+raw / RLE / compressed blocks, raw / RLE / Huffman (one or four streams,
+tree described or repeated) literals, FSE sequences in predefined, RLE,
+described and repeated modes, repeat offsets, any window size (the whole
+frame is decoded into the output, so the window is everything before), and
+dictionaries (`zstd_frames`: blosc2's; the HDF5 filter has none): their
+tables and repeat offsets are a frame's starting state and their content
+lies before the output, for matches to reach. The content checksum is
+skipped.
 
 Design, as zstd's own decoder:
 
@@ -847,13 +850,66 @@ def _block(src, p, bend, dst, fstart, o, oend, ws, iws, bsmax):
 
 
 @njit(cache=True, nogil=True)
+def load_dict(dsrc, dp, dend, ws):
+    """A dictionary dsrc[dp:dend] (RFC 8878 section 5) made the state a frame
+    starts from: its Huffman and FSE tables and repeat offsets into ws, as
+    ZSTD_createDDict reads them. Without the magic number all of it is
+    content (zstd's raw content dictionaries). Returns the start of its
+    content in dsrc, or an error."""
+    iws = ws[W_INT:W_INT + 8192].view(np.int64)
+    iws[I_REP] = 1
+    iws[I_REP + 1] = 4
+    iws[I_REP + 2] = 8
+    iws[I_HLOG] = 0
+    iws[I_LOG] = -1
+    iws[I_LOG + 1] = -1
+    iws[I_LOG + 2] = -1
+    if dend - dp < 8 or _le32(dsrc, dp) != 0xEC30A437:
+        return dp
+    q = dp + 8
+    n = _read_huf(dsrc, q, dend, ws, iws)
+    if n < 0:
+        return n
+    q += n
+    q = _seq_table(dsrc, q, dend, 2, 1, ws, iws)        # (offsets, match lengths, literal lengths)
+    if q < 0:
+        return q
+    q = _seq_table(dsrc, q, dend, 2, 2, ws, iws)
+    if q < 0:
+        return q
+    q = _seq_table(dsrc, q, dend, 2, 0, ws, iws)
+    if q < 0:
+        return q
+    if dend - q < 12:
+        return ERR_INPUT
+    for k in range(3):
+        r = _le32(dsrc, q + 4 * k)
+        if r <= 0 or r > dend - q - 12:
+            return ERR_DATA                             # (as zstd: within the content)
+        iws[I_REP + k] = r
+    return q + 12
+
+
+@njit(cache=True, nogil=True)
 def zstd_decompress(src, p, pend, dst, o, oend, ws):
     """Every zstd frame in src[p:pend] (skippable frames skipped) decoded into
     dst[o:oend], as ZSTD_decompress. Returns the end of the output or a
     negative error code (ERR_SPACE too if ws is smaller than WS_SIZE)."""
+    return zstd_frames(src, p, pend, dst, o, oend, ws, src, 0, 0, 0)
+
+
+@njit(cache=True, nogil=True)
+def zstd_frames(src, p, pend, dst, o, oend, ws, dsrc, dp, dend, hist):
+    """zstd_decompress, with a dictionary dsrc[dp:dend] when dend > dp (as
+    ZSTD_decompress_usingDDict): its content must be the `hist` bytes of dst
+    before o, which matches then reach into. One frame only with a
+    dictionary (each frame would start from the dictionary again)."""
     if ws.shape[0] < WS_SIZE:
         return ERR_SPACE
     iws = ws[W_INT:W_INT + 8192].view(np.int64)
+    use = dend > dp
+    dict_id = _le32(dsrc, dp + 4) if use and dend - dp >= 8 and _le32(dsrc, dp) == 0xEC30A437 else 0
+    frames = 0
     while p < pend:
         if pend - p < 5:
             return ERR_INPUT
@@ -893,8 +949,11 @@ def zstd_decompress(src, p, pend, dst, o, oend, ws):
         for k in range(nd):
             did |= np.int64(src[p + k]) << (8 * k)
         p += nd
-        if did != 0:
-            return ERR_DATA                     # dictionaries: not supported
+        if did != 0 and (not use or (dict_id != 0 and did != dict_id)):
+            return ERR_DATA                     # (a dictionary not given, or another one)
+        if use and frames:
+            return ERR_DATA
+        frames += 1
         fcs = -1
         if nf == 1:
             fcs = np.int64(src[p])
@@ -912,14 +971,21 @@ def zstd_decompress(src, p, pend, dst, o, oend, ws):
         if fcs > oend - o:
             return ERR_SPACE
         bsmax = min(wsize, BLOCK_MAX)
-        fstart = o
-        iws[I_REP] = 1
-        iws[I_REP + 1] = 4
-        iws[I_REP + 2] = 8
-        iws[I_HLOG] = 0
-        iws[I_LOG] = -1
-        iws[I_LOG + 1] = -1
-        iws[I_LOG + 2] = -1
+        fo = o
+        if use:
+            e = load_dict(dsrc, dp, dend, ws)
+            if e < 0:
+                return e
+            fstart = o - hist                   # (matches reach into the dictionary's content)
+        else:
+            fstart = o
+            iws[I_REP] = 1
+            iws[I_REP + 1] = 4
+            iws[I_REP + 2] = 8
+            iws[I_HLOG] = 0
+            iws[I_LOG] = -1
+            iws[I_LOG + 1] = -1
+            iws[I_LOG + 2] = -1
         while True:
             if pend - p < 3:
                 return ERR_INPUT
@@ -964,7 +1030,7 @@ def zstd_decompress(src, p, pend, dst, o, oend, ws):
                 return ERR_DATA
             if last:
                 break
-        if fcs >= 0 and o - fstart != fcs:
+        if fcs >= 0 and o - fo != fcs:
             return ERR_DATA
         if chk:
             if pend - p < 4:

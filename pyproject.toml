@@ -9,7 +9,7 @@ description = "Fast netCDF / HDF5 reading on the CPU and GPU, values bit-identic
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
-dependencies = ["numpy>=1.22", "numba>=0.57"]
+dependencies = ["numpy>=1.23", "numba>=0.57"]     # (numpy 1.22 rounds uint64 to float32 twice)
 keywords = ["netcdf", "netcdf4", "hdf5", "h5py", "xarray", "weather", "climate", "gpu", "numba"]
 classifiers = [
     "Development Status :: 3 - Alpha",

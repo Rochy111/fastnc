@@ -222,6 +222,106 @@ cannot be safely cast to variable data type""" % attname
     return is_safe
 
 
+def _unpacked_units(self, attname):
+    """Whether the valid range attribute `attname` of a packed variable is
+    in unpacked units: the NUG and CF rule (netCDF-Java follows it), by
+    type -- a range of the type of `scale_factor` / `add_offset`, not that
+    of the stored integers. netCDF4-python tests every range against the
+    stored values; for such a file (HRD's winds: `valid_range = -900., 900.`
+    knots on int16 hundredths of a knot) that masks nearly every value."""
+    if not self.has(attname) or self.dtype.kind not in 'iu':
+        return False
+    adt = numpy.asarray(self.attrs[attname]).dtype
+    if adt.kind != 'f' or adt == self.dtype:
+        return False
+    if not _valid_scaleoffset(self, lambda msg: None):
+        return False
+    return any(self.has(n) and numpy.asarray(self.attrs[n]).dtype == adt
+               for n in ('scale_factor', 'add_offset'))
+
+
+def _packed_bounds(self, xdt, lo, hi):
+    """The stored values (of type xdt, whole numbers) whose unpacked values
+    lie in [lo, hi] (either may be None), as the bounds netCDF4-python tests
+    stored values against: (low, high) in xdt, each None when nothing is
+    outside on that side. Unpacking is numpy's own (`_scale_ops`, one value
+    at a time) and monotonic, so each bound masks a run from one end of the
+    type, found by bisection: the mask is exactly where the unpacked value
+    is outside the range, in the float type it is read in."""
+    info = numpy.iinfo(xdt)
+    tmin, tmax = int(info.min), int(info.max)
+
+    def masked(k, b, below):
+        u = _scale_ops(self, numpy.array([k], xdt))
+        return bool((u < b)[0] if below else (u > b)[0])
+
+    low = high = None
+    for b, below in ((lo, True), (hi, False)):
+        if b is None:
+            continue
+        at_min, at_max = masked(tmin, b, below), masked(tmax, b, below)
+        if at_min and at_max:
+            return numpy.array(tmax, xdt), numpy.array(tmin, xdt)   # (every value masked)
+        a, z = tmin, tmax
+        if at_min:                              # masked from tmin up to a
+            while z - a > 1:
+                m = (a + z) // 2
+                if masked(m, b, below):
+                    a = m
+                else:
+                    z = m
+            low = z if low is None else max(low, z)
+        elif at_max:                            # masked from z up to tmax
+            while z - a > 1:
+                m = (a + z) // 2
+                if masked(m, b, below):
+                    z = m
+                else:
+                    a = m
+            high = a if high is None else min(high, a)
+    if low is not None and high is not None and low > high:
+        return numpy.array(tmax, xdt), numpy.array(tmin, xdt)
+    return (None if low is None else numpy.array(low, xdt),
+            None if high is None else numpy.array(high, xdt))
+
+
+def _valid_bounds(self, view, warn):
+    """`_toma`'s valid range bounds (validmin, validmax, each None when not
+    given), in the type values are compared in (the unsigned view, if
+    any). Ranges in unpacked units (_unpacked_units) become the stored
+    values they allow; any other is netCDF4-python's, in stored units. (An
+    _Unsigned variable read unscaled holds signed values, among which the
+    ones an unpacked range allows are no run: such a range is not applied.)"""
+    attrs, dtype = self.attrs, self.dtype
+    unp = {n: _unpacked_units(self, n) for n in ('valid_range', 'valid_min', 'valid_max')}
+    signed = (view is None and dtype.kind == 'i'
+              and self.get('_Unsigned', False) in ['True', 'true'])
+    safe = {n: unp[n] or _check_safecast(self, n, warn)
+            for n in ('valid_range', 'valid_min', 'valid_max')}
+    if safe['valid_range'] and attrs['valid_range'].size == 2:
+        names = ('valid_range', 'valid_range')
+        vals = (attrs['valid_range'][0], attrs['valid_range'][1])
+    else:
+        names = ('valid_min', 'valid_max')
+        vals = tuple(attrs[n] if safe[n] else None for n in names)
+    stored = [None, None]                       # netCDF4-python's bounds, in stored units
+    for i in (0, 1):
+        if vals[i] is not None and not unp[names[i]]:
+            b = numpy.array(vals[i], dtype)
+            stored[i] = b.view(view) if view is not None else b
+    lo = vals[0] if vals[0] is not None and unp[names[0]] and not signed else None
+    hi = vals[1] if vals[1] is not None and unp[names[1]] and not signed else None
+    if lo is None and hi is None:
+        return stored[0], stored[1]
+    validmin, validmax = _packed_bounds(self, numpy.dtype(view) if view is not None else dtype,
+                                        lo, hi)
+    if stored[0] is not None:                   # (one bound of each kind: valid_min / _max)
+        validmin = stored[0] if validmin is None else max(validmin, stored[0])
+    if stored[1] is not None:
+        validmax = stored[1] if validmax is None else min(validmax, stored[1])
+    return validmin, validmax
+
+
 def _valid_scaleoffset(self, warn=warnings.warn):
     try:
         if self.has('scale_factor'):
@@ -338,23 +438,7 @@ class _Masking:
             if (default is not None and not var._isvlen
                     and (no_fill != 1 or dtype.str[1:] not in ['u1', 'i1'])):
                 self.other = numpy.array(default, dtype)
-        validmin = None
-        validmax = None
-        safe_validrange = _check_safecast(var, 'valid_range', warn)
-        safe_validmin = _check_safecast(var, 'valid_min', warn)
-        safe_validmax = _check_safecast(var, 'valid_max', warn)
-        if safe_validrange and attrs['valid_range'].size == 2:
-            validmin = numpy.array(attrs['valid_range'][0], dtype)
-            validmax = numpy.array(attrs['valid_range'][1], dtype)
-        else:
-            if safe_validmin:
-                validmin = numpy.array(attrs['valid_min'], dtype)
-            if safe_validmax:
-                validmax = numpy.array(attrs['valid_max'], dtype)
-        if validmin is not None and view:
-            validmin = validmin.view(view)
-        if validmax is not None and view:
-            validmax = validmax.view(view)
+        validmin, validmax = _valid_bounds(var, view, warn)
         self.low, self.high = (validmin, validmax) if dtype.kind != 'S' else (None, None)
         if safe_fillval:
             self.last = numpy.array(attrs['_FillValue'], dtype)
@@ -706,22 +790,7 @@ def _plan(self, dtype, warn):
                 if p.view is None:
                     eqs.append((fillval, CAT_DEFAULT))
                 p.dval_fill = fillval
-        validmin = validmax = None
-        safe_validrange = _check_safecast(self, 'valid_range', warn)
-        safe_validmin = _check_safecast(self, 'valid_min', warn)
-        safe_validmax = _check_safecast(self, 'valid_max', warn)
-        if safe_validrange and self.attrs['valid_range'].size == 2:
-            validmin = numpy.array(self.attrs['valid_range'][0], self.dtype)
-            validmax = numpy.array(self.attrs['valid_range'][1], self.dtype)
-        else:
-            if safe_validmin:
-                validmin = numpy.array(self.attrs['valid_min'], self.dtype)
-            if safe_validmax:
-                validmax = numpy.array(self.attrs['valid_max'], self.dtype)
-        if validmin is not None and p.view is not None:
-            validmin = validmin.view(p.view)
-        if validmax is not None and p.view is not None:
-            validmax = validmax.view(p.view)
+        validmin, validmax = _valid_bounds(self, p.view, warn)
         if validmin is not None:
             vmin = validmin
         if validmax is not None:

@@ -8,10 +8,11 @@ silently.
 
 - Values are **bit-identical** to the references: raw reads equal h5py /
   netCDF4-python with auto mask+scale off, byte for byte (fastnc returns
-  native byte order, as netCDF4-python does; compare values, not the byte
-  order flag); masked/scaled reads equal netCDF4-python's in every rule
-  and in the same float type; GPU equals CPU.
-- Python 3.9+, numpy 1.22+ and 2.x (beware NEP 50: arithmetic on numpy
+  native byte order; netCDF4-python keeps big-endian netCDF-4 / HDF4
+  variables big-endian; compare values, not the byte order flag); masked/scaled reads equal netCDF4-python's in every rule
+  and in the same float type (one departure on purpose: a valid range in
+  unpacked units, `_maskscale._unpacked_units`); GPU equals CPU.
+- Python 3.9+, numpy 1.23+ and 2.x (beware NEP 50: arithmetic on numpy
   uint8/int16 scalars stays in that type and wraps; read header fields as
   Python ints). numba is the only compiled dependency; cupy optional.
 - Kernels: `from ._jit import njit` (deferred numba import, see
@@ -101,7 +102,7 @@ class BackendVariable:
     name: str
     dimensions: tuple        # dimension names
     shape: tuple
-    dtype: numpy.dtype       # native byte order, as netCDF4-python reports (str for NC_STRING)
+    dtype: numpy.dtype       # native byte order (str for NC_STRING)
     attrs: dict              # name -> value, exactly as netCDF4-python's getncattr returns it
     chunks: tuple or None    # None: contiguous
     filters: dict            # as netCDF4.Variable.filters()

@@ -2,9 +2,213 @@
 
 All notable changes. Values read by fastnc stay bit-identical to
 netCDF4-python's and h5py's in every release; a change that alters them is
-a bug.
+a bug. The departures on purpose are listed under Accuracy in the docs.
 
 ## Unreleased
+
+## 0.2.0 (2026-11-12)
+
+### Added
+- **Everything that was "not supported yet" short of writing:**
+  - **The HDF5 JPEG filter** (32019, hdf5_plugins): each chunk decoded as
+    libjpeg decodes it with the defaults the filter uses (accurate integer
+    IDCT, fancy chroma upsampling, its YCbCr tables): bytes equal to
+    libjpeg-turbo's on 144 images of every sampling, quality and edge size,
+    restart markers and optimized tables included (IJG's libjpeg 7 to 9
+    upsample chroma by scaled DCTs and differ slightly).
+  - **blosc2 chunks with dictionaries** (use_dict: zstd, LZ4, LZ4HC) and
+    **chunks of variable-length blocks** (blosc2_vlcompress), in frames as
+    the blosc2 filter keeps them: equal to c-blosc2 3.6's own decoding on 72
+    chunks and frames of every codec and filter. This brought **zstd
+    dictionaries** (their entropy tables, repeat offsets and content as
+    history), for zstd streams anywhere.
+  - **szip in HDF4 files**: its framing as HDF4's cszip.c writes it, read
+    back exactly on a file of both szip codings and every sample size (made
+    from libaec's streams: no HDF4 build at hand, conda-forge's, PyPI's or
+    Debian's, writes or reads szip).
+  - **External storage and virtual dataset sources beside a remote file**:
+    an HDF5 file read from HTTP or S3 finds its external raw files and the
+    files its virtual datasets read from beside its URL (a 404 is a file not
+    there, as locally), over the same connection settings; HDF4 external
+    elements too. Every value as the local read's.
+- **`Dataset(path, auto_complex=True)`**, netCDF4-python 1.7's switch:
+  complex numbers stored as a compound of two floats (`{r, i}`,
+  `{real, imag}` ...) or as a last dimension of length 2 named `ri`,
+  `complex` or `_pfnc_complex`, or the start of one (`r`, `comp`), come
+  back as complex64 / complex128 arrays, values, masks, shapes and
+  dimensions as netCDF4-python's (checked against it); h5py's complex
+  datasets read so too. Stricter than the nc-complex library underneath
+  netCDF4-python on purpose: such a dimension not last, or an integer
+  variable, are left as stored, where netCDF4-python reads the wrong values
+  or cannot read them.
+- **`has_blosc_filter()` / `has_zstd_filter()` / `has_bzip2_filter()` /
+  `has_szip_filter()`** on any group (True), and
+  `Variable.set_var_chunk_cache()` (accepted, ignored), so code written for
+  netCDF4-python that calls them runs.
+- **`attrs.get_id(name)`** on `fastnc.File` objects: an attribute's
+  `dtype`, `shape` (None if empty), `name` and `get_storage_size()`, as
+  h5py's, without reading the value (checked on every attribute of the
+  test files against h5py).
+- **`Dataset.hdf4_datasets()`**: every scientific data set of an HDF4
+  file, in the file's order (the i-th is pyhdf's `SD(path).select(i)`).
+  `variables` keeps one data set per name, the last, as netCDF-C does, so
+  HDF-EOS files holding several of a name (ASTER L1B's `Latitude` /
+  `Longitude`, one per swath) had the others out of reach.
+- **`set_auto_nan(True)`**, on a variable, group or file: masked float
+  values come back as NaN in plain numpy arrays, as xarray gives them,
+  filled on every core (a GOES full disk 32 ms, against 53 for
+  `np.ma.filled(v[:], np.nan)`). Integers stay masked arrays.
+- **`memmap()`**, on `fastnc.Dataset` variables and `fastnc.File`
+  datasets (neither netCDF4-python nor h5py has it): the stored values of a
+  variable kept uncompressed in one piece (every netCDF-3 variable,
+  contiguous HDF5 / HDF4 ones) as a read-only array over the file's mapping,
+  no copy, valid while held. A view of a WRF netCDF-3 variable takes 9 us
+  and reads only what is sliced.
+- **`Dataset.tocdl()`**: the file's header in CDL, as `ncdump -h` prints
+  it, without the ncdump program netCDF4-python's needs; byte for byte
+  ncdump's on all 325 corpus files ncdump reads, of every kind (netCDF-3,
+  netCDF-4, HDF5, HDF4), and on all 46 test files, h5py's unnamed types
+  and HDF4 text holding NUL bytes included.
+- **`read_async()` and `load_async()`** (fastnc's own): the read on a
+  worker, a `concurrent.futures.Future` of its result, so the next frame is
+  read while this one is used: 8 GOES frames read and worked on in turn
+  107-134 ms, the next read under way meanwhile 86-97.
+- **`fastnc.MFDataset`**: files read as one, as netCDF4-python's
+  `MFDataset` (results checked against it), for any file fastnc opens
+  where netCDF4-python's takes netCDF-3 and NETCDF4_CLASSIC only. And the
+  module helpers `default_fillvals`, `chartostring()`, `num2date()`,
+  `date2num()`, `date2index()` (the last three from cftime).
+- **More of netCDF4-python's API in `fastnc.Dataset`:**
+  `get_variables_by_attributes()`, `Variable.get_dims()`,
+  `get_fill_value()`, `quantization()`, `getValue()`, the attributes
+  `mask`, `scale`, `always_mask`, `chartostring`, and `keepweakref`.
+- **More of h5py's Dataset in `fastnc.File`:** `asstr()`, `astype()`
+  (saturating as HDF5's conversion does), `fields()`, `len()`,
+  `iter_chunks()`, `.ref` (groups too) and `.dims` (dimension scales and
+  labels), each checked against h5py on the test files. Also
+  `visit_links()` / `visititems_links()`, `require_group()` (of a group
+  that is there), `is_scale`, the file's `driver`, `userblock_size` and
+  `swmr_mode`, and `flush()` / `refresh()`, which have nothing to do.
+- **`read(key, mask=, scale=, nan=)`**: those settings for one read, with
+  nothing changed that another thread sees (no more `set_auto_maskandscale`
+  toggles around a read).
+
+### Changed
+- **A valid range in unpacked units is applied to the unpacked values.**
+  When a packed variable's `valid_range`, `valid_min` or `valid_max` has
+  the type of `scale_factor` / `add_offset` rather than that of the stored
+  integers, the netCDF User Guide and CF say it is in unpacked units
+  (netCDF-Java reads it so). netCDF4-python, and fastnc until now, tested
+  it against the stored integers, which masked nearly everything in such
+  files: every wind above 9 kt in NOAA HRD's TDR wind files
+  (`valid_range = -900., 900.` knots on hundredths of a knot), almost every
+  brightness temperature in GridSat-B1 and HURSAT-AVHRR (`140., 375.`
+  kelvin on counts). fastnc now masks where the unpacked value is outside
+  the range, exactly, in the type it is read in; every other range is
+  netCDF4-python's as before. This is fastnc's first departure from
+  netCDF4-python's values; see Accuracy.
+- **The kernel image takes a tenth of the disk.** Each machine's image of
+  the kernels (in fastnc's cache folder) is stored compressed: about 5 MB
+  where it was 51, at no cost to be measured in a fresh process. Images
+  already built are still read.
+- **numpy 1.23 or newer.** numpy 1.22 rounds uint64 values from 2^63 up to
+  float32 twice (through float64), one ulp from the correctly rounded value
+  the kernels give, for about one value in six; 1.23 rounds once.
+
+### Fixed
+- **`fillvalue` on `fastnc.File` datasets, as h5py's in two more cases:**
+  a variable-length string dataset with a fill value gave `b''` where h5py
+  gives the value (kept in the file's global heap: TCPRIMED's
+  `development_level` is `b'UN'`), and a fill value HDF5 calls undefined
+  (GPM IMERG's `lat`, `lon`, `time` ...) gave 0 where h5py raises
+  `RuntimeError`. The metadata of every dataset in a corpus of 247
+  satellite and model files (492k items) is now h5py's.
+- **Datasets netCDF-C does not show** were variables of `fastnc.Dataset`:
+  HDF5 array types, and compounds holding a compound or enum netCDF-C has no
+  named type for (h5py's `bool` inside a structured array is one). They
+  shifted the phony dimensions of every group after them (`phony_dim_6`
+  where netCDF4-python says `phony_dim_0`), and a lookup by name found one
+  before the file's variables were listed and not after. Now as netCDF-C
+  (checked against netCDF4-python on every such case). Code that read an
+  HDF5 array-type dataset through `fastnc.Dataset` reads it through
+  `fastnc.File` now, as h5py does.
+- **`print()` of a dataset, group, variable or dimension** is
+  netCDF4-python's: attributes, dimension sizes, variable types, unlimited
+  dimensions, current shape, filling (22,243 objects of the corpus
+  printed alike, byte order aside); and a `fastnc.File` named datatype
+  prints as h5py's (`<HDF5 named type "pos_t" (dtype |V12)>`).
+- **A contiguous dataset ending the file** failed to read whole or with a
+  step (`ValueError: cannot reshape array`) in a process whose kernels were
+  not loaded yet (its first reads), when its rows were not a multiple of the
+  blocks it is read in: the last block ran past the end of the file. Any
+  type; h5py's complex numbers and structured arrays, written last, met it.
+- **netCDF-4 compound variables** were copied field by field into a new
+  array on every read; read as they lie where the layout is already
+  netCDF-C's: a 144 MB `{r, i}` variable 43 -> 4 ms warm, a file opened and
+  read 19 ms (netCDF4-python 59-83, h5py 55).
+- **User types without a committed datatype** (h5py's structured arrays,
+  complex numbers, enums and vlens) had no name (`datatype.name` None) and
+  were missing from `cmptypes` / `enumtypes` / `vltypes`: they now carry
+  netCDF-C's names, `_AnonymousCompound1`, `_AnonymousEnum2` ..., numbered
+  as netCDF-C numbers them (one count over the file in its reading order,
+  equal types once whatever their byte order), in the group netCDF-C puts
+  them in; checked against netCDF4-python.
+- **`tocdl`** lists types in netCDF-C's order, kinds mixed, with enum
+  members as stored, and prints HDF4 text holding NUL bytes as ncdump does
+  (the attribute's value stays netCDF4-python's, without them).
+- **`cmptypes`, `enumtypes`, `vltypes`** gave fastnc's internal HDF5 type
+  objects: now `CompoundType` / `EnumType` / `VLType` with `name`, `dtype`
+  and `enum_dict`, as netCDF4-python's and `Variable.datatype` give them.
+- **A file closed while it is being read** gives `ValueError: the file of
+  variable ... is closed` from that read, as from any read after close;
+  netCDF-4 and HDF5 files gave a `TypeError` from deep in the parser, a
+  read caught while `close()` was under way an OSError of its own, and one
+  whose kernels had not run yet numba's `TypingError` (the file's bytes
+  already let go).
+- **`Variable.isunlimited()`** was always False for netCDF-3 files.
+- **`fastnc.File` refuses a float index** (`d[0.0]`), as h5py and numpy do;
+  it read it as an integer.
+- **`group.get(name, getlink=True)`** gave the object, not the link: it now
+  gives h5py's `HardLink`, `SoftLink` (with its `path`) or `ExternalLink`
+  (with `filename` and `path`), also for a soft link that leads nowhere.
+- **GPU reads of strings, compounds and fancy indexes on threads.** They
+  switched the variable to the CPU for the read, so another thread reading
+  the same variable meanwhile got numpy arrays instead of cupy ones.
+- **`ds.isopen()`** raised `TypeError` (fastnc had it as a property;
+  netCDF4-python's is a method). Both `ds.isopen()` and `ds.isopen` work.
+- **Windows of an image stored in one big chunk.** Reads of a small part
+  of a few chunks too big for the cache of decoded chunks (GridSat's
+  images: one 20-40 MB chunk each) decoded the whole chunk every time: a
+  512 x 512 window 36 ms, a row 12, against netCDF4-python's 1.2 and 0.2.
+  The region read is now kept from the second such read, as for series
+  across many chunks: 0.2 ms and 0.09; 36 windows panned across a
+  GridSat-GOES image 383 -> 12 ms (netCDF4-python 47). The same for a
+  window across a few chunks that each fit that cache but not together
+  (RADARSAT-2, Landsat, Sentinel-2: 2-3 ms -> 0.15, netCDF4-python 0.4),
+  and for a window that is most of more chunks than that cache takes, when
+  they are few bytes (TRMM VIRS: 0.6 ms -> 0.08, netCDF4-python 0.2).
+- **Scaled windows read again, with the kernels loaded.** A masked and
+  scaled read of a small part of many small chunks went through the fused
+  decode, which never used the region kept for it: a GOES ABI window read
+  again took 1.9 ms with the kernels and 0.3 without them. It now takes
+  0.25 (netCDF4-python 0.8).
+- **`fastnc.Dataset`'s `read(key, out=array)` filled `out`.** It returned
+  a new array and left `out` as it was. A raw read of a box is now decoded
+  straight into `out`; any other read is copied in; a shape or dtype other
+  than the read's is a `ValueError`.
+- **File-wide switches hold for what comes later.** `ds.set_auto_mask(False)`
+  and the others now also set the file's default: a pickled Dataset (dask,
+  multiprocessing) came back masked, and `hdf4_datasets()` made after the
+  call ignored it.
+- **Reading where numba cannot be imported.** With no kernel image and no
+  numba, reads keep to numpy and zlib instead of failing when they would
+  have loaded the kernels.
+- **Fill values written a word at a time.** Data a file never stored (HDF5
+  chunks never written, HDF4 datasets with no data, such as MODIS L1B's
+  reflective bands at night) was filled a byte column at a time: 40 MB of
+  int16 took 50 ms, eight times h5py's. Now 1.7 ms (`EV_1KM_RefSB` raw
+  54 -> 1.5 ms, netCDF4-python 9.6).
+- **`fastnc.__version__`** said 0.1.0 in the 0.1.1 release.
 
 ## 0.1.1 (2026-11-05)
 

@@ -21,7 +21,7 @@ import math
 import threading
 import time
 
-from . import _arena, _chunks
+from . import _arena, _chunks, _hw
 
 WANTED = 4                      # a read this small a part of its region counts
 SHARE = 4                       # a side kept is at least this share of the chunks' (see _around)
@@ -82,14 +82,12 @@ def _around(box, spans, first, stop):
     return lo, hi
 
 
-def read(ds, index, src, box, out, swap, threads):
-    """The box read into out from its dataset's region; False: not so read."""
-    h = _held.get(index)
-    if h is not None and h.swap == swap and h.values.dtype == out.dtype and all(
-            s >= a and e <= b for (s, e, _), a, b in zip(box, h.first, h.stop)):
-        return _copy(h, box, out)
-    if not ds.filters or out.ndim != len(box) or not out.size:
-        return False
+def _chunks_of(ds, index, box, itemsize, nbytes):
+    """(first, stop, size) of the chunks a read of nbytes in box touches, when
+    it is one to keep a region for: a small part of them, and not the cache
+    of chunks' to serve (else None)."""
+    if not ds.filters or not nbytes:
+        return None
     first, stop = [], []
     count = 1
     for (s, e, _), c, n in zip(box, index.cshape, ds.shape):
@@ -97,11 +95,56 @@ def read(ds, index, src, box, out, swap, threads):
         count *= b - a
         first.append(a * c)
         stop.append(min(b * c, n))
-    if count <= _chunks.CACHE_CHUNKS:               # (the cache of chunks is for those)
+    if count <= _chunks.CACHE_CHUNKS and \
+            count * math.prod(index.cshape) * itemsize * 2 <= _hw.scaled(_chunks.CACHE_BYTES):
+        return None                                 # (the cache of chunks is for those, unless
+                                                    # they are too big for it, as _cached judges:
+                                                    # GridSat's images, one 20-40 MB chunk each;
+                                                    # a window across four 5 MB chunks)
+    size = math.prod(b - a for a, b in zip(first, stop)) * itemsize
+    if nbytes * WANTED > size and (size > _hw.scaled(_chunks.CACHE_BYTES) or all(
+            s == 0 and e == n for (s, e, _), n in zip(box, ds.shape))):
+        return None                                 # (most of its chunks: kept only if they
+                                                    # are few bytes, as the cache would keep them,
+                                                    # and not all of the dataset, read again as
+                                                    # fast decoded: TRMM's windows across 17 small
+                                                    # chunks)
+    return first, stop, size
+
+
+def holds(ds, index, box, itemsize):
+    """Whether a read of box is this module's: its region is kept, or would
+    be from a read again. A read that decodes its chunks itself (_fused)
+    leaves such a read here, or every repeat of it decodes them again."""
+    h = _held.get(index)
+    if h is not None and all(s >= a and e <= b for (s, e, _), a, b in zip(box, h.first, h.stop)):
+        return True
+    nbytes = math.prod((e - s + k - 1) // k for s, e, k in box) * itemsize
+    got = _chunks_of(ds, index, box, itemsize, nbytes)
+    if got is None or got[2] > _arena.BUDGET:
         return False
-    size = math.prod(b - a for a, b in zip(first, stop)) * out.dtype.itemsize
-    if out.nbytes * WANTED > size:
+    first, stop, size = got
+    if nbytes * WANTED <= size:
+        return True                                 # (a small part: a region from the second read)
+    asked = first, stop                             # (most of its chunks: the caller's way the
+    if getattr(index, 'asked', None) == asked:      # first time, noted, and a region if read again)
+        return True
+    index.asked, index.spans = asked, [(s, e) for s, e, _ in box]
+    return False
+
+
+def read(ds, index, src, box, out, swap, threads):
+    """The box read into out from its dataset's region; False: not so read."""
+    h = _held.get(index)
+    if h is not None and h.swap == swap and h.values.dtype == out.dtype and all(
+            s >= a and e <= b for (s, e, _), a, b in zip(box, h.first, h.stop)):
+        return _copy(h, box, out)
+    if out.ndim != len(box):
         return False
+    got = _chunks_of(ds, index, box, out.dtype.itemsize, out.nbytes)
+    if got is None:
+        return False
+    first, stop, size = got
     asked = first, stop
     if getattr(index, 'asked', None) != asked:
         index.asked, index.spans = asked, [(s, e) for s, e, _ in box]

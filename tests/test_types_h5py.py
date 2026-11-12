@@ -82,6 +82,28 @@ def test_lone_chunk_is_where_it_is(tmp_path):
             assert np.array_equal(x[k], y[k]), k
 
 
+@pytest.mark.parametrize('dt', [np.dtype([('x', 'f4'), ('y', 'f4'), ('z', 'f4')]), np.dtype('c16'),
+                                np.dtype([('a', 'i4'), ('b', 'f8'), ('c', 'u1')]), np.dtype('>i4')])
+def test_contiguous_dataset_ending_the_file(tmp_path, monkeypatch, dt):
+    """A contiguous dataset read as row blocks whose last block runs past the
+    end of the file (the dataset ends it, its rows not a multiple of the
+    block): compounds and h5py's complex numbers failed to reshape, read as a
+    process reads before its kernels are loaded."""
+    from fastnc import _chunks, _h5read
+    monkeypatch.setattr(_chunks, 'ready', lambda: False)
+    monkeypatch.setattr(_h5read, 'VIRTUAL_MIN', 1 << 12)
+    monkeypatch.setattr(_h5read, 'VIRTUAL_CHUNK', 1 << 16)  # (smaller blocks: a smaller file shows it)
+    p = str(tmp_path / 'end.h5')
+    raw = np.random.default_rng(5).integers(0, 255, 3001 * 300 * dt.itemsize, dtype=np.uint8)
+    with h5py.File(p, 'w') as h:
+        h['first'] = np.arange(3)
+        h['v'] = raw.view(dt).reshape(3001, 300)
+    with fastnc.File(p) as f, h5py.File(p, 'r') as h:
+        for k in ((), (slice(None, None, 3),), (slice(-5, None),), (slice(1, None, 2), slice(None, None, 5))):
+            a, b = h['v'][k], f['v'][k]
+            assert a.tobytes() == np.ascontiguousarray(b).astype(a.dtype).tobytes(), k
+
+
 def test_old_format_array_members_through_dataset(tmp_path):
     """A compound's array members, read by the netCDF4 API."""
     p = str(tmp_path / 'c.h5')

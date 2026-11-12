@@ -42,7 +42,8 @@ import numpy as np
 
 from . import _hw, _jit
 
-FORMAT = 3
+FORMAT = 4                          # (4: units may be zlib-compressed; 3 is read too)
+FORMATS = (3, 4)
 MAGIC = b'FASTNCKI'
 HEAD = struct.Struct('<8sIIQQQ')    # magic, format, the index's CRC, file size, index at, its length
 PAGE = 1 << 16                      # what a unit's read-only and writable parts are apart
@@ -138,6 +139,9 @@ def cpu_id():
     return _cpu[0]
 
 
+_regs = {}                      # what _cpu_id read: CPUID leaf -> its four words, 'xcr0' -> XGETBV(0)
+
+
 def _cpu_id():
     if not _x86_64():
         return None
@@ -152,6 +156,7 @@ def _cpu_id():
 
     def regs(leaf, sub=0):
         fn(leaf, sub, ctypes.addressof(out))
+        _regs[leaf, sub] = list(out)
         return list(out)
     r0 = regs(0)
     r1 = regs(1)
@@ -166,8 +171,50 @@ def _cpu_id():
     if regs(0x80000000)[0] >= 0x80000001:
         words += regs(0x80000001)[2:]
     if r1[2] >> 27 & 1:                                 # OSXSAVE: what the OS saves
-        words.append(ctypes.CFUNCTYPE(ctypes.c_uint64)(a + 128)() & 0xFFFFFFFF)
+        _regs['xcr0'] = ctypes.CFUNCTYPE(ctypes.c_uint64)(a + 128)()
+        words.append(_regs['xcr0'] & 0xFFFFFFFF)
     return '%08x' % zlib.crc32(struct.pack('<%dI' % len(words), *words))
+
+
+# The x86-64 levels of the psABI, best first: what an image shipped with
+# fastnc is compiled for (numba's NUMBA_CPU_NAME and NUMBA_CPU_FEATURES at
+# build time), and what CPUID must report, with the OS saving the registers,
+# for this machine to run it. (leaf, register 0-3 = EAX-EDX, bit)
+LEVELS = {
+    'x86-64-v4': ('avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl',
+                  [(7, 1, 16), (7, 1, 17), (7, 1, 28), (7, 1, 30), (7, 1, 31)], 0xE6),
+    'x86-64-v3': ('avx,+avx2,+bmi,+bmi2,+f16c,+fma,+lzcnt,+movbe,+xsave',
+                  [(1, 2, 28), (7, 1, 5), (7, 1, 3), (7, 1, 8), (1, 2, 29), (1, 2, 12),
+                   (0x80000001, 2, 5), (1, 2, 22), (1, 2, 26)], 0x6),
+    'x86-64-v2': ('cx16,+sahf,+popcnt,+sse3,+sse4.1,+sse4.2,+ssse3',
+                  [(1, 2, 13), (0x80000001, 2, 0), (1, 2, 23), (1, 2, 0), (1, 2, 19), (1, 2, 20),
+                   (1, 2, 9)], 0),
+    'x86-64': ('sse2', [(1, 3, 26)], 0),
+}
+
+
+def level_features(level):
+    """NUMBA_CPU_FEATURES for a level: its own and every level's below it."""
+    names = list(LEVELS)
+    return ','.join('+' + LEVELS[n][0] for n in names[names.index(level):])
+
+
+def levels():
+    """The x86-64 levels this machine runs, best first ([] where it cannot
+    have an image)."""
+    if cpu_id() is None:
+        return []
+    out = []
+    names = list(LEVELS)
+    for i, name in enumerate(names):
+        ok = True
+        for n in names[i:]:
+            _, bits, xcr0 = LEVELS[n]
+            ok = ok and all(_regs.get((leaf, 0), [0] * 4)[r] >> b & 1 for leaf, r, b in bits)
+            ok = ok and _regs.get('xcr0', 0) & xcr0 == xcr0
+        if ok:
+            out.append(name)
+    return out
 
 
 def path(cpu=None):
@@ -193,6 +240,70 @@ def current():
         return None
 
 
+SHIPPED = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_kernels')
+
+
+def _platform():
+    return 'win' if sys.platform == 'win32' else 'linux'
+
+
+def shipped_name(level, stamp=None):
+    """The name of the image shipped for a CPU level: the system, numpy's
+    major version and the kernels' own stamp (their source, not the files'
+    times, which an install sets)."""
+    return 'kernels-%s-%s-np%s-%s.img' % (level, _platform(), np.__version__.split('.')[0],
+                                          stamp or kernel_stamp())
+
+
+def shipped():
+    """The best image shipped with fastnc that this machine runs, for these
+    sources; None."""
+    try:
+        here = set(os.listdir(SHIPPED))
+    except OSError:
+        return None
+    if not here:
+        return None
+    stamp = kernel_stamp()
+    for level in levels():
+        n = shipped_name(level, stamp)
+        if n in here:
+            return os.path.join(SHIPPED, n)
+    return None
+
+
+_stamps = []
+
+
+def kernel_stamp():
+    """_jit.kernel_stamp(), which reads every kernel's source (5 ms), kept in
+    the cache by the files' times and sizes (1 ms to look at)."""
+    if _stamps:
+        return _stamps[0]
+    quick = _jit.source_stamp()
+    memo = os.path.join(_hw.cache_dir(), 'kernels', 'stamps')
+    known = {}
+    try:
+        with open(memo) as f:
+            known = dict(line.split() for line in f if line.count(' ') == 1)
+    except (OSError, ValueError):
+        pass
+    s = known.get(quick)
+    if s is None:
+        s = _jit.kernel_stamp()
+        try:
+            os.makedirs(os.path.dirname(memo), exist_ok=True)
+            known[quick] = s
+            tmp = '%s.%d.tmp' % (memo, os.getpid())
+            with open(tmp, 'w') as f:
+                f.writelines('%s %s\n' % kv for kv in list(known.items())[-16:])
+            os.replace(tmp, memo)
+        except OSError:
+            pass
+    _stamps.append(s)
+    return s
+
+
 # ---------------------------------------------------------- calling a unit
 
 class _Unit:
@@ -211,7 +322,7 @@ class Image:
         try:
             head = self.file.read(HEAD.size)
             magic, fmt, crc, size, at, n = HEAD.unpack(head)
-            if magic != MAGIC or fmt != FORMAT or size != os.fstat(self.file.fileno()).st_size:
+            if magic != MAGIC or fmt not in FORMATS or size != os.fstat(self.file.fileno()).st_size:
                 raise ValueError('not an image of this format')
             raw = self._read(at, n)
             if zlib.crc32(raw) != crc:
@@ -221,13 +332,16 @@ class Image:
             self.file.close()
             raise
         self.stamp = index['stamp']
+        self.level = index.get('level')     # the CPU level a shipped image was made for (None: this machine)
         self.left = index.get('left', 0)    # units that could not be linked
         self.externals = index['externals']
         self.addresses = {}
         self.kernels = index['kernels']     # kernel's name -> {argument types: unit's record}
         self.fits = {}                      # (kernel, types as called) -> _Unit
         self.units = {}
-        self.direct = _direct_works()       # units may read arrays for themselves
+        # units may read arrays for themselves (and tuples, where this Python
+        # keeps their items where the image's did)
+        self.direct = _direct_works() and index.get('items_at', _tuple_items()) == _tuple_items()
 
     def _external(self, name):
         a = self.addresses.get(name)
@@ -252,11 +366,14 @@ class Image:
             raw = self._read(r['at'], r['stored'])
             if zlib.crc32(raw) != r['crc']:
                 raise ValueError('an image unit is damaged')
+            n = r.get('raw', r['stored'])
+            if n != r['stored']:
+                raw = zlib.decompress(raw)
             size, nrel = r['size'], r['nrel']
             base = _alloc(size)
             mem = (ctypes.c_char * size).from_address(base)
-            ctypes.memmove(base, raw, r['stored'] - nrel * 8)
-            rel = np.frombuffer(raw, '<i8', nrel, r['stored'] - nrel * 8)
+            ctypes.memmove(base, raw, n - nrel * 8)
+            rel = np.frombuffer(raw, '<i8', nrel, n - nrel * 8)
             for k in range(8):                  # (places are not aligned: code holds them)
                 at = rel[rel % 8 == k]
                 if at.size:
@@ -516,15 +633,43 @@ def open_image():
         _tried[0] = time.monotonic() + (AGAIN if _spawned[0] else float('inf'))
         if _off():
             return None
-        try:
-            p = os.environ.get('FASTNC_IMAGE_FILE') or current()
-            if p is None:
-                return None
-            im = Image(p)
-        except (OSError, ValueError, EOFError, TypeError, struct.error):
+        im = None
+        for way in _ways():
+            try:
+                p = way()
+                if p is not None:
+                    im = Image(p)
+                    break
+            except (OSError, ValueError, EOFError, TypeError, struct.error):
+                pass
+        if im is None:
             return None
         _jit.use_image(im)
         return im
+
+
+def _ways():
+    given = os.environ.get('FASTNC_IMAGE_FILE')
+    if given:                                       # (that one or none: a comparison of two)
+        return (lambda: given,)
+    if os.environ.get('FASTNC_IMAGE', '').strip() == 'shipped':
+        return (shipped,)                           # (as a machine with no image of its own)
+    return (current, shipped)
+
+
+def find():
+    """The image file open_image() takes first: FASTNC_IMAGE_FILE, else this
+    machine's own, else the one shipped for it; None."""
+    if _off():
+        return None
+    for way in _ways():
+        try:
+            p = way()
+        except OSError:
+            continue
+        if p is not None and os.path.exists(p):
+            return p
+    return None
 
 
 # ---------------------------------------------------------------- building
@@ -1023,12 +1168,16 @@ def _prepare():
     _jit.load()
 
 
-def build(target=None, verbose=False):
+def build(target=None, verbose=False, level=None):
     """Link what numba's cache holds for this machine into an image, and put
     it in place once it has run in a process of its own. The image's path,
-    or None."""
+    or None. With `level` (one of LEVELS, numba set to compile for it), an
+    image to ship: written to `target` itself, tried only where this machine
+    runs that level."""
     _prepare()
     objects, entries = _objects, _entries
+    if level is not None:
+        target = target or os.path.join(SHIPPED, shipped_name(level))
     target = target or path()
     if target is None:
         return None
@@ -1084,8 +1233,9 @@ def build(target=None, verbose=False):
                 for _, n, _ in ext:
                     if not _found(n):                       # (a kernel no library holds; a helper of numba's)
                         raise _Unlinkable('%s is not to be had' % n)
-                stored = code + np.array(rel, '<i8').tobytes()
-                rec = dict(at=at, stored=len(stored), size=len(code), nrel=len(rel),
+                plain = code + np.array(rel, '<i8').tobytes()
+                stored = zlib.compress(plain, 9)            # (a tenth: pages of zeros, code alike)
+                rec = dict(at=at, stored=len(stored), raw=len(plain), size=len(code), nrel=len(rel),
                            crc=zlib.crc32(stored), rodata=rodata, entry=defined['fastnc_entry'],
                            fast=defined.get('fastnc_fast'), nslots=pos, ret=ret,
                            ext=[(p, externals.setdefault(n, len(externals)), a) for p, n, a in ext])
@@ -1101,18 +1251,24 @@ def build(target=None, verbose=False):
     if not done:
         return None
     stamp = _cache_stamp()
-    tail = marshal.dumps(dict(stamp=stamp, externals=list(externals), kernels=index, left=dropped))
-    name = '%s.%08x.%d' % (target, stamp, os.getpid())
+    tail = marshal.dumps(dict(stamp=stamp, externals=list(externals), kernels=index, left=dropped,
+                              level=level, items_at=_tuple_items(), kernel_stamp=_jit.kernel_stamp(),
+                              made_by='numba %s, Python %d.%d' % (
+                                  sys.modules['numba'].__version__, *sys.version_info[:2])))
+    name = target + '.tmp' if level else '%s.%08x.%d' % (target, stamp, os.getpid())
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(name, 'wb') as f:
         f.write(HEAD.pack(MAGIC, FORMAT, zlib.crc32(tail), at + len(tail), at, len(tail)))
         for b in blobs:
             f.write(b)
         f.write(tail)
-    if not _tried_in_process(name):
+    if (level is None or level in levels()) and not _tried_in_process(name):
         os.remove(name)
         return None
-    _publish(name, target)
+    if level:
+        os.replace(name, target)
+    else:
+        _publish(name, target)
     if verbose:
         print('image: %d units (%d left out), %.1f MB: %s' % (done, dropped, at / 1e6, target))
     return target
@@ -1311,8 +1467,12 @@ def coming():
 
 def build_now():
     """An image built before this returns (in a process of its own: numba
-    hands out a kernel's object code only as it loads it)."""
+    hands out a kernel's object code only as it loads it). Not where an
+    image shipped for this machine did all the work: one built here runs no
+    faster (docs/measurements.md, round 15), and costs minutes of compiling."""
     if _off() or not _can_spawn() or not _stale():
+        return
+    if sys.modules.get('numba') is None and shipped() is not None:
         return
     import subprocess
     subprocess.run([sys.executable, '-c', 'from fastnc import _image; _image.build_once()'],
@@ -1359,6 +1519,19 @@ def _core(name):
     """What most reads need: built and published first."""
     return name.startswith(('fastnc._chunks.', 'fastnc._inflate.', 'fastnc._pinflate.', 'fastnc._maskscale.',
                             'fastnc._fused.', 'fastnc._nc3.', 'fastnc._tree.'))
+
+
+def build_shipped(level, target=None, verbose=True):
+    """The image to ship for a CPU level, every kernel compiled for it: in a
+    process where numba compiles for that level and nothing else
+    (tools/make_images.py starts it so: NUMBA_CPU_NAME, NUMBA_CPU_FEATURES,
+    and a NUMBA_CACHE_DIR of its own)."""
+    _prepare()
+    from numba.core import config
+    if config.CPU_NAME != level or config.CPU_FEATURES != level_features(level):
+        raise RuntimeError('numba compiles for %s %s here, not %s' % (config.CPU_NAME, config.CPU_FEATURES, level))
+    _compile(lambda name: True)
+    return build(target, verbose=verbose, level=level)
 
 
 def build_once():

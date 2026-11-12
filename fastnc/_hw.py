@@ -510,4 +510,4 @@ def info():
                 l2_bytes=l2_bytes(), last_cache_bytes=last_cache_bytes(),
                 threads=_pool.threads(), ram_scale=ram_scale(),
                 tuned=tuned(), tune_file=_tune_path() if _tune_file() else None,
-                kernel_image=_image.current())
+                kernel_image=_image.find(), cpu_levels=_image.levels())

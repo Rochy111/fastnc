@@ -2,7 +2,7 @@
 
 ## Installation
 
-fastnc needs Python 3.9 or newer and installs with only numpy (1.22 or
+fastnc needs Python 3.9 or newer and installs with only numpy (1.23 or
 newer, 1.x or 2.x) and numba.
 
 ```bash
@@ -72,8 +72,10 @@ xd = xr.open_dataset('MOD021KM.A2025301.1445.007.2025301204859.nc', engine='fast
 ```
 
 Each gives the same values as the reader it stands in for: the same bits,
-in the same dtype, masked where that reader masks. Switching is an import
-change, and nothing else in your code has to change.
+in the same dtype, masked where that reader masks (with one rule fastnc
+follows on purpose, a valid range in unpacked units: see
+[Accuracy](reference/accuracy.md)). Switching is an import change, and
+nothing else in your code has to change.
 
 ## Reading a whole file
 
@@ -101,7 +103,7 @@ See [Remote files](guide/remote.md).
 
 ## Next steps
 
-- [netCDF4-python's API](guide/netcdf4.md) and [h5py's API](guide/h5py.md) list what each front end supports.
+- [netCDF4-python's API](guide/netcdf4.md) and [h5py's API](guide/h5py.md) list what each front end supports, and what fastnc adds: zero-copy `memmap()`, `read_async()`, NaN-filled reads, per-read settings, `tocdl()`.
 - [xarray](guide/xarray.md) covers the backend and its `preload` option.
 - [GPU, threads and hardware](guide/hardware.md) covers reading to the GPU and choosing threads.
 - [Performance](speed.md) has the measurements.

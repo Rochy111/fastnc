@@ -131,7 +131,7 @@ def bind(kernel, args, late):
 
 
 KERNEL_FILES = ('_bitshuffle', '_blosc', '_blosc2', '_bzip2', '_chunks', '_codecs', '_fletcher32',
-                '_fused', '_hdf4_codecs', '_inflate', '_intrin', '_lz4', '_lzf', '_maskscale',
+                '_fused', '_hdf4_codecs', '_inflate', '_intrin', '_jpeg', '_lz4', '_lzf', '_maskscale',
                 '_nbit', '_nc3', '_pinflate', '_scaleoffset', '_shuffle', '_szip', '_tree', '_tune',
                 '_xarray', '_zfp', '_zstd')     # what compiled kernels can depend on
 _KERNEL_STAMP = []
@@ -243,12 +243,36 @@ def _clear_stale_cache():
         pass                                        # read-only install: numba's own checks only
 
 
+_CAN = []
+
+
+def can_load():
+    """Whether numba can be imported here: not where it is not installed (an
+    install from a wheel whose image does it all) or FASTNC_NO_NUMBA=1."""
+    if not _CAN:
+        import os
+        if _numba is not None:
+            _CAN.append(True)
+        elif os.environ.get('FASTNC_NO_NUMBA', '').strip() == '1':
+            _CAN.append(False)
+        else:
+            import importlib.util
+            try:
+                _CAN.append(importlib.util.find_spec('numba') is not None)
+            except (ImportError, ValueError):
+                _CAN.append(False)
+    return _CAN[0]
+
+
 def load():
     """numba imported, every pending kernel made, and each fastnc module's
     stand-ins replaced by them."""
     global _numba
     with _LOCK:
         if _numba is None:
+            if not can_load():
+                raise ImportError('fastnc: a kernel or argument types this machine\'s kernel image does not '
+                                  'hold need numba, which is not installed here (pip install numba)')
             _clear_stale_cache()
             import numba
             _locate_by_kernels()

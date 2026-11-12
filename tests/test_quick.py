@@ -253,6 +253,62 @@ def test_series_kept_give_what_they_gave(series, name):
     assert not _hold._held                                          # (let go with the file)
 
 
+def test_one_big_chunk_kept_for_windows(tmp_path, monkeypatch):
+    """An image in one compressed chunk too big for the cache of chunks (as
+    GridSat's 20-40 MB ones are; here the cache made small): windows, rows and
+    points read from it again are copies out of the kept region, not a decode
+    of the whole chunk each time."""
+    from fastnc import _hold
+    monkeypatch.setattr(_chunks, 'CACHE_BYTES', 1 << 20)          # (scaled: 1 MB at least)
+    p = str(tmp_path / 'one.h5')
+    a = np.random.default_rng(3).integers(-300, 3000, (1, 900, 1100), dtype='i2')
+    with h5py.File(p, 'w') as h:
+        h.create_dataset('img', data=a, chunks=a.shape, compression='gzip', shuffle=True)
+        h.create_dataset('small', data=a[:, :300, :300], chunks=(1, 300, 300), compression='gzip')
+        h.create_dataset('four', data=a, chunks=(1, 450, 550), compression='gzip', shuffle=True)
+    calls = []
+    real = _chunks.read_batch
+    monkeypatch.setattr(_chunks, 'read_batch', lambda *x, **k: calls.append(1) or real(*x, **k))
+    with fastnc.File(p) as f:
+        x = f['img']
+        keys = [(0, slice(400, 656), slice(500, 756)), (0, 450, slice(None)), (0, 451, 777),
+                (0, slice(410, 600, 3), slice(520, 700, 2))]
+        for k in keys * 3:
+            assert x[k].tobytes() == a[k].tobytes(), k
+        assert x._reader.index in _hold._held
+        assert len(calls) <= 4                                      # (not one decode a read)
+        f['small'][0, 5:9, 5:9]                                     # (fits the cache: not held)
+        assert f['small']._reader.index not in _hold._held
+        y = f['four']                       # (each chunk fits the cache, the four together not)
+        k = (0, slice(300, 600), slice(400, 700))
+        for _ in range(3):
+            assert y[k].tobytes() == a[k].tobytes()
+        assert y._reader.index in _hold._held
+    assert not _hold._held
+
+
+def test_most_of_many_small_chunks_kept(tmp_path):
+    """A window that is most of more chunks than the cache of chunks takes
+    (TRMM's: 512 rows of 32-row chunks, every column), read again, comes out
+    of a kept region; all of a dataset read again is decoded, as before."""
+    from fastnc import _hold
+    p = str(tmp_path / 'swath.h5')
+    a = np.random.default_rng(6).normal(size=(2000, 261)).astype('f4')
+    with h5py.File(p, 'w') as h:
+        h.create_dataset('lat', data=a, chunks=(32, 261), compression='gzip')
+    with fastnc.File(p) as f:
+        x = f['lat']
+        k = (slice(744, 1256), slice(None))
+        for _ in range(3):
+            assert x[k].tobytes() == a[k].tobytes()
+        assert x._reader.index in _hold._held
+    with fastnc.File(p) as f:
+        x = f['lat']
+        for _ in range(3):
+            assert x[()].tobytes() == a.tobytes()
+        assert x._reader.index not in _hold._held
+
+
 def test_series_masked_as_netcdf4(tmp_path):
     netCDF4 = pytest.importorskip('netCDF4')
     p = str(tmp_path / 'm.nc')

@@ -57,6 +57,15 @@ def _attr_value(a, f):
     return v
 
 
+def _is_nc_string(a):
+    """Whether netCDF-C takes a text attribute for NC_STRING (variable-length
+    strings, or fixed-length ones with a dimension) rather than NC_CHAR."""
+    t = a.dtype
+    if t.cls == _hdf5.Datatype.VLEN and t.vlen_string:
+        return True
+    return t.cls == _hdf5.Datatype.STRING and a.shape is not None and len(a.shape) > 0
+
+
 def nc_dtype(t):
     """The numpy dtype netCDF4-python gives an HDF5 type: compounds rebuilt
     from their members' netCDF types with align=True (fixed strings inside
@@ -81,15 +90,44 @@ def nc_dtype(t):
     return _h5read.native(t.dtype)
 
 
-def _shown(t):
-    """Whether netCDF4 shows a dataset of this type: not references or opaque
-    bytes, nor compounds of those or of variable-length values."""
+_ANONYMOUS = {_hdf5.Datatype.COMPOUND: 'Compound', _hdf5.Datatype.ENUM: 'Enum', _hdf5.Datatype.VLEN: 'Vlen'}
+
+
+def _type_key(t):
+    """What tells user types apart once native, as H5Tequal on
+    H5Tget_native_type's (byte order aside)."""
+    if t.cls == _hdf5.Datatype.ENUM:
+        return 'enum', _h5read.native(t.base.dtype).str, tuple(sorted(dict(t.enum).items()))
+    if t.cls == _hdf5.Datatype.VLEN:
+        return 'vlen', _type_key(t.base) if t.base.cls in _ANONYMOUS else str(
+            _h5read.native(t.base.dtype) if t.base.dtype is not None else None)
+    if t.cls == _hdf5.Datatype.COMPOUND:
+        return 'compound', str(nc_dtype(t))
+    return 'atomic', str(_h5read.native(t.dtype) if t.dtype is not None else t.cls)
+
+
+def _shown(t, named=()):
+    """Whether netCDF-c shows a dataset of this type: not references, opaque
+    bytes or HDF5 array types, nor compounds of references, opaque bytes or
+    variable-length values, nor of compounds or enums it has no named type
+    equal to (named: the _type_key of the file's committed types). h5py's
+    bool, an anonymous enum, inside a compound hides it so."""
+    if t.cls in (_hdf5.Datatype.REFERENCE, _hdf5.Datatype.OPAQUE, _hdf5.Datatype.ARRAY):
+        return False
+    if t.cls == _hdf5.Datatype.COMPOUND:
+        return all(_member_shown(m[2], named) and not m[2].holds_vlen() for m in t.members)
+    return True
+
+
+def _member_shown(t, named):
     if t.cls in (_hdf5.Datatype.REFERENCE, _hdf5.Datatype.OPAQUE):
         return False
     if t.cls == _hdf5.Datatype.ARRAY:
-        return _shown(t.base)
-    if t.cls == _hdf5.Datatype.COMPOUND:
-        return all(_shown(m[2]) and not m[2].holds_vlen() for m in t.members)
+        return _member_shown(t.base, named)
+    if t.cls in (_hdf5.Datatype.COMPOUND, _hdf5.Datatype.ENUM):
+        if _type_key(t) not in named:
+            return False
+        return t.cls == _hdf5.Datatype.ENUM or all(_member_shown(m[2], named) for m in t.members)
     return True
 
 
@@ -132,6 +170,13 @@ class Attrs(Mapping):
         if v is _ABSENT:
             raise KeyError(name)
         return v
+
+    def is_nc_string(self, name):
+        """Whether netCDF-C takes this text attribute for an NC_STRING (a
+        string of variable length, or fixed-length ones with a dimension)
+        rather than NC_CHAR: getncattr gives a str for either; ncdump tells."""
+        r = self.f.find_attribute(self.h, name)
+        return r is not None and _is_nc_string(self.f._attribute(*r))
 
     def __contains__(self, name):
         return self.get(name, _ABSENT) is not _ABSENT
@@ -307,9 +352,21 @@ class Variable:
             return _h5read.native(t.base.dtype) if t.base.dtype is not None else object
         return nc_dtype(t)
 
+    def _named_type(self):
+        """The name of this variable's committed datatype (or of one encoded
+        alike), else None."""
+        t = self.ds.type
+        names = self.group.nc.type_names
+        name = names.get(t.committed) if t.committed is not None else None
+        if name is None:
+            m = self.ds.header.first(3)
+            name = names.get(bytes(self.ds.file.b[m[2]:m[2] + m[3]]))
+        return name
+
     def user_type(self):
         """A CompoundType / EnumType / VLType for user-defined types (named by
-        the committed datatype, as netCDF-c), else None."""
+        the committed datatype, as netCDF-c, or as netCDF-c names a type
+        without one: NC4File.anonymous), else None."""
         from ._dataset import CompoundType, EnumType, VLType
         t = self.ds.type
         if t.cls not in (_hdf5.Datatype.COMPOUND, _hdf5.Datatype.ENUM, _hdf5.Datatype.VLEN,
@@ -317,11 +374,9 @@ class Variable:
             return None
         if (t.cls == _hdf5.Datatype.VLEN and t.vlen_string) or (t.cls == _hdf5.Datatype.STRING and t.size > 1):
             return VLType(None, str)                # NC_STRING (netCDF4-python's VLType of str)
-        names = self.group.nc.type_names
-        name = names.get(t.committed) if t.committed is not None else None
-        if name is None:
-            m = self.ds.header.first(3)
-            name = names.get(bytes(self.ds.file.b[m[2]:m[2] + m[3]]))
+        name = self._named_type()
+        if name is None:                            # (no committed type: netCDF-c names one)
+            name = self.group.nc.anonymous()[0].get(self._address)
         if t.cls == _hdf5.Datatype.COMPOUND:
             return CompoundType(name, nc_dtype(t))
         if t.cls == _hdf5.Datatype.ENUM:
@@ -394,11 +449,16 @@ class Variable:
         if t.cls == _hdf5.Datatype.COMPOUND:
             raw = self._reader.read(key, threads=threads)
             dt = nc_dtype(t)
-            res = np.zeros(raw.shape, dt)
             odd = {m[0]: m[2] for m in t.members if m[2].cls == _hdf5.Datatype.FIXED and m[2].dtype is None and m[2].size < 8}
-            for name in dt.names:
-                # strings cut to their first byte, as netCDF-c
-                res[name] = raw[name] if name not in odd else _h5read.odd_int(raw[name], odd[name])
+            rd = raw.dtype
+            if (not odd and rd.names == dt.names and rd.itemsize == dt.itemsize
+                    and all(rd.fields[n][:2] == dt.fields[n][:2] for n in dt.names)):
+                res = raw.view(dt)                  # (laid out as netCDF-c's already: as read)
+            else:
+                res = np.zeros(raw.shape, dt)
+                for name in dt.names:
+                    # strings cut to their first byte, as netCDF-c
+                    res[name] = raw[name] if name not in odd else _h5read.odd_int(raw[name], odd[name])
             if res.ndim == 0 and self.ds.shape:
                 res = res[()]                       # (one element; of a scalar variable, an array)
             if out is not None:
@@ -496,6 +556,12 @@ class Group:
         self.nc.scan()
         return self._types
 
+    @property
+    def all_types(self):
+        """[(name, datatype)] of every user type netCDF-c puts in this group,
+        committed or not (NC4File.anonymous), in its order."""
+        return list(self.nc.anonymous()[1].get(id(self), ()))
+
     def peek(self, name):
         """The variable called `name` without reading any other: its link and
         object header alone. KeyError if there is no such variable, None
@@ -529,16 +595,23 @@ class Group:
         # it cannot see into, so those are asked for by name)
         if f.may_have_attribute(h, b'CLASS\0') and f.find_attribute(h, 'CLASS') is not None:
             return None
+        m = h.first(3)
+        if m is not None and (m[1] & 2 or f.b[m[2]] & 15 in (5, 6, 7, 10)):
+            return None                             # (whether netCDF-c shows it: the scan says, see _shown)
         return self._peeked.setdefault(name, Variable(self, name, lname, target, h))
 
     @property
     def attrs(self):
         if self._attrs is None:
             out = {}
+            strings = set()
             for k, a in self.h5.attributes().items():
                 if k in HIDDEN:
                     continue
                 out[k] = _attr_value(a, self.nc.f)
+                if _is_nc_string(a):
+                    strings.add(k)
+            self._strings = strings
             self._attrs = out
         return self._attrs
 
@@ -552,6 +625,7 @@ class NC4File:
         self.next_dimid = 0
         self.by_scale = {}                          # dimension scale object address -> Dim
         self._type_names = {}                       # committed datatype address -> name
+        self._named_keys = set()                    # their _type_key, as found (see _shown)
         # (one lookup, not every root attribute parsed: WRF's root has 150)
         root = f.object_header(f.root.address)
         self.data_model = 'NETCDF4_CLASSIC' if f.find_attribute(root, '_nc3_strict') is not None             else 'NETCDF4'
@@ -570,6 +644,52 @@ class NC4File:
     def type_names(self):
         self.scan()
         return self._type_names
+
+    def anonymous(self):
+        """({dataset address: name}, {id of a group: [(name, datatype)]}):
+        the names netCDF-c gives user types that datasets hold without a
+        committed datatype (h5py's complex numbers, structured arrays, enums,
+        vlens): _AnonymousCompound1, _AnonymousEnum2, ..., one count over the
+        file in the order netCDF-c reads it (a group's links, then its
+        groups), one name per type as H5Tequal finds them on native types
+        (big- and little-endian alike, and a committed type read before
+        names its equals); and each group's types in that order."""
+        got = self.__dict__.get('_anon')
+        if got is None:
+            with self._lock:
+                got = self.__dict__.get('_anon')
+                if got is None:
+                    self.scan()
+                    got = {}, {}
+                    self._walk_types(self.root, got[0], got[1], {}, [0])
+                    self._anon = got
+        return got
+
+    def _walk_types(self, g, names, order, seen, count):
+        here = order.setdefault(id(g), [])
+        by_link = {v._lname: v for v in g._vars.values()}
+        for lname in g.h5.links:
+            t = g._types.get(lname)
+            if t is not None:
+                seen.setdefault(_type_key(t), lname)
+                here.append((lname, t))
+                continue
+            v = by_link.get(lname)
+            if v is None:
+                continue
+            t = v.ds.type
+            word = _ANONYMOUS.get(t.cls)
+            if word is None or (t.cls == _hdf5.Datatype.VLEN and t.vlen_string) or v._named_type() is not None:
+                continue
+            k = _type_key(t)
+            n = seen.get(k)
+            if n is None:
+                count[0] += 1
+                n = seen[k] = '_Anonymous%s%d' % (word, count[0])
+                here.append((n, t))
+            names[v._address] = n
+        for sub in g._groups.values():
+            self._walk_types(sub, names, order, seen, count)
 
     def has_scale(self, v):
         """Whether v may itself be a dimension scale (its first axis then is
@@ -645,6 +765,7 @@ class NC4File:
             if h.first(8) is None:
                 if h.first(3) is not None:
                     g._types[lname] = f.message_datatype(h.first(3))
+                    self._named_keys.add(_type_key(g._types[lname]))
                     self._type_names[target] = lname
                     m = h.first(3)                    # and by encoding: datasets carry a copy
                     self._type_names.setdefault(bytes(f.b[m[2]:m[2] + m[3]]), lname)
@@ -679,7 +800,7 @@ class NC4File:
         for lname, target, h, ds in pending:
             m = h.first(3)
             if m is None or m[1] & 2 or f.b[m[2]] & 15 in (5, 6, 7, 10):    # (only those can be hidden)
-                if m is not None and not _shown(f.message_datatype(m)):
+                if m is not None and not _shown(f.message_datatype(m), self._named_keys):
                     continue
             vname = lname[len(NON_COORD):] if lname.startswith(NON_COORD) else lname
             v = g._peeked.get(vname)

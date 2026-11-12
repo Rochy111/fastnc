@@ -297,6 +297,142 @@ def test_blosc2_chunk_forms():
     assert _b2decode(ch, nb) == (nb, x.tobytes())
 
 
+DICT_VL = os.path.join(CODECS, 'blosc2_dict_vl.npz')
+
+
+def _dict_vl():
+    """(key, chunk or frame, decoded size, SHA-1) of tests/data/codecs/blosc2_dict_vl.npz
+    (tools/check/blosc2_dict_make.py: what c-blosc2 decodes each into)."""
+    z = np.load(DICT_VL)
+    for k in sorted({k.rsplit('.', 1)[0] for k in z.files}):
+        yield k, z[k + '.c'], int(z[k + '.n']), str(z[k + '.sha1'])
+
+
+class _Chunk:
+    """A blosc2 chunk decoded on its own, as _run wants a codec module."""
+
+    @staticmethod
+    def decode(src, p, pend, dst, o, oend, cd, ws):
+        from fastnc import _blosc
+        return _blosc.chunk(src, p, pend, dst, o, oend, ws, _blosc.W_BLK)
+
+    @staticmethod
+    def workspace_size(n):
+        from fastnc import _blosc
+        return _blosc.workspace_size(n)
+
+
+def test_blosc2_dictionaries_and_vl_blocks():
+    """Chunks compressed with a dictionary (zstd, lz4, lz4hc; every filter),
+    chunks of variable-length blocks (every codec, with a dictionary or
+    not), and blosc2 frames holding them, as c-blosc2 decodes them; then
+    damaged (an error or some output, nothing touched outside)."""
+    from fastnc import _blosc2
+    rng = np.random.default_rng(11)
+    seen = {'dict': 0, 'vl': 0, 'frame': 0}
+    for k, c, n, sha in _dict_vl():
+        m = _blosc2 if k.endswith('_frame') else _Chunk
+        cd = np.array([0, n, 0], np.int64)
+        r, out = _run(m, c, 0, c.size, cd, n, n, rng)
+        assert r == 16 + n and hashlib.sha1(out).hexdigest() == sha, k
+        if m is _Chunk:
+            seen['dict'] += bool(c[31] & 1)
+            seen['vl'] += bool(c[30] & 1)
+        else:
+            seen['frame'] += 1
+        for cut in (16, 31, 40, c.size // 2, c.size - 1):
+            _run(m, c, 0, cut, cd, n, n, rng)
+        for _ in range(6):
+            bad = c.copy()
+            i = int(rng.integers(0, min(c.size, 200)))
+            bad[i] = rng.integers(0, 256)
+            _run(m, bad, 0, c.size, cd, n, n, rng)
+        _run(m, c, 0, c.size, cd, n, n // 2, rng)
+    assert seen['dict'] >= 40 and seen['vl'] >= 6 and seen['frame'] >= 6, seen
+
+
+def test_zstd_dictionary_of_another_id():
+    """A frame made with one dictionary refused with another (as zstd: the
+    frame names its dictionary's ID), and with none."""
+    from fastnc import _blosc, _zstd
+    for k, c, n, sha in _dict_vl():
+        if not k.startswith('dict_ZSTD') or k.endswith('_frame') or not c[31] & 1:
+            continue
+        ws = np.zeros(_blosc.workspace_size(n), np.uint8)
+        dst = np.zeros(n, np.uint8)
+        assert _blosc.chunk(c, 0, c.size, dst, 0, n, ws, _blosc.W_BLK) == n
+        flt = ws[_blosc.W_INT:_blosc.W_INT + 2048].view(np.int64)
+        dp, dsz = int(flt[_blosc.I_DICT]), int(flt[_blosc.I_DSZ])
+        assert int(c[dp]) | int(c[dp + 1]) << 8 | int(c[dp + 2]) << 16 | int(c[dp + 3]) << 24 == 0xEC30A437
+        other = c[dp:dp + dsz].copy()
+        other[4] ^= 1                                   # (its ID changed)
+        first = int(np.frombuffer(c[32:36].tobytes(), '<i4')[0])     # (the first block's start)
+        q = first + 4                                   # its first stream
+        size = int(np.frombuffer(c[first:first + 4].tobytes(), '<i4')[0])
+        zws = np.zeros(_zstd.WS_SIZE, np.uint8)
+        out = np.zeros(1 << 20, np.uint8)
+        if size <= 0 or size >= n:
+            continue
+        assert _zstd.zstd_frames(c, q, q + size, out, 0, out.size, zws, other, 0, dsz, 0) < 0
+        assert _zstd.zstd_decompress(c, q, q + size, out, 0, out.size, zws) < 0
+        return
+    pytest.fail('no zstd chunk with a dictionary')
+
+
+def test_jpeg_filter_file():
+    """tests/data/codecs/jpeg.h5 (tools/check/jpeg_make.py): every chunk as
+    libjpeg decodes it, grey and RGB, 4:4:4 / 4:2:2 / 4:2:0, qualities 10 to
+    100, restart markers, optimized tables, edge chunks."""
+    import fastnc
+    with open(os.path.join(CODECS, 'jpeg_expected.json')) as fh:
+        expected = json.load(fh)
+    with fastnc.File(os.path.join(CODECS, 'jpeg.h5')) as f:
+        for name, chunks in expected.items():
+            ds = f[name]
+            a = ds[()]
+            for key, (n, sha) in chunks.items():
+                off = tuple(int(x) for x in key.split(','))
+                got = np.ascontiguousarray(a[tuple(slice(o, o + c) for o, c in zip(off, ds.chunks))])
+                assert got.nbytes == n and hashlib.sha1(got.tobytes()).hexdigest() == sha, (name, key)
+            assert np.array_equal(ds[3:20, 5:9], a[3:20, 5:9]), name     # (a window, as the whole)
+
+
+def test_jpeg_against_libjpeg():
+    """Images of many sizes (1 x 1 to odd, not whole MCUs) as Pillow's
+    libjpeg decodes them, then damaged: an error or some output, nothing
+    touched outside."""
+    PIL = pytest.importorskip('PIL.Image')
+    import io
+    from fastnc import _jpeg
+    rng = np.random.default_rng(5)
+    cases = 0
+    for (w, h) in ((1, 1), (2, 3), (7, 5), (16, 16), (17, 33), (100, 3), (3, 40), (129, 65)):
+        yy, xx = np.mgrid[0:h, 0:w]
+        rgb = np.stack([xx * 255 // max(w - 1, 1), yy * 255 // max(h - 1, 1), (xx * yy) % 256], -1)
+        rgb = np.clip(rgb + rng.integers(-30, 31, rgb.shape), 0, 255).astype(np.uint8)
+        for mode in ('L', 'RGB'):
+            im = PIL.fromarray(rgb[..., 0].copy() if mode == 'L' else rgb, mode)
+            for kw in ({'quality': 75}, {'quality': 5}, {'quality': 95, 'subsampling': 0},
+                       {'quality': 60, 'subsampling': 1}, {'quality': 50, 'optimize': True}):
+                b = io.BytesIO()
+                im.save(b, 'JPEG', **kw)
+                data = np.frombuffer(b.getvalue(), np.uint8)
+                want = np.asarray(PIL.open(io.BytesIO(b.getvalue())).convert(mode)).tobytes()
+                n = len(want)
+                r, out = _run(_jpeg, data, 0, data.size, None, n, n, rng)
+                assert r == 16 + n and out == want, (w, h, mode, kw)
+                cases += 1
+                if cases % 4 == 0:
+                    for cut in (2, 20, data.size // 2, data.size - 2):
+                        _run(_jpeg, data, 0, cut, None, n, n, rng)
+                    for _ in range(4):
+                        bad = data.copy()
+                        bad[int(rng.integers(0, data.size))] = rng.integers(0, 256)
+                        _run(_jpeg, bad, 0, data.size, None, n, n, rng)
+                    _run(_jpeg, data, 0, data.size, None, n, n - 1, rng)
+    assert cases == 80
+
+
 def test_unshuffle():
     """blosc's byte unshuffle against numpy, with leftover bytes."""
     from fastnc import _blosc

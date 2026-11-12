@@ -1,0 +1,147 @@
+netcdf nc4 {
+types:
+  compound pos_t {
+    float lat ;
+    float lon ;
+    short n ;
+  }; // pos_t
+  ubyte enum sky_t {clear = 0, cloudy = 1, missing = 255} ;
+  int(*) ragged_t ;
+dimensions:
+	time = UNLIMITED ; // (5 currently)
+	y = 13 ;
+	x = 17 ;
+	nchar = 6 ;
+variables:
+	double time(time) ;
+		time:units = "hours since 2026-01-01" ;
+	float temp(time, y, x) ;
+		temp:_FillValue = -999.f ;
+		temp:units = "K" ;
+		temp:scale_note = "plain" ;
+	short packed(time, y, x) ;
+		packed:_FillValue = -32767s ;
+		packed:scale_factor = 0.01f ;
+		packed:add_offset = 100.f ;
+		packed:valid_min = -30000s ;
+		packed:valid_max = 30000s ;
+	byte ubyte_as_signed(y, x) ;
+		ubyte_as_signed:_Unsigned = "true" ;
+		ubyte_as_signed:missing_value = -1b ;
+	double missing(y, x) ;
+		missing:missing_value = 1.e+20, -1.e+20 ;
+		missing:valid_range = -500., 500. ;
+	char names(y, nchar) ;
+	int rec_int(time) ;
+	float scalar ;
+	uint64 u64(x) ;
+	string strings(y) ;
+	pos_t pos(y) ;
+	sky_t sky(x) ;
+		sky_t sky:_FillValue = missing ;
+	ragged_t ragged(y) ;
+	float quantized(y, x) ;
+		quantized:_QuantizeBitGroomNumberOfSignificantDigits = 3 ;
+	float no_fill(y, x) ;
+	float zstd(y, x) ;
+
+// global attributes:
+		:title = "fastnc test file" ;
+		:history = "made by tools/make_corpus.py" ;
+		:version = 3 ;
+		:ratio = 0.25 ;
+		:global_00 = 0LL ;
+		:global_01 = 1LL ;
+		:global_02 = 2LL ;
+		:global_03 = 3LL ;
+		:global_04 = 4LL ;
+		:global_05 = 5LL ;
+		:global_06 = 6LL ;
+		:global_07 = 7LL ;
+		:global_08 = 8LL ;
+		:global_09 = 9LL ;
+		:global_10 = 10LL ;
+		:global_11 = 11LL ;
+		:global_12 = 12LL ;
+		:global_13 = 13LL ;
+		:global_14 = 14LL ;
+		:global_15 = 15LL ;
+		:global_16 = 16LL ;
+		:global_17 = 17LL ;
+		:global_18 = 18LL ;
+		:global_19 = 19LL ;
+		:global_20 = 20LL ;
+		:global_21 = 21LL ;
+		:global_22 = 22LL ;
+		:global_23 = 23LL ;
+		:global_24 = 24LL ;
+		:global_25 = 25LL ;
+		:global_26 = 26LL ;
+		:global_27 = 27LL ;
+		:global_28 = 28LL ;
+		:global_29 = 29LL ;
+
+group: sub {
+  dimensions:
+  	z = 4 ;
+  variables:
+  	double deep(z, x) ;
+
+  // group attributes:
+  		:note = "in a group" ;
+  } // group sub
+
+group: many_vars {
+  dimensions:
+  	n = 3 ;
+  variables:
+  	short v00(n) ;
+  	short v01(n) ;
+  	short v02(n) ;
+  	short v03(n) ;
+  	short v04(n) ;
+  	short v05(n) ;
+  	short v06(n) ;
+  	short v07(n) ;
+  	short v08(n) ;
+  	short v09(n) ;
+  	short v10(n) ;
+  	short v11(n) ;
+  	short v12(n) ;
+  	short v13(n) ;
+  	short v14(n) ;
+  	short v15(n) ;
+  	short v16(n) ;
+  	short v17(n) ;
+  	short v18(n) ;
+  	short v19(n) ;
+  	short v20(n) ;
+  	short v21(n) ;
+  	short v22(n) ;
+  	short v23(n) ;
+  	short v24(n) ;
+  	short v25(n) ;
+  	short v26(n) ;
+  	short v27(n) ;
+  	short v28(n) ;
+  	short v29(n) ;
+  	short v30(n) ;
+  	short v31(n) ;
+  	short v32(n) ;
+  	short v33(n) ;
+  	short v34(n) ;
+  	short v35(n) ;
+  	short v36(n) ;
+  	short v37(n) ;
+  	short v38(n) ;
+  	short v39(n) ;
+  } // group many_vars
+
+group: two_unlimited {
+  dimensions:
+  	a = UNLIMITED ; // (9 currently)
+  	b = UNLIMITED ; // (11 currently)
+  variables:
+  	float ab(a, b) ;
+  } // group two_unlimited
+}
